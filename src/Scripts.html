@@ -271,11 +271,7 @@ function renderizarTabelaServidores(listaFiltrada) {
           <button class="btn-action" data-action="editar-servidor" data-mat="${escapeHtml(s.matricula)}" title="Editar Cadastro">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
-          ${s.status !== 'Inativo' ? `
-            <button class="btn-action btn-delete" data-action="desativar-servidor" data-mat="${escapeHtml(s.matricula)}" data-nome="${escapeHtml(s.nome)}" title="Desativar Servidor">
-              <span data-lucide="trash-2" style="width: 14px; height: 14px;"></span>
-            </button>
-          ` : ''}
+          ${s.status !== 'Inativo' ? `<button class="btn-action btn-delete" data-action="desativar-servidor" data-mat="${escapeHtml(s.matricula)}" data-nome="${escapeHtml(s.nome)}" title="Desativar Servidor"><span data-lucide="trash-2" style="width: 14px; height: 14px;"></span></button>` : ''}
         </div>
       </td>
     </tr>`;
@@ -666,11 +662,7 @@ function renderizarTabelaLancamentos(listaFiltrada) {
       <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>
       <td>
         <div class="action-buttons">
-          ${possuiAnexos ? `
-            <button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos">
-              <span data-lucide="paperclip" style="width: 14px; height: 14px;"></span>
-            </button>
-          ` : ''}
+          ${possuiAnexos ? `<button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos"><span data-lucide="paperclip" style="width: 14px; height: 14px;"></span></button>` : ''}
           <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Lançamento">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
