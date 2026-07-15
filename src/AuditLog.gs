@@ -4,17 +4,18 @@
  */
 
 /**
- * Registra um evento de auditoria na aba 'Logs' da planilha.
- * 
- * @param {string} acao O tipo de ação (CRIAR, EDITAR, EXCLUIR, LOGIN, etc.)
- * @param {string} modulo O nome do módulo (Servidores, Lançamentos, Protocolos, etc.)
- * @param {string} descricao Texto explicativo resumindo a ação
- * @param {string} campoAlterado Opcional. O nome do campo que foi modificado (se aplicável)
- * @param {string} valorAntes Opcional. O valor original antes da alteração
- * @param {string} valorDepois Opcional. O novo valor após a alteração
- * @param {string} idRegistro Opcional. O ID da linha/registro associado na planilha
+ * Registra um evento de auditoria na aba 'Logs' da planilha com controle de concorrência.
  */
 function lancarLog(acao, modulo, descricao, campoAlterado, valorAntes, valorDepois, idRegistro) {
+  const lock = LockService.getScriptLock();
+  try {
+    // Tenta obter o bloqueio por até 10 segundos para concorrência
+    lock.waitLock(10000);
+  } catch (e) {
+    Logger.log("Erro de concorrência ao adquirir ScriptLock para registrar Log: " + e.toString());
+    return; // Evita travar o fluxo principal se a escrita de logs falhar por travamento
+  }
+  
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const abaLogs = ss.getSheetByName("Logs");
@@ -32,7 +33,6 @@ function lancarLog(acao, modulo, descricao, campoAlterado, valorAntes, valorDepo
         usuarioEmail = email.toLowerCase().trim();
       }
     } catch(e) {
-      // Ignora erro se executado fora do contexto de usuário ativo (ex: gatilho de tempo)
       usuarioEmail = "Gatilho Automático";
     }
     
@@ -51,20 +51,22 @@ function lancarLog(acao, modulo, descricao, campoAlterado, valorAntes, valorDepo
     
     // Evita recursão infinita se o log gerado for o da própria rotação
     if (acao.toUpperCase() !== "ROTACAO_LOGS") {
-      verificarERotacionarLogs(ss, abaLogs);
+      verificarERotacionarLogs_(ss, abaLogs);
     }
     
   } catch (erro) {
-    // Evita travar a operação principal do usuário por falha ao escrever o log
     Logger.log("Erro grave ao salvar Log de Auditoria: " + erro.toString());
+  } finally {
+    lock.releaseLock();
   }
 }
 
 /**
- * Verifica se a quantidade de logs ultrapassou o limite e exporta os antigos para o Drive
+ * Verifica se a quantidade de logs ultrapassou o limite e exporta os antigos para o Drive.
+ * Esta função é privada (termina com "_").
  */
-function verificarERotacionarLogs(ss, abaLogs) {
-  const LIMITE_LINHAS = 5000; // Define limite resiliente antes de rotacionar
+function verificarERotacionarLogs_(ss, abaLogs) {
+  const LIMITE_LINHAS = 5000;
   const lastRow = abaLogs.getLastRow();
   
   if (lastRow < LIMITE_LINHAS) {
@@ -99,27 +101,29 @@ function verificarERotacionarLogs(ss, abaLogs) {
       pasta = DriveApp.createFolder(nomePasta);
     }
     
-    // Cria o arquivo CSV
+    // Cria o arquivo CSV privado (sem compartilhamento público Everyone com link)
     const dataHoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd_HH-mm-ss");
     const nomeArquivo = "Historico_Logs_SETUR_" + dataHoje + ".csv";
     const arquivo = pasta.createFile(nomeArquivo, csvConteudo, MimeType.CSV);
     
-    // Compartilha permissão para leitura com link de forma interna
-    arquivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    
-    // Limpa todas as linhas de logs da tabela mantendo apenas a linha de cabeçalho
-    abaLogs.deleteRows(2, lastRow - 1);
-    
-    // Registra o evento de rotação indicando o link do arquivo gerado
-    lancarLog(
-      "ROTACAO_LOGS", 
-      "Logs", 
-      "Logs de auditoria antigos rotacionados com sucesso para o Drive: " + nomeArquivo + " (Link: " + arquivo.getUrl() + ")",
-      "Limpeza de Linhas", 
-      "Registros antigos: " + (lastRow - 1), 
-      "Registros atuais: 0", 
-      arquivo.getId()
-    );
+    // Confirmação de segurança: apenas limpa a planilha se o arquivo foi criado com sucesso no Drive
+    if (arquivo && arquivo.getId()) {
+      // Limpa os valores das células antigas rapidamente sem deletar as linhas físicas (mantém cabeçalhos)
+      range.clearContent();
+      
+      // Registra o evento de rotação indicando o ID do arquivo gerado
+      lancarLog(
+        "ROTACAO_LOGS", 
+        "Logs", 
+        "Logs de auditoria antigos rotacionados com sucesso para o Drive: " + nomeArquivo,
+        "Limpeza de Linhas", 
+        "Registros antigos: " + (lastRow - 1), 
+        "Registros atuais: 0", 
+        arquivo.getId()
+      );
+    } else {
+      throw new Error("Gravação no Drive não retornou um identificador de arquivo válido.");
+    }
     
   } catch (erroRotacao) {
     Logger.log("Erro ao processar rotação de logs: " + erroRotacao.toString());

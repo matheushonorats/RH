@@ -14,20 +14,21 @@ function obterListaProtocolos() {
   if (!aba) return [];
   
   const dados = aba.getDataRange().getValues();
+  if (dados.length <= 1) return [];
+  
   let protocolos = [];
   
-  // Assume colunas: ID_Protocolo (A), Data_Geracao (B), Status (C), Link Direto (D)
   for (let i = 1; i < dados.length; i++) {
     let linha = dados[i];
     let id = String(linha[0]).trim();
     if (!id) continue;
     
     // Conta quantos lançamentos estão atrelados a este protocolo
-    const qtdDocs = contarLancamentosDoProtocolo(ss, id);
+    const qtdDocs = contarLancamentosDoProtocolo_(ss, id);
     
     protocolos.push({
       id: id,
-      dataGeracao: formatarDataProtocolo(linha[1]),
+      dataGeneracao: formatarDataProtocolo_(linha[1]),
       status: String(linha[2]).trim(),
       linkDireto: String(linha[3]).trim(),
       qtdDocumentos: qtdDocs,
@@ -37,78 +38,90 @@ function obterListaProtocolos() {
   }
   
   // Ordena pelos mais recentes
-  protocolos.sort((a, b) => b.linhaPlanilha - a.linhaPlanilha);
-  return protocolos;
+  return protocolos.reverse();
 }
 
 /**
- * Cria um novo protocolo agrupando múltiplos lançamentos
+ * Cria um novo protocolo agrupando múltiplos lançamentos (thread-safe, sequencial atômico e lote)
  * 
- * @param {Array} idsLancamentos Lista com os números de linha dos lançamentos a vincular
+ * @param {Array} linhasLancamentos Lista com os números de linha dos lançamentos a vincular
  */
-function criarProtocolo(idsLancamentos) {
+function criarProtocolo(linhasLancamentos) {
   if (!verificarSeEhOperador()) {
     throw new Error("Você não possui permissão para criar protocolos.");
   }
   
-  if (!idsLancamentos || idsLancamentos.length === 0) {
+  if (!linhasLancamentos || linhasLancamentos.length === 0) {
     throw new Error("Selecione pelo menos um lançamento para criar o protocolo.");
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const abaProt = ss.getSheetByName("Protocolos");
-  const abaLanc = ss.getSheetByName("Lançamentos");
-  
-  if (!abaProt || !abaLanc) {
-    throw new Error("Aba 'Protocolos' ou 'Lançamentos' não encontrada.");
+  const lock = LockService.getScriptLock();
+  try {
+    // Tenta obter o bloqueio por até 15 segundos para atomicidade
+    lock.waitLock(15000);
+  } catch (e) {
+    throw new Error("Sistema ocupado gerando outro protocolo. Tente novamente.");
   }
   
-  // Gera ID curto único de 8 caracteres
-  const idProtocolo = Utilities.getUuid().substring(0, 8);
-  const dataGeracao = new Date();
-  const statusInicial = "Aguardando Assinatura";
-  const emailUsuario = Session.getActiveUser().getEmail().toLowerCase().trim();
-  
-  // 1. Atualizar cada Lançamento vinculando o ID_Protocolo na linha
-  // O ID do protocolo será inserido na primeira coluna (1Doc / Protocolo) se estiver vazia ou atrelado.
-  // Wait, no fluxo original o 1Doc é o número de protocolo do DGP. O ID do protocolo físico gerado localmente fica em outra coluna ou é colocado no campo despacho/obs.
-  // Vamos ver: no screenshot "Tela Protocolo - Detalhe.png" vemos que o Lançamento atrelado possui o campo 1Doc com valor de status, e no detalhe do protocolo ele lista os lançamentos vinculados.
-  // A vinculação lógica no Sheets é feita escrevendo o ID do protocolo em uma coluna do lançamento.
-  // Vamos identificar qual coluna. No Apps Script antigo, não há referência direta, mas no setup adicionamos "ID_Protocolo" ou usamos o ID do protocolo no campo específico.
-  // Para fins de simplicidade e eficiência, vamos salvar a relação de lançamentos atrelados.
-  // O ID do protocolo físico será salvo na coluna ID_Protocolo do lançamento (que é uma nova coluna de controle ou fica em um campo específico).
-  // Vamos colocar na coluna ID_Protocolo. Deixe-me ver qual coluna de Lançamentos podemos usar. No Setup nós adicionamos controle de autoria, mas podemos gravar a vinculação de forma flexível.
-  // Vamos colocar o ID do protocolo na coluna de Observações ou usar uma busca por ID do Protocolo.
-  // Para ficar robusto, vamos adicionar o idProtocolo no campo de Observação/Despacho ou criar uma lógica que atualize os lançamentos selecionados.
-  // Vamos atualizar a aba 'Lançamentos' escrevendo o idProtocolo na primeira coluna se o 1Doc físico for o ID (ex: "Protocolo abc123").
-  // Na verdade, o 1Doc é colocado manualmente depois que o secretário assina. Enquanto não tem o 1Doc, o lançamento fica vinculado ao protocolo local pelo ID.
-  // Vamos salvar o ID_Protocolo na aba Lançamentos na coluna de despacho ou no fim da linha. 
-  // Na aba Lançamentos, vamos criar ou gravar o ID do protocolo na coluna correspondente.
-  // Espera, no setup criamos apenas controle de autoria. Vamos adicionar a gravação do idProtocolo de forma inteligente na coluna de Despacho (ex: "Protocolo: abc123") ou no fim da linha.
-  // Colocaremos no campo "Observação" o texto "[Protocolo: " + idProtocolo + "]" de forma a não perder o histórico e permitir o rastreamento textual simples e eficiente.
-  
-  idsLancamentos.forEach(linhaIdx => {
-    let linha = parseInt(linhaIdx);
-    if (linha > 1) {
-      let obsAtual = String(abaLanc.getRange(linha, COL_INDEX.OBSERVACAO + 1).getValue()).trim();
-      let novaObs = obsAtual ? obsAtual + "\n[Protocolo: " + idProtocolo + "]" : "[Protocolo: " + idProtocolo + "]";
-      abaLanc.getRange(linha, COL_INDEX.OBSERVACAO + 1).setValue(novaObs);
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const abaProt = ss.getSheetByName("Protocolos");
+    const abaLanc = ss.getSheetByName("Lançamentos");
+    
+    if (!abaProt || !abaLanc) {
+      throw new Error("Aba 'Protocolos' ou 'Lançamentos' não encontrada.");
     }
-  });
-  
-  // 2. Gravar o novo protocolo na aba de Protocolos
-  // ID_Protocolo (A), Data_Geracao (B), Status (C), Link Direto (D), Criado_Por (E)
-  abaProt.appendRow([
-    idProtocolo,
-    dataGeracao,
-    statusInicial,
-    "", // Link Direto (caso seja enviado para pasta futuramente)
-    emailUsuario
-  ]);
-  
-  lancarLog("CRIAR_PROTOCOLO", "Protocolos", "Criou protocolo local " + idProtocolo + " vinculando " + idsLancamentos.length + " lançamentos.", "", "", "", idProtocolo);
-  
-  return idProtocolo;
+    
+    // 1. Geração de ID Sequencial Atômico (SETUR-YYYY-XXXXXX)
+    const props = PropertiesService.getScriptProperties();
+    const anoAtual = new Date().getFullYear();
+    const chaveProps = "ULTIMO_NUMERO_PROTOCOLO_" + anoAtual;
+    
+    let ultimoNumero = parseInt(props.getProperty(chaveProps)) || 0;
+    let novoNumero = ultimoNumero + 1;
+    props.setProperty(chaveProps, String(novoNumero));
+    
+    // Formata o número sequencial ex: SETUR-2026-000104
+    const numeroFormatado = "000000" + novoNumero;
+    const idProtocolo = "SETUR-" + anoAtual + "-" + numeroFormatado.substring(numeroFormatado.length - 6);
+    
+    const dataGeracao = new Date();
+    const statusInicial = "Aguardando Assinatura";
+    const emailUsuario = Session.getActiveUser().getEmail().toLowerCase().trim();
+    
+    // 2. Mapeamento de colunas da aba Lançamentos
+    const dadosLanc = abaLanc.getDataRange().getValues();
+    const cabecalhoLanc = dadosLanc[0];
+    const colIdxIDProt = cabecalhoLanc.indexOf("ID_Protocolo");
+    
+    if (colIdxIDProt === -1) {
+      throw new Error("Erro de infraestrutura: Coluna 'ID_Protocolo' não encontrada na aba Lançamentos.");
+    }
+    
+    // 3. Atualizar ID_Protocolo dos lançamentos selecionados
+    // Fazemos em lote para otimizar acessos
+    linhasLancamentos.forEach(linhaIdxStr => {
+      let linha = parseInt(linhaIdxStr);
+      if (linha > 1 && linha <= abaLanc.getLastRow()) {
+        abaLanc.getRange(linha, colIdxIDProt + 1).setValue(idProtocolo);
+      }
+    });
+    
+    // 4. Gravar o novo protocolo na aba de Protocolos
+    abaProt.appendRow([
+      idProtocolo,
+      dataGeracao,
+      statusInicial,
+      "", // Link Direto
+      emailUsuario
+    ]);
+    
+    lancarLog("CRIAR_PROTOCOLO", "Protocolos", "Criou protocolo local " + idProtocolo + " vinculando " + linhasLancamentos.length + " lançamentos.", "", "", "", idProtocolo);
+    
+    return idProtocolo;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
@@ -149,23 +162,30 @@ function obterLancamentosVinculados(idProtocolo) {
   if (!abaLanc) return [];
   
   const dados = abaLanc.getDataRange().getValues();
+  if (dados.length <= 1) return [];
+  
+  const cabecalho = dados[0];
+  const idx = obterIndicesColunasLancamentos_(cabecalho);
+  
   let vinculados = [];
   
   for (let i = 1; i < dados.length; i++) {
-    let obs = String(dados[i][COL_INDEX.OBSERVACAO]).trim();
-    if (obs.includes("[Protocolo: " + idProtocolo + "]")) {
-      let nomeBruto = String(dados[i][COL_INDEX.NOME]).trim();
+    let idProtLanc = idx.idProtocolo !== -1 ? String(dados[i][idx.idProtocolo]).trim() : "";
+    
+    if (idProtLanc === String(idProtocolo).trim()) {
+      let nomeBruto = idx.nome !== -1 ? String(dados[i][idx.nome]).trim() : "";
       let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
       
       vinculados.push({
-        idoc: String(dados[i][COL_INDEX.IDOC]).trim(),
-        tipo: String(dados[i][COL_INDEX.TIPO]).trim(),
+        idoc: idx.idoc !== -1 ? String(dados[i][idx.idoc]).trim() : "",
+        tipo: idx.tipo !== -1 ? String(dados[i][idx.tipo]).trim() : "",
         nome: nomeLimpo,
-        matricula: String(dados[i][COL_INDEX.MATRICULA]).trim(),
-        dataInicio: formatarDataProtocolo(dados[i][COL_INDEX.DATA_INICIO]),
-        dias: parseInt(dados[i][COL_INDEX.DIAS]) || 0,
-        qtdHoras: String(dados[i][COL_INDEX.QTD_HORAS]).trim(),
-        observacao: obs,
+        matricula: idx.matricula !== -1 ? String(dados[i][idx.matricula]).trim() : "",
+        dataInicio: idx.dataInicio !== -1 ? formatarDataProtocolo_(dados[i][idx.dataInicio]) : "",
+        dias: idx.dias !== -1 ? parseInt(dados[i][idx.dias]) || 0 : 0,
+        qtdHoras: idx.qtdHoras !== -1 ? String(dados[i][idx.qtdHoras]).trim() : "",
+        observacao: idx.observacao !== -1 ? String(dados[i][idx.observacao]).trim() : "",
+        idProtocolo: idProtLanc,
         linhaPlanilha: i + 1
       });
     }
@@ -175,7 +195,7 @@ function obterLancamentosVinculados(idProtocolo) {
 }
 
 /**
- * Retorna os lançamentos pendentes de protocolo (que ainda não possuem marcação de protocolo nas Observações)
+ * Retorna os lançamentos pendentes de protocolo (que ainda não possuem vinculo na coluna ID_Protocolo)
  */
 function obterLancamentosPendentesProtocolo() {
   obterDadosUsuarioLogado();
@@ -184,30 +204,35 @@ function obterLancamentosPendentesProtocolo() {
   if (!abaLanc) return [];
   
   const dados = abaLanc.getDataRange().getValues();
+  if (dados.length <= 1) return [];
+  
+  const cabecalho = dados[0];
+  const idx = obterIndicesColunasLancamentos_(cabecalho);
+  
   let pendentes = [];
   
   for (let i = 1; i < dados.length; i++) {
-    let obs = String(dados[i][COL_INDEX.OBSERVACAO]).trim();
-    let tipo = String(dados[i][COL_INDEX.TIPO]).trim();
+    let idProtLanc = idx.idProtocolo !== -1 ? String(dados[i][idx.idProtocolo]).trim() : "";
+    let tipo = idx.tipo !== -1 ? String(dados[i][idx.tipo]).trim() : "";
     if (!tipo) continue;
     
-    // Ignora lançamentos que já têm marcação de protocolo
-    if (obs.includes("[Protocolo: ")) continue;
+    // Ignora lançamentos que já têm vinculo com protocolo
+    if (idProtLanc) continue;
     
     // Ignora lançamentos anulados ou não efetivados
     if (tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) continue;
     
-    let nomeBruto = String(dados[i][COL_INDEX.NOME]).trim();
+    let nomeBruto = idx.nome !== -1 ? String(dados[i][idx.nome]).trim() : "";
     let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
     
     pendentes.push({
-      idoc: String(dados[i][COL_INDEX.IDOC]).trim(),
+      idoc: idx.idoc !== -1 ? String(dados[i][idx.idoc]).trim() : "",
       tipo: tipo,
       nome: nomeLimpo,
-      matricula: String(dados[i][COL_INDEX.MATRICULA]).trim(),
-      dataInicio: formatarDataProtocolo(dados[i][COL_INDEX.DATA_INICIO]),
-      dias: parseInt(dados[i][COL_INDEX.DIAS]) || 0,
-      qtdHoras: String(dados[i][COL_INDEX.QTD_HORAS]).trim(),
+      matricula: idx.matricula !== -1 ? String(dados[i][idx.matricula]).trim() : "",
+      dataInicio: idx.dataInicio !== -1 ? formatarDataProtocolo_(dados[i][idx.dataInicio]) : "",
+      dias: idx.dias !== -1 ? parseInt(dados[i][idx.dias]) || 0 : 0,
+      qtdHoras: idx.qtdHoras !== -1 ? String(dados[i][idx.qtdHoras]).trim() : "",
       linhaPlanilha: i + 1
     });
   }
@@ -231,7 +256,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
     if (String(dadosProt[i][0]).trim() === idProtocolo) {
       protocoloInfo = {
         id: idProtocolo,
-        data: formatarDataProtocolo(dadosProt[i][1]),
+        data: formatarDataProtocolo_(dadosProt[i][1]),
         status: String(dadosProt[i][2]).trim(),
         criadoPor: dadosProt[i][4] ? String(dadosProt[i][4]).trim() : "Sistema"
       };
@@ -243,7 +268,6 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
   
   const lancamentos = obterLancamentosVinculados(idProtocolo);
   
-  // Cabeçalho da SETUR baseado no Timbrado
   let html = `
     <div style="font-family: Arial, sans-serif; color: #000; padding: 40px; line-height: 1.5; background-color: #fff; max-width: 800px; margin: 0 auto; border: 1px solid #ddd;">
       
@@ -253,7 +277,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
         <h3 style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #555; text-transform: uppercase;">Secretaria de Turismo - SETUR</h3>
         <p style="margin: 5px 0 0 0; font-size: 11px; color: #777;">Rua da Praia, s/n - Centro, São Sebastião - SP</p>
       </div>
-
+ 
       <!-- Detalhes do Protocolo -->
       <div style="margin-bottom: 30px;">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ddd; padding-bottom: 10px; margin-bottom: 15px;">
@@ -268,7 +292,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
         </div>
         <p style="font-size: 13px; color: #333; margin: 0;">Declaramos que as solicitações físicas de RH listadas abaixo estão saindo da Diretoria Executiva da SETUR para fins de assinatura e ciência do Secretário da Pasta.</p>
       </div>
-
+ 
       <!-- Tabela de Documentos -->
       <table style="width: 100%; border-collapse: collapse; margin-bottom: 40px; font-size: 13px;">
         <thead>
@@ -298,7 +322,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
   html += `
         </tbody>
       </table>
-
+ 
       <!-- Rodapé com Assinaturas -->
       <div style="margin-top: 60px; display: flex; justify-content: space-between; gap: 40px;">
         <div style="flex: 1; text-align: center;">
@@ -310,30 +334,36 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
           <span style="font-size: 12px; color: #555;">Secretaria de Turismo</span>
         </div>
       </div>
-
+ 
     </div>
   `;
   
   return html;
 }
 
-// --- AUXILIARES ---
+// --- AUXILIARES PRIVADOS ---
 
-function contarLancamentosDoProtocolo(ss, idProtocolo) {
+function contarLancamentosDoProtocolo_(ss, idProtocolo) {
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (!abaLanc) return 0;
+  
   const dados = abaLanc.getDataRange().getValues();
+  if (dados.length <= 1) return 0;
+  
+  const cabecalho = dados[0];
+  const colIdxIDProt = cabecalho.indexOf("ID_Protocolo");
+  if (colIdxIDProt === -1) return 0;
+  
   let count = 0;
   for (let i = 1; i < dados.length; i++) {
-    let obs = String(dados[i][COL_INDEX.OBSERVACAO]).trim();
-    if (obs.includes("[Protocolo: " + idProtocolo + "]")) {
+    if (String(dados[i][colIdxIDProt]).trim() === String(idProtocolo).trim()) {
       count++;
     }
   }
   return count;
 }
 
-function formatarDataProtocolo(data) {
+function formatarDataProtocolo_(data) {
   if (!data) return "";
   if (data instanceof Date) {
     if (isNaN(data.getTime())) return "";

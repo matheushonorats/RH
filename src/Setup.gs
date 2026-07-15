@@ -49,8 +49,9 @@ const CONFIG_SETUP = {
       }
     },
     "Lançamentos": {
-      "colunasNovas": ["Criado_Por", "Criado_Em", "Editado_Por", "Editado_Em"],
+      "colunasNovas": ["ID_Protocolo", "Criado_Por", "Criado_Em", "Editado_Por", "Editado_Em"],
       "valoresPadrao": {
+        "ID_Protocolo": "",
         "Criado_Por": "Sistema (Migração)",
         "Criado_Em": new Date(),
         "Editado_Por": "Sistema (Migração)",
@@ -142,10 +143,14 @@ function executarConfiguracaoInicial() {
     // 3. Alimentar os dados padrão nas tabelas novas se estiverem vazias
     popularDadosPadrao(ss);
     
-    // 4. Mostrar relatório final para o usuário
+    // 4. Criar gatilhos de tempo automáticos (idempotente)
+    let totalGatilhosCriados = criarGatilhosDiarios_();
+    
+    // 5. Mostrar relatório final para o usuário
     let mensagemCompleta = "Resultado da Inicialização do Sistema v2.0:\n\n" + 
                            "--- NOVAS ABAS DE INFRAESTRUTURA ---\n" + relatorioAbasNovas.join("\n") + "\n\n" +
                            "--- MUDANÇAS DE AUDITORIA/CONTROLE ---\n" + relatorioAbasModificadas.join("\n") + "\n\n" +
+                           `--- GATILHOS DIÁRIOS AUTOMÁTICOS ---\n✅ ${totalGatilhosCriados} gatilhos diários verificados/criados.\n\n` +
                            "Sistema configurado com sucesso e pronto para uso!";
     
     Logger.log(mensagemCompleta);
@@ -155,6 +160,38 @@ function executarConfiguracaoInicial() {
     Logger.log("Erro na execução do Setup: " + erro.toString());
     ui.alert("Erro no Setup", "Ocorreu um erro ao configurar a planilha:\n\n" + erro.toString(), ui.ButtonSet.OK);
   }
+}
+
+/**
+ * Cria os gatilhos de tempo diários de forma idempotente.
+ * Esta função termina com "_" para ser privada e não ser exposta a chamadas Web.
+ */
+function criarGatilhosDiarios_() {
+  const gatilhos = ScriptApp.getProjectTriggers();
+  let funcoesExistentes = new Set(gatilhos.map(g => g.getHandlerFunction()));
+  let count = 0;
+  
+  // 1. Gatilho de créditos automáticos (diário entre 00:00 e 01:00)
+  if (!funcoesExistentes.has("gerarCreditosAutomaticos")) {
+    ScriptApp.newTrigger("gerarCreditosAutomaticos")
+      .timeBased()
+      .everyDays(1)
+      .atHour(0)
+      .create();
+    count++;
+  }
+  
+  // 2. Gatilho de e-mails diários (diário entre 07:00 e 08:00)
+  if (!funcoesExistentes.has("verificarEEnviarEmailsDiarios")) {
+    ScriptApp.newTrigger("verificarEEnviarEmailsDiarios")
+      .timeBased()
+      .everyDays(1)
+      .atHour(7)
+      .create();
+    count++;
+  }
+  
+  return count;
 }
 
 /**

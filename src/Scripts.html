@@ -4,7 +4,6 @@
  * RH Central de Documentos v2.0
  */
 
-// Estado Global do Aplicativo
 const AppState = {
   usuarioLogado: {
     email: "",
@@ -14,6 +13,19 @@ const AppState = {
   servidores: [],
   lancamentos: []
 };
+
+/**
+ * Função utilitária global para prevenir injeções de HTML e XSS armazenado
+ */
+function escapeHtml(unsafe) {
+  if (unsafe === undefined || unsafe === null) return '';
+  return String(unsafe)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 // Executa automaticamente ao carregar a página
 window.addEventListener('DOMContentLoaded', (event) => {
@@ -245,22 +257,22 @@ function renderizarTabelaServidores(listaFiltrada) {
     }
     
     html += `<tr>
-      <td><strong>${s.nome}</strong></td>
-      <td>${s.matricula}</td>
-      <td>${s.cargo}</td>
-      <td>${s.lotacao}</td>
-      <td>${s.situacao}</td>
+      <td><strong>${escapeHtml(s.nome)}</strong></td>
+      <td>${escapeHtml(s.matricula)}</td>
+      <td>${escapeHtml(s.cargo)}</td>
+      <td>${escapeHtml(s.lotacao)}</td>
+      <td>${escapeHtml(s.situacao)}</td>
       <td><span class="badge ${badgeClass}">${badgeText}</span></td>
       <td>
         <div class="action-buttons">
-          <button class="btn-action" onclick="abrirFichaServidor('${s.matricula}')" title="Visualizar Ficha">
+          <button class="btn-action" onclick="abrirFichaServidor('${escapeHtml(s.matricula)}')" title="Visualizar Ficha">
             <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
           </button>
-          <button class="btn-action" onclick="abrirModalServidor('${s.matricula}')" title="Editar Cadastro">
+          <button class="btn-action" onclick="abrirModalServidor('${escapeHtml(s.matricula)}')" title="Editar Cadastro">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
           ${s.status !== 'Inativo' ? `
-            <button class="btn-action btn-delete" onclick="confirmarDesativacaoServidor('${s.matricula}', '${s.nome}')" title="Desativar Servidor">
+            <button class="btn-action btn-delete" onclick="confirmarDesativacaoServidor('${escapeHtml(s.matricula)}', '${escapeHtml(s.nome).replace(/'/g, "\\'")}')" title="Desativar Servidor">
               <span data-lucide="trash-2" style="width: 14px; height: 14px;"></span>
             </button>
           ` : ''}
@@ -563,11 +575,11 @@ function abrirFichaServidor(matricula) {
         let html = "";
         historico.forEach(l => {
           html += `<tr>
-            <td><strong>${l.idoc}</strong></td>
-            <td>${l.tipo}</td>
-            <td>${l.dataInicio}</td>
-            <td style="text-align: center;">${l.dias || l.qtdHoras || '-'}</td>
-            <td style="font-size: 12px; color: var(--text-secondary);">${l.observacao || '-'}</td>
+            <td><strong>${escapeHtml(l.idoc)}</strong></td>
+            <td>${escapeHtml(l.tipo)}</td>
+            <td>${escapeHtml(l.dataInicio)}</td>
+            <td style="text-align: center;">${escapeHtml(l.dias || l.qtdHoras || '-')}</td>
+            <td style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(l.observacao || '-')}</td>
           </tr>`;
         });
         tabelaHist.innerHTML = html;
@@ -634,17 +646,17 @@ function renderizarTabelaLancamentos(listaFiltrada) {
     const possuiAnexos = l.anexo1 || l.anexo2 || l.anexo3;
     
     html += `<tr>
-      <td><strong>${l.idoc}</strong></td>
-      <td>${l.dataSolicitacao}</td>
-      <td>${l.tipo}</td>
-      <td>${l.nome} (${l.matricula})</td>
-      <td>${l.dataInicio}</td>
-      <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (l.qtdHoras || '-')}</td>
-      <td><span class="badge ${badgeClass}">${l.status}</span></td>
+      <td><strong>${escapeHtml(l.idoc)}</strong></td>
+      <td>${escapeHtml(l.dataSolicitacao)}</td>
+      <td>${escapeHtml(l.tipo)}</td>
+      <td>${escapeHtml(l.nome)} (${escapeHtml(l.matricula)})</td>
+      <td>${escapeHtml(l.dataInicio)}</td>
+      <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (escapeHtml(l.qtdHoras) || '-')}</td>
+      <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>
       <td>
         <div class="action-buttons">
           ${possuiAnexos ? `
-            <button class="btn-action" onclick="visualizarAnexos('${l.anexo1}', '${l.anexo2}', '${l.anexo3}')" title="Visualizar Anexos">
+            <button class="btn-action" onclick="visualizarAnexos('${escapeHtml(l.anexo1)}', '${escapeHtml(l.anexo2)}', '${escapeHtml(l.anexo3)}')" title="Visualizar Anexos">
               <span data-lucide="paperclip" style="width: 14px; height: 14px;"></span>
             </button>
           ` : ''}
@@ -911,6 +923,8 @@ async function salvarDadosLancamento(event) {
     anexo3: ""
   };
   
+  let arquivosCriados = [];
+  
   // Realiza uploads paralelos de arquivos em Base64 se houver no formulário
   try {
     const file1 = document.getElementById('lanc-file-1').files[0];
@@ -920,17 +934,22 @@ async function salvarDadosLancamento(event) {
     if (file1) {
       let res = await uploadArquivoPromessa(file1);
       dados.anexo1 = res.url;
+      arquivosCriados.push(res.id);
     }
     if (file2) {
       let res = await uploadArquivoPromessa(file2);
       dados.anexo2 = res.url;
+      arquivosCriados.push(res.id);
     }
     if (file3) {
       let res = await uploadArquivoPromessa(file3);
       dados.anexo3 = res.url;
+      arquivosCriados.push(res.id);
     }
   } catch (erroUpload) {
     exibirLoader(false);
+    // Remove uploads criados de forma imediata em caso de erro na transferência
+    arquivosCriados.forEach(id => google.script.run.removerArquivoDrive(id));
     alert("Falha no upload dos anexos: " + erroUpload.toString());
     return;
   }
@@ -951,6 +970,8 @@ async function salvarDadosLancamento(event) {
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
+      // Remove arquivos órfãos do Drive se gravação na Planilha falhar
+      arquivosCriados.forEach(id => google.script.run.removerArquivoDrive(id));
       alert("Erro ao gravar lançamento: " + erro.toString());
     })
     .salvarLancamento(dados);
@@ -1040,17 +1061,17 @@ function renderizarTabelaProtocolos(listaFiltrada) {
     }
     
     html += `<tr>
-      <td><strong>${p.id}</strong></td>
-      <td>${p.dataGeracao}</td>
+      <td><strong>${escapeHtml(p.id)}</strong></td>
+      <td>${escapeHtml(p.dataGeracao)}</td>
       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>
-      <td><span class="badge ${statusClass}">${p.status}</span></td>
-      <td>${p.criadoPor}</td>
+      <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>
+      <td>${escapeHtml(p.criadoPor)}</td>
       <td>
         <div class="action-buttons">
-          <button class="btn-action" onclick="abrirFolhaProtocolo('${p.id}')" title="Visualizar e Imprimir Folha">
+          <button class="btn-action" onclick="abrirFolhaProtocolo('${escapeHtml(p.id)}')" title="Visualizar e Imprimir Folha">
             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>
           </button>
-          <button class="btn-action" onclick="alterarStatusProtocoloTramite('${p.id}', '${p.status}')" title="Transicionar Status Físico">
+          <button class="btn-action" onclick="alterarStatusProtocoloTramite('${escapeHtml(p.id)}', '${escapeHtml(p.status)}')" title="Transicionar Status Físico">
             <span data-lucide="git-pull-request" style="width: 14px; height: 14px;"></span>
           </button>
         </div>
@@ -1111,11 +1132,11 @@ function abrirModalCriarProtocolo() {
           <td style="text-align: center;">
             <input type="checkbox" name="chk-lancamento-pendente" value="${p.linhaPlanilha}" onchange="atualizarQuantidadeSelecionadosProtocolo()">
           </td>
-          <td><strong>${p.nome}</strong> (${p.matricula})</td>
-          <td>${p.tipo}</td>
-          <td>${p.dataInicio}</td>
-          <td style="text-align: center;">${p.dias > 0 ? p.dias + ' dias' : (p.qtdHoras || '-')}</td>
-          <td>${p.idoc || 'Aguardando Assinatura'}</td>
+          <td><strong>${escapeHtml(p.nome)}</strong> (${escapeHtml(p.matricula)})</td>
+          <td>${escapeHtml(p.tipo)}</td>
+          <td>${escapeHtml(p.dataInicio)}</td>
+          <td style="text-align: center;">${p.dias > 0 ? p.dias + ' dias' : (escapeHtml(p.qtdHoras) || '-')}</td>
+          <td>${escapeHtml(p.idoc) || 'Aguardando Assinatura'}</td>
         </tr>`;
       });
       
@@ -1351,13 +1372,13 @@ function desenharTabelaRelatorio(tipo, dados) {
     
     dados.forEach(s => {
       htmlBody += `<tr>
-        <td><strong>${s.nome}</strong></td>
-        <td>${s.matricula}</td>
-        <td>${s.cargo}</td>
-        <td>${s.lotacao}</td>
+        <td><strong>${escapeHtml(s.nome)}</strong></td>
+        <td>${escapeHtml(s.matricula)}</td>
+        <td>${escapeHtml(s.cargo)}</td>
+        <td>${escapeHtml(s.lotacao)}</td>
         <td style='text-align:center;'>${s.saldoHoje} d</td>
         <td style='text-align:center;'>${s.projetado} d</td>
-        <td style='font-size:12px; color: var(--text-secondary);'>${s.infoFerias}</td>
+        <td style='font-size:12px; color: var(--text-secondary);'>${escapeHtml(s.infoFerias)}</td>
       </tr>`;
     });
   } else if (tipo === 'calendario_ausencias') {
@@ -1366,11 +1387,11 @@ function desenharTabelaRelatorio(tipo, dados) {
     
     dados.forEach(a => {
       htmlBody += `<tr>
-        <td><strong>${a.nome}</strong></td>
-        <td>${a.matricula}</td>
-        <td>${a.tipo}</td>
-        <td style='text-align:center;'>${a.inicio}</td>
-        <td style='text-align:center;'>${a.fim}</td>
+        <td><strong>${escapeHtml(a.nome)}</strong></td>
+        <td>${escapeHtml(a.matricula)}</td>
+        <td>${escapeHtml(a.tipo)}</td>
+        <td style='text-align:center;'>${escapeHtml(a.inicio)}</td>
+        <td style='text-align:center;'>${escapeHtml(a.fim)}</td>
         <td style='text-align:center;'>${a.dias}</td>
       </tr>`;
     });
@@ -1380,14 +1401,14 @@ function desenharTabelaRelatorio(tipo, dados) {
     
     dados.forEach(l => {
       htmlBody += `<tr>
-        <td><strong>${l.idoc}</strong></td>
-        <td>${l.dataSolicitacao}</td>
-        <td>${l.tipo}</td>
-        <td>${l.nome}</td>
-        <td>${l.matricula}</td>
-        <td style='text-align:center;'>${l.dataInicio}</td>
-        <td style='text-align:center;'>${l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-')}</td>
-        <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${l.status}</span></td>
+        <td><strong>${escapeHtml(l.idoc)}</strong></td>
+        <td>${escapeHtml(l.dataSolicitacao)}</td>
+        <td>${escapeHtml(l.tipo)}</td>
+        <td>${escapeHtml(l.nome)}</td>
+        <td>${escapeHtml(l.matricula)}</td>
+        <td style='text-align:center;'>${escapeHtml(l.dataInicio)}</td>
+        <td style='text-align:center;'>${l.dias > 0 ? l.dias + ' d' : (escapeHtml(l.qtdHoras) || '-')}</td>
+        <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${escapeHtml(l.status)}</span></td>
       </tr>`;
     });
   } else if (tipo === 'abonos_anuais') {
@@ -1396,11 +1417,11 @@ function desenharTabelaRelatorio(tipo, dados) {
     
     dados.forEach(a => {
       htmlBody += `<tr>
-        <td><strong>${a.nome}</strong></td>
-        <td>${a.matricula}</td>
-        <td>${a.lotacao}</td>
-        <td style='text-align:center;'>${a.abonosUsados} / 5</td>
-        <td style='text-align:center;'>5</td>
+        <td><strong>${escapeHtml(a.nome)}</strong></td>
+        <td>${escapeHtml(a.matricula)}</td>
+        <td>${escapeHtml(a.lotacao)}</td>
+        <td style='text-align:center;'>${a.abonosUsados} / ${a.limiteAnual}</td>
+        <td style='text-align:center;'>${a.limiteAnual}</td>
         <td style='text-align:center; font-weight:bold; color: ${a.saldoRestante === 0 ? 'var(--status-leave-text)' : 'var(--status-active-text)'}'>${a.saldoRestante} d</td>
       </tr>`;
     });
@@ -1634,16 +1655,16 @@ function renderizarTabelaUsuarios() {
     let badgeClass = u.ativo === "Sim" ? "badge-ativo" : "badge-inativo";
     
     html += `<tr>
-      <td><strong>${u.email}</strong></td>
-      <td>${u.nome}</td>
-      <td>${u.papel}</td>
+      <td><strong>${escapeHtml(u.email)}</strong></td>
+      <td>${escapeHtml(u.nome)}</td>
+      <td>${escapeHtml(u.papel)}</td>
       <td><span class="badge ${badgeClass}">${u.ativo === "Sim" ? "Ativo" : "Bloqueado"}</span></td>
       <td>
         <div class="action-buttons">
-          <button class="btn-action" onclick="abrirModalUsuario('${u.email}')" title="Editar Usuário">
+          <button class="btn-action" onclick="abrirModalUsuario('${escapeHtml(u.email)}')" title="Editar Usuário">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
-          <button class="btn-action btn-delete" onclick="confirmarDesativacaoUsuario('${u.email}')" title="Desativar Usuário">
+          <button class="btn-action btn-delete" onclick="confirmarDesativacaoUsuario('${escapeHtml(u.email)}')" title="Desativar Usuário">
             <span data-lucide="shield-alert" style="width: 14px; height: 14px;"></span>
           </button>
         </div>
@@ -1748,11 +1769,11 @@ function renderizarTabelaConfiguracoes() {
   
   AppState.configs.forEach(c => {
     html += `<tr>
-      <td><strong>${c.chave}</strong></td>
-      <td><input type="text" class="form-control" style="max-width:300px; padding:6px 12px;" value="${c.valor}" id="cfg-val-${c.linhaPlanilha}"></td>
-      <td style="font-size:12px; color: var(--text-secondary);">${c.descricao}</td>
+      <td><strong>${escapeHtml(c.chave)}</strong></td>
+      <td><input type="text" class="form-control" style="max-width:300px; padding:6px 12px;" value="${escapeHtml(c.valor)}" id="cfg-val-${c.linhaPlanilha}"></td>
+      <td style="font-size:12px; color: var(--text-secondary);">${escapeHtml(c.descricao)}</td>
       <td>
-        <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="editarValorConfiguracao(${c.linhaPlanilha}, '${c.chave}')">
+        <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="editarValorConfiguracao(${c.linhaPlanilha}, '${escapeHtml(c.chave)}')">
           Salvar
         </button>
       </td>
@@ -1820,14 +1841,14 @@ function renderizarTabelaLogs(listaFiltrada) {
   let html = "";
   logs.slice(0, 150).forEach(l => { // Limita exibição em 150 itens por performance
     html += `<tr>
-      <td style="font-size:11px; white-space:nowrap;">${l.dataHora}</td>
-      <td style="font-size:12px;"><strong>${l.usuario}</strong></td>
-      <td style="font-size:11px; font-weight:600;">${l.acao}</td>
-      <td style="font-size:12px;">${l.modulo}</td>
-      <td style="font-size:12px; color: var(--text-secondary); max-width: 250px; overflow:hidden; text-overflow:ellipsis;">${l.descricao}</td>
-      <td style="font-size:11px; color: var(--text-muted);">${l.campoAlterado || '-'}</td>
-      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${l.valorAntes}">${l.valorAntes || '-'}</td>
-      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${l.valorDepois}">${l.valorDepois || '-'}</td>
+      <td style="font-size:11px; white-space:nowrap;">${escapeHtml(l.dataHora)}</td>
+      <td style="font-size:12px;"><strong>${escapeHtml(l.usuario)}</strong></td>
+      <td style="font-size:11px; font-weight:600;">${escapeHtml(l.acao)}</td>
+      <td style="font-size:12px;">${escapeHtml(l.modulo)}</td>
+      <td style="font-size:12px; color: var(--text-secondary); max-width: 250px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(l.descricao)}</td>
+      <td style="font-size:11px; color: var(--text-muted);">${escapeHtml(l.campoAlterado) || '-'}</td>
+      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(l.valorAntes)}">${escapeHtml(l.valorAntes) || '-'}</td>
+      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(l.valorDepois)}">${escapeHtml(l.valorDepois) || '-'}</td>
     </tr>`;
   });
   

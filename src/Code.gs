@@ -13,12 +13,12 @@ function doGet(e) {
   return template.evaluate()
     .setTitle("RH - Central de Documentos")
     .setSandboxMode(HtmlService.SandboxMode.IFRAME)
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
 
 /**
- * Função utilitária para incluir outros arquivos HTML dentro de templates (CSS/JS)
+ * Função utilitária privada para incluir outros arquivos HTML dentro de templates (CSS/JS)
  */
 function incluir(caminhoArquivo) {
   return HtmlService.createHtmlOutputFromFile(caminhoArquivo).getContent();

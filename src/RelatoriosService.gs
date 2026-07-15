@@ -136,6 +136,19 @@ function obterRelatorioAbonosAnuais() {
     }
   }
   
+  // Obter limite de abonos configurado na aba Configuracoes
+  let limiteAbonos = 5;
+  const abaConfig = ss.getSheetByName("Configuracoes");
+  if (abaConfig) {
+    const dadosConfig = abaConfig.getDataRange().getValues();
+    for (let j = 1; j < dadosConfig.length; j++) {
+      if (String(dadosConfig[j][0]).trim() === "LIMITE_ABONADAS_ANO") {
+        limiteAbonos = parseInt(dadosConfig[j][1]) || 5;
+        break;
+      }
+    }
+  }
+  
   // 2. Mesclar com servidores
   let relatorio = [];
   const cabecalho = servidores[0];
@@ -156,8 +169,8 @@ function obterRelatorioAbonosAnuais() {
       matricula: mat,
       lotacao: idxLot !== -1 ? String(servidores[i][idxLot]).trim() : "",
       abonosUsados: abonosUsados,
-      limiteAnual: 5,
-      saldoRestante: Math.max(0, 5 - abonosUsados)
+      limiteAnual: limiteAbonos,
+      saldoRestante: Math.max(0, limiteAbonos - abonosUsados)
     });
   }
   

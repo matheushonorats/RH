@@ -4,10 +4,9 @@
  */
 
 /**
- * Retorna a lista de todos os servidores cadastrados para exibição na interface
+ * Retorna a lista de todos os servidores cadastrados para exibição na interface (Performance O(N+M))
  */
 function obterListaServidores() {
-  // Garante acesso autorizado
   obterDadosUsuarioLogado();
   
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -15,9 +14,10 @@ function obterListaServidores() {
   if (!aba) return [];
   
   const dados = aba.getDataRange().getValues();
+  if (dados.length <= 1) return [];
+  
   const cabecalho = dados[0];
   
-  // Mapeamento de índices das colunas
   const idxNome = cabecalho.indexOf("NOME");
   const idxMatricula = cabecalho.indexOf("MATRÍCULA");
   const idxCargo = cabecalho.indexOf("CARGO");
@@ -30,6 +30,9 @@ function obterListaServidores() {
   const idxInfoFerias = cabecalho.indexOf("Info_Férias");
   const idxAtivo = cabecalho.indexOf("Ativo");
   
+  // Otimização O(N + M): Carrega status de ausentes em lote para evitar leituras consecutivas
+  const mapaStatus = construirMapaStatusServidores_(ss);
+  
   let servidores = [];
   
   for (let i = 1; i < dados.length; i++) {
@@ -37,14 +40,13 @@ function obterListaServidores() {
     let matricula = String(linha[idxMatricula]).trim();
     if (!matricula) continue;
     
-    // Determina o status com base em Lançamentos Ativos de Férias/Abono
-    let statusText = "Ativo";
     let ativo = idxAtivo !== -1 ? String(linha[idxAtivo]).trim() : "Sim";
+    let statusText = "Ativo";
     
     if (ativo === "Não") {
       statusText = "Inativo";
     } else {
-      statusText = determinarStatusAtualServidor(ss, matricula);
+      statusText = mapaStatus[matricula] || "Ativo";
     }
     
     servidores.push({
@@ -52,7 +54,7 @@ function obterListaServidores() {
       matricula: matricula,
       cargo: idxCargo !== -1 ? String(linha[idxCargo]).trim() : "",
       lotacao: idxLotacao !== -1 ? String(linha[idxLotacao]).trim() : "",
-      admissao: idxAdmissao !== -1 ? formatarDataServidor(linha[idxAdmissao]) : "",
+      admissao: idxAdmissao !== -1 ? formatarDataServidor_(linha[idxAdmissao]) : "",
       admissaoBruta: idxAdmissao !== -1 ? linha[idxAdmissao] : null,
       situacao: idxSituacao !== -1 ? String(linha[idxSituacao]).trim() : "",
       email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
@@ -60,7 +62,7 @@ function obterListaServidores() {
       projetado: idxProjetado !== -1 ? parseInt(linha[idxProjetado]) || 0 : 0,
       infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias]).trim() : "",
       status: statusText,
-      linhaPlanilha: i + 1 // útil para edições rápidas
+      linhaPlanilha: i + 1
     });
   }
   
@@ -70,10 +72,9 @@ function obterListaServidores() {
 }
 
 /**
- * Salva ou atualiza um cadastro de servidor
+ * Salva ou atualiza um cadastro de servidor com cópia automática de fórmulas e escrita em lote
  */
 function salvarServidor(dadosServidor) {
-  // Exige perfil Operador ou superior
   if (!verificarSeEhOperador()) {
     throw new Error("Você não possui permissão para salvar ou alterar cadastros de servidores.");
   }
@@ -98,7 +99,6 @@ function salvarServidor(dadosServidor) {
   let linhaEdit = -1;
   let valorAntes = "";
   
-  // Procura se o servidor já existe
   for (let i = 1; i < dados.length; i++) {
     if (String(dados[i][idxMatricula]).trim() === matriculaBusca) {
       linhaEdit = i + 1;
@@ -118,8 +118,8 @@ function salvarServidor(dadosServidor) {
   }
   
   if (linhaEdit !== -1) {
-    // Modo Edição: Atualiza campos específicos
-    if (idxNome !== -1) aba.getRange(linhaEdit, idxNome + 1).setValue(dadosServidor.nome);
+    // MODO EDIÇÃO: Atualiza apenas as células de dados usando lote por segurança de fórmulas
+    if (idxNome !== -1) aba.getRange(linhaEdit, idxNome + 1).setValue(dadosServidor.nome.toUpperCase());
     if (idxCargo !== -1) aba.getRange(linhaEdit, idxCargo + 1).setValue(dadosServidor.cargo);
     if (idxLotacao !== -1) aba.getRange(linhaEdit, idxLotacao + 1).setValue(dadosServidor.lotacao);
     if (idxAdmissao !== -1 && dataAdmissao) aba.getRange(linhaEdit, idxAdmissao + 1).setValue(dataAdmissao);
@@ -129,25 +129,29 @@ function salvarServidor(dadosServidor) {
     
     lancarLog("EDITAR_SERVIDOR", "Servidores", "Atualizou dados do servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "Cadastro", valorAntes, JSON.stringify(dadosServidor), matriculaBusca);
   } else {
-    // Modo Criação: Insere nova linha estruturada
-    // Como a planilha possui colunas calculadas via fórmula à direita, criamos um array de linha completo
-    let novaLinha = [];
-    cabecalho.forEach((col, idx) => {
-      if (idx === idxNome) novaLinha.push(dadosServidor.nome);
-      else if (idx === idxMatricula) novaLinha.push(matriculaBusca);
-      else if (idx === idxCargo) novaLinha.push(dadosServidor.cargo);
-      else if (idx === idxLotacao) novaLinha.push(dadosServidor.lotacao);
-      else if (idx === idxAdmissao) novaLinha.push(dataAdmissao);
-      else if (idx === idxSituacao) novaLinha.push(dadosServidor.situacao);
-      else if (idx === idxEmail) novaLinha.push(dadosServidor.email);
-      else if (idx === idxAtivo) novaLinha.push("Sim");
-      else novaLinha.push(""); // Deixa vazio para fórmulas da planilha calcularem
-    });
+    // MODO CRIAÇÃO: Adiciona nova linha copiando fórmulas da linha superior para preservar as colunas de saldo
+    const novaLinhaIndex = aba.getLastRow() + 1;
     
-    aba.appendRow(novaLinha);
+    if (novaLinhaIndex > 2) {
+      const rangeOrigem = aba.getRange(novaLinhaIndex - 1, 1, 1, cabecalho.length);
+      const rangeDestino = aba.getRange(novaLinhaIndex, 1, 1, cabecalho.length);
+      // Copia fórmulas e formatos
+      rangeOrigem.copyTo(rangeDestino, SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+      rangeOrigem.copyTo(rangeDestino, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+    
+    // Sobrescreve apenas as células de valores do cadastro na nova linha (mantém fórmulas)
+    if (idxNome !== -1) aba.getRange(novaLinhaIndex, idxNome + 1).setValue(dadosServidor.nome.toUpperCase());
+    if (idxMatricula !== -1) aba.getRange(novaLinhaIndex, idxMatricula + 1).setValue(matriculaBusca);
+    if (idxCargo !== -1) aba.getRange(novaLinhaIndex, idxCargo + 1).setValue(dadosServidor.cargo);
+    if (idxLotacao !== -1) aba.getRange(novaLinhaIndex, idxLotacao + 1).setValue(dadosServidor.lotacao);
+    if (idxAdmissao !== -1 && dataAdmissao) aba.getRange(novaLinhaIndex, idxAdmissao + 1).setValue(dataAdmissao);
+    if (idxSituacao !== -1) aba.getRange(novaLinhaIndex, idxSituacao + 1).setValue(dadosServidor.situacao);
+    if (idxEmail !== -1) aba.getRange(novaLinhaIndex, idxEmail + 1).setValue(dadosServidor.email);
+    if (idxAtivo !== -1) aba.getRange(novaLinhaIndex, idxAtivo + 1).setValue("Sim");
+    
     lancarLog("CRIAR_SERVIDOR", "Servidores", "Cadastrou novo servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "", "", JSON.stringify(dadosServidor), matriculaBusca);
     
-    // Roda automaticamente a rotina de gerar períodos aquisitivos de férias após cadastrar
     try {
       gerarCreditosAutomaticos(); 
     } catch(e) {
@@ -194,56 +198,59 @@ function desativarServidor(matricula) {
 }
 
 /**
- * Determina dinamicamente se o funcionário está em férias ou abono HOJE
+ * Constrói um mapa em memória dos status dos servidores (Evitando NxM leituras na planilha)
  */
-function determinarStatusAtualServidor(ss, matricula) {
+function construirMapaStatusServidores_(ss) {
   const abaLanc = ss.getSheetByName("Lançamentos");
-  if (!abaLanc) return "Ativo";
+  if (!abaLanc) return {};
   
   const dadosLanc = abaLanc.getDataRange().getValues();
+  if (dadosLanc.length <= 1) return {};
+  
+  const cabecalho = dadosLanc[0];
+  const colIdxTipo = cabecalho.indexOf("Tipo");
+  const colIdxMat = cabecalho.indexOf("MATRÍCULA");
+  const colIdxDataIni = cabecalho.indexOf("Data de Início");
+  const colIdxDias = cabecalho.indexOf("Dias");
+  
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   
-  const COL_TIPO = 3;        // Coluna C
-  const COL_DATA_INICIO = 9; // Coluna I
-  const COL_DIAS = 13;       // Coluna M
-  const COL_MATRICULA = 6;   // Coluna F
+  let mapa = {};
   
   for (let i = 1; i < dadosLanc.length; i++) {
     let linha = dadosLanc[i];
-    let matLanc = String(linha[COL_MATRICULA - 1]).trim();
+    let mat = String(linha[colIdxMat]).trim();
+    let tipoDoc = String(linha[colIdxTipo]).trim().toLowerCase();
     
-    if (matLanc === matricula) {
-      let tipoDoc = String(linha[COL_TIPO - 1]).trim().toLowerCase();
-      
-      // Ignora registros anulados
-      if (tipoDoc.includes("não efetivado") || tipoDoc.includes("anulado")) continue;
-      
-      let dataInicio = normalizarDataServidorObjeto(linha[COL_DATA_INICIO - 1]);
-      if (!dataInicio) continue;
-      
-      let dias = parseInt(linha[COL_DIAS - 1]) || 1;
-      let dataFim = new Date(dataInicio);
-      dataFim.setDate(dataInicio.getDate() + (dias - 1));
-      dataFim.setHours(0, 0, 0, 0);
-      
-      if (hoje >= dataInicio && hoje <= dataFim) {
-        if (tipoDoc.includes("férias") || tipoDoc.includes("ferias")) {
-          return "Férias";
-        } else if (tipoDoc.includes("abonada") || tipoDoc.includes("abono")) {
-          return "Abono";
-        }
+    // Ignora anulados
+    if (tipoDoc.includes("não efetivado") || tipoDoc.includes("anulado")) continue;
+    
+    let dataInicio = normalizarDataServidorObjeto_(linha[colIdxDataIni]);
+    if (!dataInicio) continue;
+    
+    let dias = parseInt(linha[colIdxDias]) || 1;
+    let dataFim = new Date(dataInicio);
+    dataFim.setDate(dataInicio.getDate() + (dias - 1));
+    dataFim.setHours(0, 0, 0, 0);
+    
+    // Verifica se a ausência está ocorrendo hoje
+    if (hoje >= dataInicio && hoje <= dataFim) {
+      if (tipoDoc.includes("férias") || tipoDoc.includes("ferias")) {
+        mapa[mat] = "Férias";
+      } else if (tipoDoc.includes("abonada") || tipoDoc.includes("abono")) {
+        mapa[mat] = "Abono";
       }
     }
   }
   
-  return "Ativo";
+  return mapa;
 }
 
 /**
- * Função auxiliar de normalização de data
+ * Função auxiliar privada de normalização de data
  */
-function normalizarDataServidorObjeto(valor) {
+function normalizarDataServidorObjeto_(valor) {
   if (!valor) return null;
   if (valor instanceof Date) {
     if (isNaN(valor.getTime())) return null;
@@ -262,7 +269,10 @@ function normalizarDataServidorObjeto(valor) {
   return null;
 }
 
-function formatarDataServidor(data) {
+/**
+ * Formata datas em string BR
+ */
+function formatarDataServidor_(data) {
   if (!data) return "";
   if (data instanceof Date) {
     if (isNaN(data.getTime())) return "";
