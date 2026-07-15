@@ -549,14 +549,436 @@ function abrirFichaServidor(matricula) {
     gridPeriodos.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); font-size: 13px;">Nenhum período de férias registrado ou processado.</div>`;
   }
   
-  // 5. Carregar Lançamentos/Ausências Históricas no modal (Simulando ou buscando por ID)
-  // Será refinado na Fase 3 ao linkar com lançamentos reais
-  document.getElementById('ficha-historico-tabela').innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Histórico integrado carregado na Fase 3.</td></tr>`;
+  // 5. Carregar Lançamentos/Ausências Históricas no modal
+  const tabelaHist = document.getElementById('ficha-historico-tabela');
+  tabelaHist.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Buscando histórico...</td></tr>`;
+  
+  if (typeof google !== "undefined" && google.script) {
+    google.script.run
+      .withSuccessHandler(function(historico) {
+        if (historico.length === 0) {
+          tabelaHist.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Nenhuma ausência registrada no histórico.</td></tr>`;
+          return;
+        }
+        let html = "";
+        historico.forEach(l => {
+          html += `<tr>
+            <td><strong>${l.idoc}</strong></td>
+            <td>${l.tipo}</td>
+            <td>${l.dataInicio}</td>
+            <td style="text-align: center;">${l.dias || l.qtdHoras || '-'}</td>
+            <td style="font-size: 12px; color: var(--text-secondary);">${l.observacao || '-'}</td>
+          </tr>`;
+        });
+        tabelaHist.innerHTML = html;
+      })
+      .obterHistoricoServidor(matricula);
+  } else {
+    tabelaHist.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Sem conexão com o Google Sheets (modo local).</td></tr>`;
+  }
   
   abrirModal('modal-ficha-servidor');
 }
 
-function abrirModalLancamento() {
-  alert("Formulário de Lançamento em desenvolvimento na Fase 3.");
+/**
+ * Carrega o histórico geral de lançamentos de RH
+ */
+function carregarListaLancamentos() {
+  exibirLoader(true);
+  
+  if (typeof google === "undefined" || !google.script) {
+    // Mock local para testes visuais
+    AppState.lancamentos = [
+      { idoc: "14.129/2026", dataSolicitacao: "03/07/2026", tipo: "Férias", nome: "CLEUSA ROSA DE OLIVEIRA", matricula: "75280", dataInicio: "03/08/2026", dias: 10, status: "Ativo", anexo1: "https://drive.google.com/open?id=123", anexo2: "", anexo3: "" },
+      { idoc: "14.097/2026", dataSolicitacao: "02/07/2026", tipo: "Abonada", nome: "EDILEA BARBOSA DO NASCIMENTO", matricula: "74454", dataInicio: "08/07/2026", dias: 1, status: "Ativo", anexo1: "", anexo2: "", anexo3: "" }
+    ];
+    renderizarTabelaLancamentos();
+    exibirLoader(false);
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function(lancamentos) {
+      AppState.lancamentos = lancamentos;
+      renderizarTabelaLancamentos();
+      exibirLoader(false);
+    })
+    .withFailureHandler(function(erro) {
+      console.error("Erro ao carregar lançamentos:", erro);
+      exibirLoader(false);
+      alert("Erro ao buscar histórico de lançamentos: " + erro.toString());
+    })
+    .obterListaLancamentos();
+}
+
+/**
+ * Renderiza linhas da tabela de Lançamentos
+ */
+function renderizarTabelaLancamentos(listaFiltrada) {
+  const lancamentos = listaFiltrada || AppState.lancamentos;
+  const tbody = document.getElementById('tabela-lancamentos-body');
+  
+  if (lancamentos.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Nenhum lançamento encontrado.</td></tr>`;
+    return;
+  }
+  
+  let html = "";
+  lancamentos.forEach(l => {
+    let badgeClass = "badge-ativo";
+    if (l.status === "Anulado") {
+      badgeClass = "badge-inativo";
+    }
+    
+    // Verifica se possui anexos vinculados
+    const possuiAnexos = l.anexo1 || l.anexo2 || l.anexo3;
+    
+    html += `<tr>
+      <td><strong>${l.idoc}</strong></td>
+      <td>${l.dataSolicitacao}</td>
+      <td>${l.tipo}</td>
+      <td>${l.nome} (${l.matricula})</td>
+      <td>${l.dataInicio}</td>
+      <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (l.qtdHoras || '-')}</td>
+      <td><span class="badge ${badgeClass}">${l.status}</span></td>
+      <td>
+        <div class="action-buttons">
+          ${possuiAnexos ? `
+            <button class="btn-action" onclick="visualizarAnexos('${l.anexo1}', '${l.anexo2}', '${l.anexo3}')" title="Visualizar Anexos">
+              <span data-lucide="paperclip" style="width: 14px; height: 14px;"></span>
+            </button>
+          ` : ''}
+          <button class="btn-action" onclick="abrirModalLancamento(${l.linhaPlanilha})" title="Editar Lançamento">
+            <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
+          </button>
+        </div>
+      </td>
+    </tr>`;
+  });
+  
+  tbody.innerHTML = html;
+  lucide.createIcons();
+}
+
+/**
+ * Filtra a tabela de lançamentos de RH em tempo real
+ */
+function filtrarTabelaLancamentos() {
+  const busca = document.getElementById('filtro-busca-lancamento').value.toLowerCase().trim();
+  const tipo = document.getElementById('filtro-tipo-lancamento').value;
+  const status = document.getElementById('filtro-status-lancamento').value;
+  
+  const filtrados = AppState.lancamentos.filter(l => {
+    const bateBusca = !busca || l.nome.toLowerCase().includes(busca) || l.matricula.toLowerCase().includes(busca) || l.idoc.toLowerCase().includes(busca);
+    const bateTipo = !tipo || l.tipo === tipo;
+    const bateStatus = !status || l.status === status;
+    return bateBusca && bateTipo && bateStatus;
+  });
+  
+  renderizarTabelaLancamentos(filtrados);
+}
+
+/**
+ * Ajusta dinamicamente a visibilidade dos campos do formulário com base no tipo
+ */
+function ajustarCamposFormularioLancamento() {
+  const tipo = document.getElementById('lanc-tipo').value;
+  
+  const blocoFerias = document.getElementById('bloco-ferias');
+  const blocoFalta = document.getElementById('bloco-falta');
+  const blocoHoras = document.getElementById('bloco-horas');
+  
+  // Esconde todos inicialmente
+  blocoFerias.style.display = "none";
+  blocoFalta.style.display = "none";
+  blocoHoras.style.display = "none";
+  
+  // Força remoção de obrigatoriedade temporária dos inputs invisíveis
+  document.getElementById('lanc-data-inicio').required = false;
+  document.getElementById('lanc-dias').required = false;
+  document.getElementById('lanc-data-falta').required = false;
+  document.getElementById('lanc-qtd-horas').required = false;
+  
+  if (tipo === "Férias" || tipo === "Férias (1/3 Pecúnia)" || tipo === "Licença Prêmio") {
+    blocoFerias.style.display = "flex";
+    document.getElementById('lanc-data-inicio').required = true;
+    document.getElementById('lanc-dias').required = true;
+  } else if (tipo === "Hora Extra") {
+    blocoHoras.style.display = "block";
+    blocoFalta.style.display = "block";
+    document.getElementById('lanc-data-falta').required = true;
+    document.getElementById('lanc-qtd-horas').required = true;
+  } else {
+    // Abonadas, Avaliação Probatório, Não Efetivados
+    blocoFalta.style.display = "block";
+    document.getElementById('lanc-data-falta').required = true;
+  }
+}
+
+/**
+ * Executa busca de autocomplete para selecionar o servidor
+ */
+function buscarServidorAutocomplete() {
+  const input = document.getElementById('lanc-busca-servidor');
+  const listagem = document.getElementById('autocomplete-lista');
+  const txtMatricula = document.getElementById('lanc-matricula');
+  const painelInfo = document.getElementById('lanc-servidor-info');
+  
+  const termo = input.value.toLowerCase().trim();
+  txtMatricula.value = ""; // Limpa a matrícula até selecionar
+  painelInfo.style.display = "none";
+  
+  if (!termo) {
+    listagem.style.display = "none";
+    return;
+  }
+  
+  // Filtra servidores ativos apenas
+  const sugestoes = AppState.servidores.filter(s => 
+    s.status !== 'Inativo' && (s.nome.toLowerCase().includes(termo) || s.matricula.toLowerCase().includes(termo))
+  ).slice(0, 5); // Limita em 5 sugestões
+  
+  if (sugestoes.length === 0) {
+    listagem.innerHTML = `<div style="padding: 10px; color: var(--text-muted); font-size: 13px;">Nenhum servidor ativo encontrado.</div>`;
+    listagem.style.display = "block";
+    return;
+  }
+  
+  let html = "";
+  sugestoes.forEach(s => {
+    html += `<div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); font-size: 13px;" onclick="selecionarServidorAutocomplete('${s.matricula}', '${s.nome}', '${s.cargo}', '${s.lotacao}', '${s.saldoHoje}')">
+      <strong>${s.nome}</strong> (Matrícula: ${s.matricula})
+    </div>`;
+  });
+  
+  listagem.innerHTML = html;
+  listagem.style.display = "block";
+}
+
+/**
+ * Preenche os dados do servidor selecionado no autocomplete
+ */
+function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo) {
+  document.getElementById('lanc-busca-servidor').value = nome;
+  document.getElementById('lanc-matricula').value = matricula;
+  document.getElementById('autocomplete-lista').style.display = "none";
+  
+  // Exibe informações de auxílio do servidor
+  document.getElementById('info-serv-cargo').innerText = cargo || 'Não informado';
+  document.getElementById('info-serv-lotacao').innerText = lotacao || 'Não informada';
+  document.getElementById('info-serv-saldo').innerText = saldo + ' dias';
+  document.getElementById('lanc-servidor-info').style.display = "block";
+}
+
+/**
+ * Abre o modal de lançamento limpo (criação) ou carregado (edição)
+ */
+function abrirModalLancamento(linhaPlanilha) {
+  const form = document.getElementById('form-lancamento');
+  form.reset();
+  
+  // Certifica de esconder informações de autocomplete anteriores
+  document.getElementById('lanc-servidor-info').style.display = "none";
+  document.getElementById('autocomplete-lista').style.display = "none";
+  document.getElementById('anexos-existentes').style.display = "none";
+  
+  // Limpa arquivos dos inputs
+  document.getElementById('lanc-file-1').value = "";
+  document.getElementById('lanc-file-2').value = "";
+  document.getElementById('lanc-file-3').value = "";
+  
+  const titulo = document.getElementById('modal-lancamento-titulo');
+  const buscaServidorInput = document.getElementById('lanc-busca-servidor');
+  const inputLinha = document.getElementById('lanc-linha');
+  
+  if (linhaPlanilha) {
+    // MODO EDIÇÃO
+    titulo.innerText = "Editar Lançamento";
+    inputLinha.value = linhaPlanilha;
+    buscaServidorInput.disabled = true; // Não altera o servidor do lançamento cadastrado
+    
+    const l = AppState.lancamentos.find(lanc => lanc.linhaPlanilha === linhaPlanilha);
+    if (l) {
+      document.getElementById('lanc-tipo').value = l.tipo;
+      document.getElementById('lanc-idoc').value = l.idoc;
+      document.getElementById('lanc-busca-servidor').value = l.nome;
+      document.getElementById('lanc-matricula').value = l.matricula;
+      document.getElementById('lanc-despacho').value = l.despacho;
+      document.getElementById('lanc-observacao').value = l.observacao;
+      document.getElementById('lanc-qtd-horas').value = l.qtdHoras;
+      document.getElementById('lanc-dias').value = l.dias;
+      
+      // Parse de Data Solicitação
+      if (l.dataSolicitacao) {
+        let partes = l.dataSolicitacao.split('/');
+        if (partes.length === 3) {
+          document.getElementById('lanc-data-solicitacao').value = `${partes[2]}-${partes[1]}-${partes[0]}`;
+        }
+      }
+      
+      // Parse de Data Início / Data Falta
+      if (l.dataInicio) {
+        let partes = l.dataInicio.split('/');
+        if (partes.length === 3) {
+          const dataFormatadaInput = `${partes[2]}-${partes[1]}-${partes[0]}`;
+          document.getElementById('lanc-data-inicio').value = dataFormatadaInput;
+          document.getElementById('lanc-data-falta').value = dataFormatadaInput;
+        }
+      }
+      
+      // Renderizar anexos existentes no topo
+      if (l.anexo1 || l.anexo2 || l.anexo3) {
+        const listaExistente = document.getElementById('lista-anexos-existentes');
+        let htmlAnexos = "";
+        if (l.anexo1) htmlAnexos += `<li><a href="${l.anexo1}" target="_blank">Documento Anexo 1</a></li>`;
+        if (l.anexo2) htmlAnexos += `<li><a href="${l.anexo2}" target="_blank">Documento Anexo 2</a></li>`;
+        if (l.anexo3) htmlAnexos += `<li><a href="${l.anexo3}" target="_blank">Documento Anexo 3</a></li>`;
+        listaExistente.innerHTML = htmlAnexos;
+        document.getElementById('anexos-existentes').style.display = "block";
+      }
+    }
+  } else {
+    // MODO CRIAÇÃO
+    titulo.innerText = "Cadastrar Lançamento de Documento";
+    inputLinha.value = "";
+    buscaServidorInput.disabled = false;
+    document.getElementById('lanc-data-solicitacao').value = new Date().toISOString().split('T')[0];
+  }
+  
+  ajustarCamposFormularioLancamento();
+  abrirModal('modal-lancamento');
+}
+
+/**
+ * Abre o modal visualizador de anexos cadastrados
+ */
+function visualizarAnexos(anexo1, anexo2, anexo3) {
+  const lista = document.getElementById('lista-links-anexos');
+  lista.innerHTML = "";
+  
+  if (anexo1 && anexo1 !== "undefined") lista.innerHTML += `<li><a href="${anexo1}" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: left;"><span data-lucide="external-link"></span> Documento Anexo 1</a></li>`;
+  if (anexo2 && anexo2 !== "undefined") lista.innerHTML += `<li><a href="${anexo2}" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: left;"><span data-lucide="external-link"></span> Documento Anexo 2</a></li>`;
+  if (anexo3 && anexo3 !== "undefined") lista.innerHTML += `<li><a href="${anexo3}" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: left;"><span data-lucide="external-link"></span> Documento Anexo 3</a></li>`;
+  
+  abrirModal('modal-anexos');
+  lucide.createIcons();
+}
+
+/**
+ * Processa a gravação e faz o upload dos PDFs convertendo-os em Base64
+ */
+async function salvarDadosLancamento(event) {
+  event.preventDefault();
+  exibirLoader(true);
+  
+  const matricula = document.getElementById('lanc-matricula').value;
+  if (!matricula) {
+    exibirLoader(false);
+    alert("Erro: Você precisa selecionar um servidor válido usando a lista de sugestões.");
+    return;
+  }
+  
+  const tipoDoc = document.getElementById('lanc-tipo').value;
+  let dataInicioInput = "";
+  let diasInput = 0;
+  let qtdHorasInput = "";
+  
+  if (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)" || tipoDoc === "Licença Prêmio") {
+    dataInicioInput = document.getElementById('lanc-data-inicio').value;
+    diasInput = document.getElementById('lanc-dias').value;
+  } else if (tipoDoc === "Hora Extra") {
+    dataInicioInput = document.getElementById('lanc-data-falta').value;
+    diasInput = 0;
+    qtdHorasInput = document.getElementById('lanc-qtd-horas').value;
+  } else {
+    dataInicioInput = document.getElementById('lanc-data-falta').value;
+    diasInput = 1; // abonos duram 1 dia
+  }
+  
+  const dados = {
+    linhaPlanilha: document.getElementById('lanc-linha').value,
+    tipo: tipoDoc,
+    idoc: document.getElementById('lanc-idoc').value.trim(),
+    matricula: matricula,
+    dataSolicitacao: document.getElementById('lanc-data-solicitacao').value,
+    dataInicio: dataInicioInput,
+    dias: diasInput,
+    qtdHoras: qtdHorasInput,
+    despacho: document.getElementById('lanc-despacho').value,
+    observacao: document.getElementById('lanc-observacao').value.trim(),
+    anexo1: "",
+    anexo2: "",
+    anexo3: ""
+  };
+  
+  // Realiza uploads paralelos de arquivos em Base64 se houver no formulário
+  try {
+    const file1 = document.getElementById('lanc-file-1').files[0];
+    const file2 = document.getElementById('lanc-file-2').files[0];
+    const file3 = document.getElementById('lanc-file-3').files[0];
+    
+    if (file1) {
+      let res = await uploadArquivoPromessa(file1);
+      dados.anexo1 = res.url;
+    }
+    if (file2) {
+      let res = await uploadArquivoPromessa(file2);
+      dados.anexo2 = res.url;
+    }
+    if (file3) {
+      let res = await uploadArquivoPromessa(file3);
+      dados.anexo3 = res.url;
+    }
+  } catch (erroUpload) {
+    exibirLoader(false);
+    alert("Falha no upload dos anexos: " + erroUpload.toString());
+    return;
+  }
+  
+  if (typeof google === "undefined" || !google.script) {
+    alert("Lançamento gravado em simulação local!");
+    exibirLoader(false);
+    fecharModal('modal-lancamento');
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function() {
+      fecharModal('modal-lancamento');
+      carregarListaLancamentos();
+      carregarListaServidores(); // recarrega servidores para atualizar saldos alterados
+      alert("Lançamento de documento salvo com sucesso!");
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      alert("Erro ao gravar lançamento: " + erro.toString());
+    })
+    .salvarLancamento(dados);
+}
+
+/**
+ * Função utilitária em JS para converter e enviar arquivo no Drive de forma síncrona/prometida
+ */
+function uploadArquivoPromessa(arquivo) {
+  return new Promise((resolver, rejeitar) => {
+    const leitor = new FileReader();
+    leitor.onload = function(evento) {
+      const base64 = evento.target.result;
+      
+      google.script.run
+        .withSuccessHandler(function(resultadoDrive) {
+          resolver(resultadoDrive);
+        })
+        .withFailureHandler(function(erro) {
+          rejeitar(erro);
+        })
+        .salvarArquivoNoDrive(base64, arquivo.name, arquivo.type);
+    };
+    leitor.onerror = function(e) {
+      rejeitar("Falha ao ler arquivo físico local.");
+    };
+    leitor.readAsDataURL(arquivo);
+  });
 }
 </script>
+

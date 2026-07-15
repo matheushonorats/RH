@@ -177,6 +177,31 @@
           
           <!-- View 3: Lançamentos -->
           <section id="view-lancamentos" class="view-section">
+            <!-- Barra de Pesquisa e Filtros -->
+            <div class="filter-bar">
+              <div class="search-input-wrapper">
+                <span class="search-icon-inside" data-lucide="search"></span>
+                <input type="text" id="filtro-busca-lancamento" class="form-control" placeholder="Buscar por servidor ou nº 1Doc..." oninput="filtrarTabelaLancamentos()">
+              </div>
+              <select id="filtro-tipo-lancamento" class="form-control filter-select" onchange="filtrarTabelaLancamentos()">
+                <option value="">Todos Documentos</option>
+                <option value="Férias">Férias</option>
+                <option value="Férias (1/3 Pecúnia)">Férias (1/3 Pecúnia)</option>
+                <option value="Abonada">Abonada</option>
+                <option value="Abonada Natalícia">Abonada Natalícia</option>
+                <option value="Abonada Eleitoral">Abonada Eleitoral</option>
+                <option value="Licença Prêmio">Licença Prêmio</option>
+                <option value="Hora Extra">Hora Extra</option>
+                <option value="Avaliação do Estágio Probatório">Avaliação Estágio Probatório</option>
+                <option value="Não Efetivado (Anulado)">Não Efetivado</option>
+              </select>
+              <select id="filtro-status-lancamento" class="form-control filter-select" onchange="filtrarTabelaLancamentos()">
+                <option value="">Todos Status</option>
+                <option value="Ativo">Ativo</option>
+                <option value="Anulado">Anulado</option>
+              </select>
+            </div>
+
             <div class="table-container">
               <div class="table-header">
                 <div class="table-title">Histórico de Lançamentos</div>
@@ -192,11 +217,12 @@
                     <th>Data Saída/Falta</th>
                     <th>Dias/Qtd</th>
                     <th>Status</th>
+                    <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody id="tabela-lancamentos-body">
                   <tr>
-                    <td colspan="7" style="text-align: center; color: var(--text-secondary);">Buscando lançamentos...</td>
+                    <td colspan="8" style="text-align: center; color: var(--text-secondary);">Buscando lançamentos...</td>
                   </tr>
                 </tbody>
               </table>
@@ -388,6 +414,143 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="fecharModal('modal-ficha-servidor')">Fechar Ficha</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 3: Cadastro e Edição de Lançamento (Formulário Inteligente) -->
+    <div class="modal-overlay" id="modal-lancamento">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-lancamento-titulo">Cadastrar Lançamento de Documento</h3>
+          <button class="modal-close" onclick="fecharModal('modal-lancamento')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <form id="form-lancamento" onsubmit="salvarDadosLancamento(event)">
+          <input type="hidden" id="lanc-linha" value="">
+          <div class="modal-body">
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Tipo de Documento *</label>
+                <select id="lanc-tipo" class="form-control" required onchange="ajustarCamposFormularioLancamento()">
+                  <option value="Férias">Férias</option>
+                  <option value="Férias (1/3 Pecúnia)">Férias (1/3 Pecúnia)</option>
+                  <option value="Abonada">Abonada</option>
+                  <option value="Abonada Natalícia">Abonada Natalícia</option>
+                  <option value="Abonada Eleitoral">Abonada Eleitoral</option>
+                  <option value="Licença Prêmio">Licença Prêmio</option>
+                  <option value="Hora Extra">Hora Extra</option>
+                  <option value="Avaliação do Estágio Probatório">Avaliação Estágio Probatório</option>
+                  <option value="Não Efetivado (Anulado)">Não Efetivado (Anulado)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Nº 1Doc (Protocolo) *</label>
+                <input type="text" id="lanc-idoc" class="form-control" required placeholder="Ex: 14.129/2026">
+              </div>
+            </div>
+
+            <!-- Seleção de Servidor com Autocomplete -->
+            <div class="form-group">
+              <label class="form-label">Servidor *</label>
+              <div style="position: relative;">
+                <input type="text" id="lanc-busca-servidor" class="form-control" required placeholder="Digite o nome ou matrícula do servidor..." oninput="buscarServidorAutocomplete()">
+                <input type="hidden" id="lanc-matricula" value="">
+                <div id="autocomplete-lista" style="position: absolute; width: 100%; max-height: 200px; overflow-y: auto; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 0 0 6px 6px; z-index: 1001; display: none;"></div>
+              </div>
+              <p class="form-help" id="lanc-servidor-info" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; display: none;">
+                Cargo: <span id="info-serv-cargo">-</span> | Lotação: <span id="info-serv-lotacao">-</span> | Saldo Férias: <strong id="info-serv-saldo">-</strong>
+              </p>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Data de Solicitação *</label>
+                <input type="date" id="lanc-data-solicitacao" class="form-control" required>
+              </div>
+            </div>
+
+            <!-- Bloco 1: Campos Específicos de Férias e Licença Prêmio -->
+            <div class="form-row" id="bloco-ferias">
+              <div class="form-group">
+                <label class="form-label">Data de Início *</label>
+                <input type="date" id="lanc-data-inicio" class="form-control">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Quantidade de Dias *</label>
+                <input type="number" id="lanc-dias" class="form-control" value="30" min="1" max="90">
+              </div>
+            </div>
+
+            <!-- Bloco 2: Campos Específicos de Falta/Abono/Probatório -->
+            <div class="form-group" id="bloco-falta" style="display: none;">
+              <label class="form-label">Data da Falta / Afastamento *</label>
+              <input type="date" id="lanc-data-falta" class="form-control">
+            </div>
+
+            <!-- Bloco 3: Horas Extras -->
+            <div class="form-group" id="bloco-horas" style="display: none;">
+              <label class="form-label">Quantidade de Horas *</label>
+              <input type="text" id="lanc-qtd-horas" class="form-control" placeholder="Ex: 02:00">
+            </div>
+
+            <!-- Uploads de Anexos (Até 3 PDFs) -->
+            <div class="form-group">
+              <label class="form-label">Anexar Documentos (PDF)</label>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <input type="file" id="lanc-file-1" class="form-control" accept="application/pdf">
+                <input type="file" id="lanc-file-2" class="form-control" accept="application/pdf">
+                <input type="file" id="lanc-file-3" class="form-control" accept="application/pdf">
+              </div>
+              <div id="anexos-existentes" style="margin-top: 10px; display: none;">
+                <p style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Anexos cadastrados:</p>
+                <ul id="lista-anexos-existentes" style="list-style: none; font-size: 13px; margin-top: 4px;"></ul>
+              </div>
+            </div>
+
+            <!-- Despacho e Observação -->
+            <div class="form-group">
+              <label class="form-label">Despacho Individual</label>
+              <select id="lanc-despacho" class="form-control">
+                <option value="">Nenhum</option>
+                <option value="Abono 1">Abono 1</option>
+                <option value="Abono 2">Abono 2</option>
+                <option value="Férias Deferidas">Férias Deferidas</option>
+                <option value="Hora Extra Autorizada">Hora Extra Autorizada</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Observações</label>
+              <textarea id="lanc-observacao" class="form-control" rows="3" placeholder="Insira observações relevantes..."></textarea>
+            </div>
+
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar Lançamento</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 4: Visualizador de Anexos -->
+    <div class="modal-overlay" id="modal-anexos">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Visualizar Documentos</h3>
+          <button class="modal-close" onclick="fecharModal('modal-anexos')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Clique nos links abaixo para abrir os documentos armazenados no Google Drive:</p>
+          <ul id="lista-links-anexos" style="list-style: none; display: flex; flex-direction: column; gap: 12px;"></ul>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="fecharModal('modal-anexos')">Fechar</button>
         </div>
       </div>
     </div>
