@@ -1,5 +1,4 @@
 /**
-/**
  * Script de Inicialização e Configuração Automática
  * RH Central de Documentos v2.0
  * 
@@ -73,7 +72,12 @@ const CONFIG_SETUP = {
  */
 function executarConfiguracaoInicial() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ui = SpreadsheetApp.getUi();
+  let ui = null;
+  try {
+    ui = SpreadsheetApp.getUi();
+  } catch (e) {
+    Logger.log("UI do Spreadsheet não disponível neste contexto (executando via editor/web).");
+  }
   
   try {
     // 1. Criar abas novas se não existirem
@@ -91,9 +95,9 @@ function executarConfiguracaoInicial() {
            .setFontColor("#ffffff")
            .setHorizontalAlignment("center");
         aba.setFrozenRows(1);
-        relatorioAbasNovas.push(`✅ Aba '${nomeAba}' criada com sucesso.`);
+        relatorioAbasNovas.push(`SUCESSO: Aba '${nomeAba}' criada.`);
       } else {
-        relatorioAbasNovas.push(`⏭️ Aba '${nomeAba}' já existe (mantida).`);
+        relatorioAbasNovas.push(`MANTIDA: Aba '${nomeAba}' ja existe.`);
       }
     }
     
@@ -102,7 +106,7 @@ function executarConfiguracaoInicial() {
     for (let nomeAba in CONFIG_SETUP.abasExistentesModificadas) {
       let aba = ss.getSheetByName(nomeAba);
       if (!aba) {
-        relatorioAbasModificadas.push(`❌ Erro: Aba obrigatória '${nomeAba}' não foi encontrada na planilha!`);
+        relatorioAbasModificadas.push(`ERRO: Aba obrigatoria '${nomeAba}' nao encontrada na planilha!`);
         continue;
       }
       
@@ -133,9 +137,9 @@ function executarConfiguracaoInicial() {
           }
           
           colunasExistentes.push(novaCol); // atualiza lista local
-          relatorioAbasModificadas.push(`✅ Coluna '${novaCol}' adicionada à aba '${nomeAba}'.`);
+          relatorioAbasModificadas.push(`SUCESSO: Coluna '${novaCol}' adicionada à aba '${nomeAba}'.`);
         } else {
-          relatorioAbasModificadas.push(`⏭️ Coluna '${novaCol}' já existe na aba '${nomeAba}' (mantida).`);
+          relatorioAbasModificadas.push(`MANTIDA: Coluna '${novaCol}' já existe na aba '${nomeAba}'.`);
         }
       });
     }
@@ -147,18 +151,22 @@ function executarConfiguracaoInicial() {
     let totalGatilhosCriados = criarGatilhosDiarios_();
     
     // 5. Mostrar relatório final para o usuário
-    let mensagemCompleta = "Resultado da Inicialização do Sistema v2.0:\n\n" + 
+    let mensagemCompleta = "Resultado da Inicializacao do Sistema v2.0:\n\n" + 
                            "--- NOVAS ABAS DE INFRAESTRUTURA ---\n" + relatorioAbasNovas.join("\n") + "\n\n" +
-                           "--- MUDANÇAS DE AUDITORIA/CONTROLE ---\n" + relatorioAbasModificadas.join("\n") + "\n\n" +
-                           `--- GATILHOS DIÁRIOS AUTOMÁTICOS ---\n✅ ${totalGatilhosCriados} gatilhos diários verificados/criados.\n\n` +
+                           "--- MUDANCAS DE AUDITORIA/CONTROLE ---\n" + relatorioAbasModificadas.join("\n") + "\n\n" +
+                           `--- GATILHOS DIARIOS AUTOMATICOS ---\n${totalGatilhosCriados} gatilhos diarios verificados/criados.\n\n` +
                            "Sistema configurado com sucesso e pronto para uso!";
     
     Logger.log(mensagemCompleta);
-    ui.alert("Sucesso no Setup", mensagemCompleta, ui.ButtonSet.OK);
+    if (ui) {
+      ui.alert("Sucesso no Setup", mensagemCompleta, ui.ButtonSet.OK);
+    }
     
   } catch (erro) {
-    Logger.log("Erro na execução do Setup: " + erro.toString());
-    ui.alert("Erro no Setup", "Ocorreu um erro ao configurar a planilha:\n\n" + erro.toString(), ui.ButtonSet.OK);
+    Logger.log("Erro na execucao do Setup: " + erro.toString());
+    if (ui) {
+      ui.alert("Erro no Setup", "Ocorreu um erro ao configurar a planilha:\n\n" + erro.toString(), ui.ButtonSet.OK);
+    }
   }
 }
 

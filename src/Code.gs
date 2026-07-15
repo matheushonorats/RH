@@ -28,10 +28,16 @@ function incluir(caminhoArquivo) {
  * Cria o menu de utilitários na planilha para o Administrador
  */
 function onOpen() {
-  const ui = SpreadsheetApp.getUi();
+  let ui = null;
+  try {
+    ui = SpreadsheetApp.getUi();
+  } catch (e) {
+    Logger.log("UI não disponível.");
+    return;
+  }
   ui.createMenu("RH SETUR 2.0")
-    .addItem("🚀 Executar Configuração Inicial (Setup)", "executarConfiguracaoInicial")
+    .addItem("Executar Configuracao Inicial (Setup)", "executarConfiguracaoInicial")
     .addSeparator()
-    .addItem("📅 Gerar Créditos de Férias (Manual)", "menuGerarGeral") // Será portado do código antigo
+    .addItem("Gerar Creditos de Ferias (Manual)", "menuGerarGeral")
     .addToUi();
 }
