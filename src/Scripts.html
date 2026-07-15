@@ -163,13 +163,7 @@ function carregarDashboard() {
       if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
         let html = "";
         resumo.listaAusentes.forEach(a => {
-          html += `<tr>
-            <td><strong>${a.nome}</strong></td>
-            <td>${a.matricula}</td>
-            <td>${a.tipo}</td>
-            <td>${a.periodo}</td>
-            <td style="text-align: center;">${a.dias}</td>
-          </tr>`;
+          html += `<tr>             <td><strong>${a.nome}</strong></td>             <td>${a.matricula}</td>             <td>${a.tipo}</td>             <td>${a.periodo}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
         });
         tabela.innerHTML = html;
       } else {
@@ -256,25 +250,7 @@ function renderizarTabelaServidores(listaFiltrada) {
       badgeText = "Inativo";
     }
     
-    html += `<tr>
-      <td><strong>${escapeHtml(s.nome)}</strong></td>
-      <td>${escapeHtml(s.matricula)}</td>
-      <td>${escapeHtml(s.cargo)}</td>
-      <td>${escapeHtml(s.lotacao)}</td>
-      <td>${escapeHtml(s.situacao)}</td>
-      <td><span class="badge ${badgeClass}">${badgeText}</span></td>
-      <td>
-        <div class="action-buttons">
-          <button class="btn-action" data-action="ficha" data-mat="${escapeHtml(s.matricula)}" title="Visualizar Ficha">
-            <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
-          </button>
-          <button class="btn-action" data-action="editar-servidor" data-mat="${escapeHtml(s.matricula)}" title="Editar Cadastro">
-            <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
-          </button>
-          ${s.status !== 'Inativo' ? `<button class="btn-action btn-delete" data-action="desativar-servidor" data-mat="${escapeHtml(s.matricula)}" data-nome="${escapeHtml(s.nome)}" title="Desativar Servidor"><span data-lucide="trash-2" style="width: 14px; height: 14px;"></span></button>` : ''}
-        </div>
-      </td>
-    </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(s.nome)}</strong></td>       <td>${escapeHtml(s.matricula)}</td>       <td>${escapeHtml(s.cargo)}</td>       <td>${escapeHtml(s.lotacao)}</td>       <td>${escapeHtml(s.situacao)}</td>       <td><span class="badge ${badgeClass}">${badgeText}</span></td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="ficha" data-mat="${escapeHtml(s.matricula)}" title="Visualizar Ficha">             <span data-lucide="eye" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="editar-servidor" data-mat="${escapeHtml(s.matricula)}" title="Editar Cadastro">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>           ${s.status !== 'Inativo' ? `<button class="btn-action btn-delete" data-action="desativar-servidor" data-mat="${escapeHtml(s.matricula)}" data-nome="${escapeHtml(s.nome)}" title="Desativar Servidor"><span data-lucide="trash-2" style="width: 14px; height: 14px;"></span></button>` : ''}         </div>       </td>     </tr>`;
   });
 
   tbody.innerHTML = html;
@@ -544,23 +520,7 @@ function abrirFichaServidor(matricula) {
         statusTexto = "Em Aquisição";
       }
       
-      gridPeriodos.innerHTML += `
-        <div class="period-card" ${cardClass}>
-          <div class="period-header">
-            <span class="period-title">${texto.split(':')[0] || 'Período'}</span>
-            <span class="badge ${fillClass === 'fill-vencido' ? 'badge-ferias' : 'badge-ativo'}">${statusTexto}</span>
-          </div>
-          <div class="period-dates">${texto.includes(':') ? texto.split(':')[1] : texto}</div>
-          <div class="period-status-bar">
-            <div class="period-status-fill ${fillClass}"></div>
-          </div>
-          <div class="period-legend">
-            <span>0%</span>
-            <span>Uso</span>
-            <span>100%</span>
-          </div>
-        </div>
-      `;
+      gridPeriodos.innerHTML += `         <div class="period-card" ${cardClass}>           <div class="period-header">             <span class="period-title">${texto.split(':')[0] || 'Período'}</span>             <span class="badge ${fillClass === 'fill-vencido' ? 'badge-ferias' : 'badge-ativo'}">${statusTexto}</span>           </div>           <div class="period-dates">${texto.includes(':') ? texto.split(':')[1] : texto}</div>           <div class="period-status-bar">             <div class="period-status-fill ${fillClass}"></div>           </div>           <div class="period-legend">             <span>0%</span>             <span>Uso</span>             <span>100%</span>           </div>         </div>       `;
     });
   }
   
@@ -581,13 +541,7 @@ function abrirFichaServidor(matricula) {
         }
         let html = "";
         historico.forEach(l => {
-          html += `<tr>
-            <td><strong>${escapeHtml(l.idoc)}</strong></td>
-            <td>${escapeHtml(l.tipo)}</td>
-            <td>${escapeHtml(l.dataInicio)}</td>
-            <td style="text-align: center;">${escapeHtml(l.dias || l.qtdHoras || '-')}</td>
-            <td style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(l.observacao || '-')}</td>
-          </tr>`;
+          html += `<tr>             <td><strong>${escapeHtml(l.idoc)}</strong></td>             <td>${escapeHtml(l.tipo)}</td>             <td>${escapeHtml(l.dataInicio)}</td>             <td style="text-align: center;">${escapeHtml(l.dias || l.qtdHoras || '-')}</td>             <td style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(l.observacao || '-')}</td>           </tr>`;
         });
         tabelaHist.innerHTML = html;
       })
@@ -652,23 +606,7 @@ function renderizarTabelaLancamentos(listaFiltrada) {
     // Verifica se possui anexos vinculados
     const possuiAnexos = l.anexo1 || l.anexo2 || l.anexo3;
     
-    html += `<tr>
-      <td><strong>${escapeHtml(l.idoc)}</strong></td>
-      <td>${escapeHtml(l.dataSolicitacao)}</td>
-      <td>${escapeHtml(l.tipo)}</td>
-      <td>${escapeHtml(l.nome)} (${escapeHtml(l.matricula)})</td>
-      <td>${escapeHtml(l.dataInicio)}</td>
-      <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (escapeHtml(l.qtdHoras) || '-')}</td>
-      <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>
-      <td>
-        <div class="action-buttons">
-          ${possuiAnexos ? `<button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos"><span data-lucide="paperclip" style="width: 14px; height: 14px;"></span></button>` : ''}
-          <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Lançamento">
-            <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
-          </button>
-        </div>
-      </td>
-    </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(l.idoc)}</strong></td>       <td>${escapeHtml(l.dataSolicitacao)}</td>       <td>${escapeHtml(l.tipo)}</td>       <td>${escapeHtml(l.nome)} (${escapeHtml(l.matricula)})</td>       <td>${escapeHtml(l.dataInicio)}</td>       <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (escapeHtml(l.qtdHoras) || '-')}</td>       <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>       <td>         <div class="action-buttons">           ${possuiAnexos ? `<button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos"><span data-lucide="paperclip" style="width: 14px; height: 14px;"></span></button>` : ''}           <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Lançamento">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
   });
 
   tbody.innerHTML = html;
@@ -768,9 +706,7 @@ function buscarServidorAutocomplete() {
   
   let html = "";
   sugestoes.forEach(s => {
-    html += `<div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); font-size: 13px;" onclick="selecionarServidorAutocomplete('${s.matricula}', '${s.nome}', '${s.cargo}', '${s.lotacao}', '${s.saldoHoje}')">
-      <strong>${s.nome}</strong> (Matrícula: ${s.matricula})
-    </div>`;
+    html += `<div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); font-size: 13px;" onclick="selecionarServidorAutocomplete('${s.matricula}', '${s.nome}', '${s.cargo}', '${s.lotacao}', '${s.saldoHoje}')">       <strong>${s.nome}</strong> (Matrícula: ${s.matricula})     </div>`;
   });
   
   listagem.innerHTML = html;
@@ -1096,23 +1032,7 @@ function renderizarTabelaProtocolos(listaFiltrada) {
       statusClass = "badge-ativo"; // verde
     }
     
-    html += `<tr>
-      <td><strong>${escapeHtml(p.id)}</strong></td>
-      <td>${escapeHtml(p.dataGeracao)}</td>
-      <td style="text-align: center;">${p.qtdDocumentos} documentos</td>
-      <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>
-      <td>${escapeHtml(p.criadoPor)}</td>
-      <td>
-        <div class="action-buttons">
-          <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">
-            <span data-lucide="printer" style="width: 14px; height: 14px;"></span>
-          </button>
-          <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="${escapeHtml(p.status)}" title="Transicionar Status Físico">
-            <span data-lucide="git-pull-request" style="width: 14px; height: 14px;"></span>
-          </button>
-        </div>
-      </td>
-    </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(p.id)}</strong></td>       <td>${escapeHtml(p.dataGeracao)}</td>       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>       <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>       <td>${escapeHtml(p.criadoPor)}</td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="${escapeHtml(p.status)}" title="Transicionar Status Físico">             <span data-lucide="git-pull-request" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
   });
   
   tbody.innerHTML = html;
@@ -1171,16 +1091,7 @@ function abrirModalCriarProtocolo() {
       
       let html = "";
       pendentes.forEach(p => {
-        html += `<tr>
-          <td style="text-align: center;">
-            <input type="checkbox" name="chk-lancamento-pendente" value="${p.linhaPlanilha}" onchange="atualizarQuantidadeSelecionadosProtocolo()">
-          </td>
-          <td><strong>${escapeHtml(p.nome)}</strong> (${escapeHtml(p.matricula)})</td>
-          <td>${escapeHtml(p.tipo)}</td>
-          <td>${escapeHtml(p.dataInicio)}</td>
-          <td style="text-align: center;">${p.dias > 0 ? p.dias + ' dias' : (escapeHtml(p.qtdHoras) || '-')}</td>
-          <td>${escapeHtml(p.idoc) || 'Aguardando Assinatura'}</td>
-        </tr>`;
+        html += `<tr>           <td style="text-align: center;">             <input type="checkbox" name="chk-lancamento-pendente" value="${p.linhaPlanilha}" onchange="atualizarQuantidadeSelecionadosProtocolo()">           </td>           <td><strong>${escapeHtml(p.nome)}</strong> (${escapeHtml(p.matricula)})</td>           <td>${escapeHtml(p.tipo)}</td>           <td>${escapeHtml(p.dataInicio)}</td>           <td style="text-align: center;">${p.dias > 0 ? p.dias + ' dias' : (escapeHtml(p.qtdHoras) || '-')}</td>           <td>${escapeHtml(p.idoc) || 'Aguardando Assinatura'}</td>         </tr>`;
       });
       
       tbody.innerHTML = html;
@@ -1413,59 +1324,28 @@ function desenharTabelaRelatorio(tipo, dados) {
     htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo</th><th style='text-align:center;'>Projetado</th><th>Info Períodos</th>";
     
     dados.forEach(s => {
-      htmlBody += `<tr>
-        <td><strong>${escapeHtml(s.nome)}</strong></td>
-        <td>${escapeHtml(s.matricula)}</td>
-        <td>${escapeHtml(s.cargo)}</td>
-        <td>${escapeHtml(s.lotacao)}</td>
-        <td style='text-align:center;'>${s.saldoHoje} d</td>
-        <td style='text-align:center;'>${s.projetado} d</td>
-        <td style='font-size:12px; color: var(--text-secondary);'>${escapeHtml(s.infoFerias)}</td>
-      </tr>`;
+      htmlBody += `<tr>         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>         <td style='text-align:center;'>${s.projetado} d</td>         <td style='font-size:12px; color: var(--text-secondary);'>${escapeHtml(s.infoFerias)}</td>       </tr>`;
     });
   } else if (tipo === 'calendario_ausencias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Tipo de Ausência", "Início", "Fim", "Total de Dias"];
     htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Tipo de Ausência</th><th style='text-align:center;'>Início</th><th style='text-align:center;'>Fim</th><th style='text-align:center;'>Dias</th>";
     
     dados.forEach(a => {
-      htmlBody += `<tr>
-        <td><strong>${escapeHtml(a.nome)}</strong></td>
-        <td>${escapeHtml(a.matricula)}</td>
-        <td>${escapeHtml(a.tipo)}</td>
-        <td style='text-align:center;'>${escapeHtml(a.inicio)}</td>
-        <td style='text-align:center;'>${escapeHtml(a.fim)}</td>
-        <td style='text-align:center;'>${a.dias}</td>
-      </tr>`;
+      htmlBody += `<tr>         <td><strong>${escapeHtml(a.nome)}</strong></td>         <td>${escapeHtml(a.matricula)}</td>         <td>${escapeHtml(a.tipo)}</td>         <td style='text-align:center;'>${escapeHtml(a.inicio)}</td>         <td style='text-align:center;'>${escapeHtml(a.fim)}</td>         <td style='text-align:center;'>${a.dias}</td>       </tr>`;
     });
   } else if (tipo === 'resumo_mensal') {
     colunasUltimoRelatorio = ["1Doc", "Data", "Tipo", "Servidor", "Matrícula", "Data Saída", "Dias/Qtd", "Status"];
     htmlHead += "<th>1Doc / Prot.</th><th>Data Solicitação</th><th>Tipo Documento</th><th>Servidor</th><th>Matrícula</th><th style='text-align:center;'>Data Início</th><th style='text-align:center;'>Duração</th><th>Status</th>";
     
     dados.forEach(l => {
-      htmlBody += `<tr>
-        <td><strong>${escapeHtml(l.idoc)}</strong></td>
-        <td>${escapeHtml(l.dataSolicitacao)}</td>
-        <td>${escapeHtml(l.tipo)}</td>
-        <td>${escapeHtml(l.nome)}</td>
-        <td>${escapeHtml(l.matricula)}</td>
-        <td style='text-align:center;'>${escapeHtml(l.dataInicio)}</td>
-        <td style='text-align:center;'>${l.dias > 0 ? l.dias + ' d' : (escapeHtml(l.qtdHoras) || '-')}</td>
-        <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${escapeHtml(l.status)}</span></td>
-      </tr>`;
+      htmlBody += `<tr>         <td><strong>${escapeHtml(l.idoc)}</strong></td>         <td>${escapeHtml(l.dataSolicitacao)}</td>         <td>${escapeHtml(l.tipo)}</td>         <td>${escapeHtml(l.nome)}</td>         <td>${escapeHtml(l.matricula)}</td>         <td style='text-align:center;'>${escapeHtml(l.dataInicio)}</td>         <td style='text-align:center;'>${l.dias > 0 ? l.dias + ' d' : (escapeHtml(l.qtdHoras) || '-')}</td>         <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${escapeHtml(l.status)}</span></td>       </tr>`;
     });
   } else if (tipo === 'abonos_anuais') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Lotação", "Abonadas Usadas", "Cota Limite", "Saldo Restante"];
     htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Lotação</th><th style='text-align:center;'>Abonadas Usadas</th><th style='text-align:center;'>Cota Limite</th><th style='text-align:center;'>Saldo Restante</th>";
     
     dados.forEach(a => {
-      htmlBody += `<tr>
-        <td><strong>${escapeHtml(a.nome)}</strong></td>
-        <td>${escapeHtml(a.matricula)}</td>
-        <td>${escapeHtml(a.lotacao)}</td>
-        <td style='text-align:center;'>${a.abonosUsados} / ${a.limiteAnual}</td>
-        <td style='text-align:center;'>${a.limiteAnual}</td>
-        <td style='text-align:center; font-weight:bold; color: ${a.saldoRestante === 0 ? 'var(--status-leave-text)' : 'var(--status-active-text)'}'>${a.saldoRestante} d</td>
-      </tr>`;
+      htmlBody += `<tr>         <td><strong>${escapeHtml(a.nome)}</strong></td>         <td>${escapeHtml(a.matricula)}</td>         <td>${escapeHtml(a.lotacao)}</td>         <td style='text-align:center;'>${a.abonosUsados} / ${a.limiteAnual}</td>         <td style='text-align:center;'>${a.limiteAnual}</td>         <td style='text-align:center; font-weight:bold; color: ${a.saldoRestante === 0 ? 'var(--status-leave-text)' : 'var(--status-active-text)'}'>${a.saldoRestante} d</td>       </tr>`;
     });
   }
   
@@ -1551,22 +1431,7 @@ function imprimirRelatorioLocal() {
   
   const area = document.getElementById('print-area-relatorio');
   
-  let html = `
-    <div style="font-family: Arial, sans-serif; color: #000; line-height: 1.5;">
-      
-      <!-- Cabeçalho Oficial SETUR -->
-      <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px;">
-        <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">Prefeitura Municipal de São Sebastião</h2>
-        <h3 style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #555; text-transform: uppercase;">Secretaria de Turismo - SETUR</h3>
-        <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold;">${tituloUltimoRelatorio}</p>
-        <p style="margin: 5px 0 0 0; font-size: 11px; color: #777;">Gerado em: ${new Date().toLocaleString('pt-BR')}</p>
-      </div>
-
-      <!-- Tabela -->
-      <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 40px;">
-        <thead>
-          <tr style="background-color: #f2f2f2;">
-  `;
+  let html = `     <div style="font-family: Arial, sans-serif; color: #000; line-height: 1.5;">              <!-- Cabeçalho Oficial SETUR -->       <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px;">         <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">Prefeitura Municipal de São Sebastião</h2>         <h3 style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #555; text-transform: uppercase;">Secretaria de Turismo - SETUR</h3>         <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold;">${tituloUltimoRelatorio}</p>         <p style="margin: 5px 0 0 0; font-size: 11px; color: #777;">Gerado em: ${new Date().toLocaleString('pt-BR')}</p>       </div>        <!-- Tabela -->       <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 40px;">         <thead>           <tr style="background-color: #f2f2f2;">   `;
   
   // Cabeçalho da tabela
   colunasUltimoRelatorio.forEach(col => {
@@ -1696,22 +1561,7 @@ function renderizarTabelaUsuarios() {
   AppState.usuarios.forEach(u => {
     let badgeClass = u.ativo === "Sim" ? "badge-ativo" : "badge-inativo";
     
-    html += `<tr>
-      <td><strong>${escapeHtml(u.email)}</strong></td>
-      <td>${escapeHtml(u.nome)}</td>
-      <td>${escapeHtml(u.papel)}</td>
-      <td><span class="badge ${badgeClass}">${u.ativo === "Sim" ? "Ativo" : "Bloqueado"}</span></td>
-      <td>
-        <div class="action-buttons">
-          <button class="btn-action" data-action="editar-usr" data-email="${escapeHtml(u.email)}" title="Editar Usuário">
-            <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
-          </button>
-          <button class="btn-action btn-delete" data-action="desativar-usr" data-email="${escapeHtml(u.email)}" title="Desativar Usuário">
-            <span data-lucide="shield-alert" style="width: 14px; height: 14px;"></span>
-          </button>
-        </div>
-      </td>
-    </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(u.email)}</strong></td>       <td>${escapeHtml(u.nome)}</td>       <td>${escapeHtml(u.papel)}</td>       <td><span class="badge ${badgeClass}">${u.ativo === "Sim" ? "Ativo" : "Bloqueado"}</span></td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="editar-usr" data-email="${escapeHtml(u.email)}" title="Editar Usuário">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action btn-delete" data-action="desativar-usr" data-email="${escapeHtml(u.email)}" title="Desativar Usuário">             <span data-lucide="shield-alert" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
   });
   
   tbody.innerHTML = html || `<tr><td colspan="5" style="text-align:center;">Nenhum usuário cadastrado.</td></tr>`;
@@ -1810,16 +1660,7 @@ function renderizarTabelaConfiguracoes() {
   let html = "";
   
   AppState.configs.forEach(c => {
-    html += `<tr>
-      <td><strong>${escapeHtml(c.chave)}</strong></td>
-      <td><input type="text" class="form-control" style="max-width:300px; padding:6px 12px;" value="${escapeHtml(c.valor)}" id="cfg-val-${c.linhaPlanilha}"></td>
-      <td style="font-size:12px; color: var(--text-secondary);">${escapeHtml(c.descricao)}</td>
-      <td>
-        <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="editarValorConfiguracao(${c.linhaPlanilha}, '${escapeHtml(c.chave)}')">
-          Salvar
-        </button>
-      </td>
-    </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(c.chave)}</strong></td>       <td><input type="text" class="form-control" style="max-width:300px; padding:6px 12px;" value="${escapeHtml(c.valor)}" id="cfg-val-${c.linhaPlanilha}"></td>       <td style="font-size:12px; color: var(--text-secondary);">${escapeHtml(c.descricao)}</td>       <td>         <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="editarValorConfiguracao(${c.linhaPlanilha}, '${escapeHtml(c.chave)}')">           Salvar         </button>       </td>     </tr>`;
   });
   
   tbody.innerHTML = html || `<tr><td colspan="4" style="text-align:center;">Nenhuma configuração disponível.</td></tr>`;
@@ -1882,16 +1723,7 @@ function renderizarTabelaLogs(listaFiltrada) {
   
   let html = "";
   logs.slice(0, 150).forEach(l => { // Limita exibição em 150 itens por performance
-    html += `<tr>
-      <td style="font-size:11px; white-space:nowrap;">${escapeHtml(l.dataHora)}</td>
-      <td style="font-size:12px;"><strong>${escapeHtml(l.usuario)}</strong></td>
-      <td style="font-size:11px; font-weight:600;">${escapeHtml(l.acao)}</td>
-      <td style="font-size:12px;">${escapeHtml(l.modulo)}</td>
-      <td style="font-size:12px; color: var(--text-secondary); max-width: 250px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(l.descricao)}</td>
-      <td style="font-size:11px; color: var(--text-muted);">${escapeHtml(l.campoAlterado) || '-'}</td>
-      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(l.valorAntes)}">${escapeHtml(l.valorAntes) || '-'}</td>
-      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(l.valorDepois)}">${escapeHtml(l.valorDepois) || '-'}</td>
-    </tr>`;
+    html += `<tr>       <td style="font-size:11px; white-space:nowrap;">${escapeHtml(l.dataHora)}</td>       <td style="font-size:12px;"><strong>${escapeHtml(l.usuario)}</strong></td>       <td style="font-size:11px; font-weight:600;">${escapeHtml(l.acao)}</td>       <td style="font-size:12px;">${escapeHtml(l.modulo)}</td>       <td style="font-size:12px; color: var(--text-secondary); max-width: 250px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(l.descricao)}</td>       <td style="font-size:11px; color: var(--text-muted);">${escapeHtml(l.campoAlterado) || '-'}</td>       <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(l.valorAntes)}">${escapeHtml(l.valorAntes) || '-'}</td>       <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(l.valorDepois)}">${escapeHtml(l.valorDepois) || '-'}</td>     </tr>`;
   });
   
   tbody.innerHTML = html;
