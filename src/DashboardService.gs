@@ -10,7 +10,7 @@ function obterResumoDashboard() {
   // Garante que o usuário tem acesso antes de prosseguir
   obterDadosUsuarioLogado();
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   
@@ -26,9 +26,13 @@ function obterResumoDashboard() {
     const dadosServ = abaServ.getDataRange().getValues();
     // Identificar a posição das colunas
     const cabecalho = dadosServ[0];
-    const colAtivoIdx = cabecalho.indexOf("Ativo");
-    const colInfoFeriasIdx = cabecalho.indexOf("Info_Férias");
-    const colMatriculaIdx = cabecalho.indexOf("MATRÍCULA");
+    const colAtivoIdx = indiceCabecalho_(cabecalho, ["ATIVO"]);
+    const colInfoFeriasIdx = indiceCabecalho_(cabecalho, ["INFO FERIAS"]);
+    const colMatriculaIdx = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+
+    if (colMatriculaIdx === -1) {
+      throw new Error("Cabecalho MATRICULA nao encontrado na aba Servidores.");
+    }
     
     for (let i = 1; i < dadosServ.length; i++) {
       let matricula = String(dadosServ[i][colMatriculaIdx]).trim();
@@ -54,9 +58,10 @@ function obterResumoDashboard() {
   const abaProt = ss.getSheetByName("Protocolos");
   if (abaProt) {
     const dadosProt = abaProt.getDataRange().getValues();
-    // Coluna 2 (index 2) = Status
+    const cabecalhoProt = dadosProt[0] || [];
+    const idxStatusProt = indiceCabecalho_(cabecalhoProt, ["STATUS", "STATUS DE ENVIO"]);
     for (let i = 1; i < dadosProt.length; i++) {
-      let status = String(dadosProt[i][2]).trim().toLowerCase();
+      let status = idxStatusProt !== -1 ? String(dadosProt[i][idxStatusProt]).trim().toLowerCase() : "";
       if (status === "pendente" || status === "aguardando assinatura") {
         totalProtocolosPendentes++;
       }
@@ -68,41 +73,36 @@ function obterResumoDashboard() {
   if (abaLanc) {
     const dadosLanc = abaLanc.getDataRange().getValues();
     
-    // Mapeamento de colunas baseado nas constantes do script original
-    const COL_TIPO = 3;        // Coluna C (índice 2)
-    const COL_NOME = 5;        // Coluna E (índice 4)
-    const COL_DATA_INICIO = 9; // Coluna I (índice 8)
-    const COL_DIAS = 13;       // Coluna M (índice 12)
-    const COL_MATRICULA = 6;   // Coluna F (índice 5)
+    const cabecalhoLanc = dadosLanc[0];
+    const idxLanc = obterIndicesColunasLancamentos_(cabecalhoLanc);
     
     for (let i = 1; i < dadosLanc.length; i++) {
       let linha = dadosLanc[i];
-      let tipoDoc = String(linha[COL_TIPO - 1]).trim();
-      let nomeBruto = String(linha[COL_NOME - 1]).trim();
-      let matricula = String(linha[COL_MATRICULA - 1]).trim();
-      let dias = parseInt(linha[COL_DIAS - 1]) || 1;
+      let tipoDoc = idxLanc.tipo !== -1 ? String(linha[idxLanc.tipo]).trim() : "";
+      let nomeBruto = idxLanc.nome !== -1 ? String(linha[idxLanc.nome]).trim() : "";
+      let matricula = idxLanc.matricula !== -1 ? String(linha[idxLanc.matricula]).trim() : "";
+      let diasLanc = obterDiasLancamento_(linha, idxLanc);
       
       // Ignora lançamentos anulados ou de tipo "Não efetivado"
       if (!tipoDoc || tipoDoc.toLowerCase().includes("não efetivado") || tipoDoc.toLowerCase().includes("anulado")) {
         continue;
       }
       
-      let dataInicio = normalizarDataDashboard(linha[COL_DATA_INICIO - 1]);
+      let dataInicio = idxLanc.dataInicio !== -1 ? normalizarDataDashboard(linha[idxLanc.dataInicio]) : null;
       if (!dataInicio) continue;
       
       // Calcula data de término da ausência
       let dataFim = new Date(dataInicio);
-      dataFim.setDate(dataInicio.getDate() + (dias - 1));
+      dataFim.setDate(dataInicio.getDate() + (diasLanc - 1));
       dataFim.setHours(0, 0, 0, 0);
       
-      // Verifica se HOJE está entre a Data de Início e Fim da ausência
       if (hoje >= dataInicio && hoje <= dataFim) {
         totalAusentesHoje++;
         
         let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
         let periodoStr = formatarDataDashboard(dataInicio);
-        if (dias > 1) {
-          periodoStr += " até " + formatarDataDashboard(dataFim);
+        if (diasLanc > 1) {
+          periodoStr += " ate " + formatarDataDashboard(dataFim);
         }
         
         listaAusentes.push({

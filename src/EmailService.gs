@@ -8,7 +8,7 @@
  * Acionado por gatilho de tempo do Apps Script
  */
 function verificarEEnviarEmailsDiarios() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaConfig = ss.getSheetByName("Configuracoes");
   const abaLanc = ss.getSheetByName("Lançamentos");
   

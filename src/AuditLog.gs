@@ -36,7 +36,7 @@ function lancarLogSemLock_(acao, modulo, descricao, campoAlterado, valorAntes, v
  */
 function lancarLogInterno_(acao, modulo, descricao, campoAlterado, valorAntes, valorDepois, idRegistro) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = obterPlanilha_();
     const abaLogs = ss.getSheetByName("Logs");
 
     if (!abaLogs) {

@@ -38,12 +38,12 @@ function processarCreditosGerais_(diasFuturos, exibirAlertas) {
   }
   
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = obterPlanilha_();
     const abaServ = ss.getSheetByName("Servidores");
     const abaCred = ss.getSheetByName("Creditos_Ferias");
     
     if (!abaServ || !abaCred) {
-      lancarLog("ERRO_CREDITOS", "Creditos_Ferias", "Erro ao executar rotina: abas Servidores ou Creditos_Ferias não encontradas.", "", "", "", "");
+      lancarLogSemLock_("ERRO_CREDITOS", "Creditos_Ferias", "Erro ao executar rotina: abas Servidores ou Creditos_Ferias não encontradas.", "", "", "", "");
       return { novos: 0, duplicados: 0, erros: 0 };
     }
     

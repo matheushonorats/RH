@@ -34,7 +34,7 @@ function obterRelatorioSituacaoFerias() {
 function obterRelatorioAusenciasCalendario(dataInicioStr, dataFimStr) {
   obterDadosUsuarioLogado();
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (!abaLanc) return [];
   
@@ -105,7 +105,7 @@ function obterRelatorioResumoMensal(mes, ano) {
 function obterRelatorioAbonosAnuais() {
   obterDadosUsuarioLogado();
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaServ = ss.getSheetByName("Servidores");
   const abaLanc = ss.getSheetByName("Lançamentos");
   
@@ -185,7 +185,7 @@ function obterRelatorioLogs() {
     throw new Error("Apenas Administradores têm permissão para ver os logs de auditoria.");
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaLogs = ss.getSheetByName("Logs");
   if (!abaLogs) return [];
   

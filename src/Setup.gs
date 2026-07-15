@@ -71,7 +71,7 @@ const CONFIG_SETUP = {
  * uma única vez após fazer a cópia da planilha.
  */
 function executarConfiguracaoInicial() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = registrarPlanilhaAtual_();
   let ui = null;
   try {
     ui = SpreadsheetApp.getUi();

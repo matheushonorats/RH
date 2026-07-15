@@ -9,7 +9,7 @@
 function obterListaServidores() {
   obterDadosUsuarioLogado();
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Servidores");
   if (!aba) return [];
   
@@ -18,17 +18,21 @@ function obterListaServidores() {
   
   const cabecalho = dados[0];
   
-  const idxNome = cabecalho.indexOf("NOME");
-  const idxMatricula = cabecalho.indexOf("MATRÍCULA");
-  const idxCargo = cabecalho.indexOf("CARGO");
-  const idxLotacao = cabecalho.indexOf("LOTAÇÃO");
-  const idxAdmissao = cabecalho.indexOf("Data de Admissão");
-  const idxSituacao = cabecalho.indexOf("SITUAÇÃO");
-  const idxEmail = cabecalho.indexOf("E-mail");
-  const idxSaldoHoje = cabecalho.indexOf("Férias | Saldo Hoje");
-  const idxProjetado = cabecalho.indexOf("Projetado (este ano)");
-  const idxInfoFerias = cabecalho.indexOf("Info_Férias");
-  const idxAtivo = cabecalho.indexOf("Ativo");
+  const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
+  const idxMatricula = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+  const idxCargo = indiceCabecalho_(cabecalho, ["CARGO"]);
+  const idxLotacao = indiceCabecalho_(cabecalho, ["LOTACAO"]);
+  const idxAdmissao = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
+  const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
+  const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
+  const idxSaldoHoje = indiceCabecalho_(cabecalho, ["FERIAS SALDO HOJE", "SALDO HOJE", "SALDO FERIAS"]);
+  const idxProjetado = indiceCabecalho_(cabecalho, ["PROJETADO ESTE ANO", "PROJETADO"]);
+  const idxInfoFerias = indiceCabecalho_(cabecalho, ["INFO FERIAS"]);
+  const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
+
+  if (idxNome === -1 || idxMatricula === -1) {
+    throw new Error("Cabecalhos NOME/MATRICULA nao encontrados em Servidores. Encontrados: " + cabecalho.join(" | "));
+  }
   
   // Otimização O(N + M): Carrega status de ausentes em lote para evitar leituras consecutivas
   const mapaStatus = construirMapaStatusServidores_(ss);
@@ -80,6 +84,7 @@ function salvarServidor(dadosServidor) {
   }
 
   const lock = LockService.getScriptLock();
+  let gerarCreditosDepois = false;
   try {
     lock.waitLock(10000);
   } catch (e) {
@@ -87,21 +92,21 @@ function salvarServidor(dadosServidor) {
   }
 
   try {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Servidores");
   if (!aba) throw new Error("Aba 'Servidores' não encontrada.");
 
   const dados = aba.getDataRange().getValues();
   const cabecalho = dados[0];
 
-  const idxNome = cabecalho.indexOf("NOME");
-  const idxMatricula = cabecalho.indexOf("MATRÍCULA");
-  const idxCargo = cabecalho.indexOf("CARGO");
-  const idxLotacao = cabecalho.indexOf("LOTAÇÃO");
-  const idxAdmissao = cabecalho.indexOf("Data de Admissão");
-  const idxSituacao = cabecalho.indexOf("SITUAÇÃO");
-  const idxEmail = cabecalho.indexOf("E-mail");
-  const idxAtivo = cabecalho.indexOf("Ativo");
+  const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
+  const idxMatricula = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+  const idxCargo = indiceCabecalho_(cabecalho, ["CARGO"]);
+  const idxLotacao = indiceCabecalho_(cabecalho, ["LOTACAO"]);
+  const idxAdmissao = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
+  const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
+  const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
+  const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
 
   const matriculaBusca = String(dadosServidor.matricula).trim();
   let linhaEdit = -1;
@@ -169,17 +174,21 @@ function salvarServidor(dadosServidor) {
 
     lancarLogSemLock_("CRIAR_SERVIDOR", "Servidores", "Cadastrou novo servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "", "", JSON.stringify(dadosServidor), matriculaBusca);
 
+    gerarCreditosDepois = true;
+  }
+  } finally {
+    lock.releaseLock();
+  }
+
+  if (gerarCreditosDepois) {
     try {
       gerarCreditosAutomaticos();
     } catch(e) {
-      lancarLogSemLock_("ERRO_AUTO_CREDITOS", "Creditos_Ferias", "Erro ao gerar créditos automáticos para novo cadastro: " + e.toString(), "", "", "", matriculaBusca);
+      lancarLog("ERRO_AUTO_CREDITOS", "Creditos_Ferias", "Erro ao gerar créditos automáticos para novo cadastro: " + e.toString(), "", "", "", String(dadosServidor.matricula).trim());
     }
   }
 
   return true;
-  } finally {
-    lock.releaseLock();
-  }
 }
 
 /**
@@ -190,14 +199,14 @@ function desativarServidor(matricula) {
     throw new Error("Você não possui permissão para desativar cadastros de servidores.");
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Servidores");
   if (!aba) throw new Error("Aba 'Servidores' não encontrada.");
   
   const dados = aba.getDataRange().getValues();
   const cabecalho = dados[0];
-  const idxMatricula = cabecalho.indexOf("MATRÍCULA");
-  const idxAtivo = cabecalho.indexOf("Ativo");
+  const idxMatricula = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+  const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
   
   if (idxAtivo === -1) {
     throw new Error("Coluna 'Ativo' de controle de status não encontrada. Execute o setup novamente.");
@@ -208,7 +217,7 @@ function desativarServidor(matricula) {
       const linhaPlanilha = i + 1;
       aba.getRange(linhaPlanilha, idxAtivo + 1).setValue("Não");
       
-      let nome = dados[i][cabecalho.indexOf("NOME")];
+      let nome = dados[i][indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"])];
       lancarLog("DESATIVAR_SERVIDOR", "Servidores", "Desativou cadastro do servidor: " + nome + " (Matrícula: " + matricula + ")", "Ativo", "Sim", "Não", matricula);
       return true;
     }
@@ -228,10 +237,15 @@ function construirMapaStatusServidores_(ss) {
   if (dadosLanc.length <= 1) return {};
   
   const cabecalho = dadosLanc[0];
-  const colIdxTipo = cabecalho.indexOf("Tipo");
-  const colIdxMat = cabecalho.indexOf("MATRÍCULA");
-  const colIdxDataIni = cabecalho.indexOf("Data de Início");
-  const colIdxDias = cabecalho.indexOf("Dias");
+  const colIdxTipo = indiceCabecalho_(cabecalho, ["TIPO DE DOCUMENTO", "TIPO"]);
+  const colIdxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+  const colIdxDataIni = indiceCabecalho_(cabecalho, ["DATA INICIO", "DATA DE INICIO", "DATA DE SAIDA FALTA"]);
+  const idxDias = indiceCabecalho_(cabecalho, ["DIAS", "QTD DIAS"]);
+  const idxDiasFerias = indiceCabecalho_(cabecalho, ["QUANTIDADE FERIAS", "QTD FERIAS"]);
+
+  if (colIdxTipo === -1 || colIdxMat === -1 || colIdxDataIni === -1) return {};
+  
+  const idxParaDias = { dias: idxDias, diasFerias: idxDiasFerias };
   
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
@@ -249,7 +263,7 @@ function construirMapaStatusServidores_(ss) {
     let dataInicio = normalizarDataServidorObjeto_(linha[colIdxDataIni]);
     if (!dataInicio) continue;
     
-    let dias = parseInt(linha[colIdxDias]) || 1;
+    let dias = obterDiasLancamento_(linha, idxParaDias);
     let dataFim = new Date(dataInicio);
     dataFim.setDate(dataInicio.getDate() + (dias - 1));
     dataFim.setHours(0, 0, 0, 0);

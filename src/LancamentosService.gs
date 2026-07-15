@@ -8,27 +8,39 @@
  */
 function obterIndicesColunasLancamentos_(cabecalho) {
   return {
-    idoc: cabecalho.indexOf("1Doc"),
-    dataSolicitacao: cabecalho.indexOf("Data"),
-    tipo: cabecalho.indexOf("Tipo"),
-    nome: cabecalho.indexOf("Nome"),
-    matricula: cabecalho.indexOf("MATRÍCULA"),
-    dataInicio: cabecalho.indexOf("Data de Início"),
-    dias: cabecalho.indexOf("Dias"),
-    mes: cabecalho.indexOf("Mês"),
-    ano: cabecalho.indexOf("Ano"),
-    qtdHoras: cabecalho.indexOf("Quant. Horas"),
-    anexo1: cabecalho.indexOf("anexo1"),
-    anexo2: cabecalho.indexOf("anexo2"),
-    anexo3: cabecalho.indexOf("anexo3"),
-    despacho: cabecalho.indexOf("Despacho"),
-    observacao: cabecalho.indexOf("Observação"),
-    idProtocolo: cabecalho.indexOf("ID_Protocolo"), // Coluna adicionada no Setup
-    criadoPor: cabecalho.indexOf("Criado_Por"),
-    criadoEm: cabecalho.indexOf("Criado_Em"),
-    editadoPor: cabecalho.indexOf("Editado_Por"),
-    editadoEm: cabecalho.indexOf("Editado_Em")
+    id:              indiceCabecalho_(cabecalho, ["ID"]),
+    idoc:            indiceCabecalho_(cabecalho, ["N PROC 1DOC", "1DOC", "PROTOCOLO", "N 1DOC"]),
+    dataSolicitacao: indiceCabecalho_(cabecalho, ["DATA", "DATA SOLICITACAO"]),
+    tipo:            indiceCabecalho_(cabecalho, ["TIPO DE DOCUMENTO", "TIPO"]),
+    nome:            indiceCabecalho_(cabecalho, ["NOME", "SERVIDOR"]),
+    matricula:       indiceCabecalho_(cabecalho, ["MATRICULA"]),
+    dataInicio:      indiceCabecalho_(cabecalho, ["DATA INICIO", "DATA DE INICIO", "DATA DE SAIDA FALTA"]),
+    diasFerias:      indiceCabecalho_(cabecalho, ["QUANTIDADE FERIAS", "QTD FERIAS"]),
+    dias:            indiceCabecalho_(cabecalho, ["DIAS", "QTD DIAS"]),
+    mes:             indiceCabecalho_(cabecalho, ["MES HE", "MES"]),
+    ano:             indiceCabecalho_(cabecalho, ["ANO HE", "ANO"]),
+    qtdHoras:        indiceCabecalho_(cabecalho, ["QUANTIDADE HE", "QUANT HORAS", "QTD HORAS"]),
+    anexo1:          indiceCabecalho_(cabecalho, ["ANEXO 1", "ANEXO1"]),
+    anexo2:          indiceCabecalho_(cabecalho, ["ANEXO 2", "ANEXO2"]),
+    anexo3:          indiceCabecalho_(cabecalho, ["ANEXO 3", "ANEXO3"]),
+    despacho:        indiceCabecalho_(cabecalho, ["DESPACHO INDIVIDUAL", "DESPACHO"]),
+    observacao:      indiceCabecalho_(cabecalho, ["OBSERVACAO INDIVIDUAL", "OBSERVACAO", "OBSERVACOES"]),
+    idProtocolo:     indiceCabecalho_(cabecalho, ["ID PROTOCOLO"]),
+    criadoPor:       indiceCabecalho_(cabecalho, ["CRIADO POR"]),
+    criadoEm:        indiceCabecalho_(cabecalho, ["CRIADO EM"]),
+    editadoPor:      indiceCabecalho_(cabecalho, ["EDITADO POR"]),
+    editadoEm:       indiceCabecalho_(cabecalho, ["EDITADO EM"])
   };
+}
+
+/**
+ * Retorna a quantidade de dias de um lancamento baseado nos campos disponíveis.
+ * Abonadas nao tem coluna de dias - sao sempre 1 dia.
+ */
+function obterDiasLancamento_(linha, idx) {
+  if (idx.dias !== -1 && parseInt(linha[idx.dias]) > 0) return parseInt(linha[idx.dias]);
+  if (idx.diasFerias !== -1 && parseInt(linha[idx.diasFerias]) > 0) return parseInt(linha[idx.diasFerias]);
+  return 1;
 }
 
 /**
@@ -37,7 +49,7 @@ function obterIndicesColunasLancamentos_(cabecalho) {
 function obterListaLancamentos() {
   obterDadosUsuarioLogado();
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Lançamentos");
   if (!aba) return [];
   
@@ -46,6 +58,10 @@ function obterListaLancamentos() {
   
   const cabecalho = dados[0];
   const idx = obterIndicesColunasLancamentos_(cabecalho);
+
+  if (idx.tipo === -1 || idx.nome === -1) {
+    throw new Error("Cabecalhos TIPO/NOME nao encontrados em Lancamentos. Encontrados: " + cabecalho.join(" | "));
+  }
   
   let lancamentos = [];
   
@@ -56,6 +72,7 @@ function obterListaLancamentos() {
     
     let nomeBruto = idx.nome !== -1 ? String(linha[idx.nome]).trim() : "";
     let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
+    let diasLanc = obterDiasLancamento_(linha, idx);
     
     let statusText = "Ativo";
     if (tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) {
@@ -69,7 +86,7 @@ function obterListaLancamentos() {
       nome: nomeLimpo,
       matricula: idx.matricula !== -1 ? String(linha[idx.matricula]).trim() : "",
       dataInicio: idx.dataInicio !== -1 ? formatarDataLancamento_(linha[idx.dataInicio]) : "",
-      dias: idx.dias !== -1 ? parseInt(linha[idx.dias]) || 0 : 0,
+      dias: diasLanc,
       mes: idx.mes !== -1 ? String(linha[idx.mes]).trim() : "",
       ano: idx.ano !== -1 ? String(linha[idx.ano]).trim() : "",
       qtdHoras: idx.qtdHoras !== -1 ? String(linha[idx.qtdHoras]).trim() : "",
@@ -115,7 +132,7 @@ function salvarLancamento(dadosLanc) {
   }
   
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = obterPlanilha_();
     const aba = ss.getSheetByName("Lançamentos");
     if (!aba) throw new Error("Aba 'Lançamentos' não encontrada.");
     
@@ -279,8 +296,8 @@ function obterInfoServidorBasico_(ss, matricula) {
   if (!abaServ) return null;
   const dados = abaServ.getDataRange().getValues();
   const cabecalho = dados[0];
-  const idxMat = cabecalho.indexOf("MATRÍCULA");
-  const idxNome = cabecalho.indexOf("NOME");
+  const idxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+  const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
   
   for (let i = 1; i < dados.length; i++) {
     if (String(dados[i][idxMat]).trim() === matricula) {

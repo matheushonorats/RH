@@ -10,7 +10,7 @@
 function obterListaProtocolos() {
   obterDadosUsuarioLogado();
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Protocolos");
   if (!aba) return [];
 
@@ -19,21 +19,27 @@ function obterListaProtocolos() {
 
   // Constrói mapa de contagem em única leitura da aba Lançamentos
   const mapaContagem = contarLancamentosPorProtocolo_(ss);
+  const cabecalho = dados[0];
+  const idxId = indiceCabecalho_(cabecalho, ["ID", "ID PROTOCOLO", "PROTOCOLO"]);
+  const idxData = indiceCabecalho_(cabecalho, ["DATA GERACAO", "DATA", "TIMESTAMP"]);
+  const idxStatus = indiceCabecalho_(cabecalho, ["STATUS", "STATUS DE ENVIO"]);
+  const idxLink = indiceCabecalho_(cabecalho, ["LINK DIRETO", "LINK", "ARQUIVO", "PDF"]);
+  const idxCriadoPor = indiceCabecalho_(cabecalho, ["CRIADO POR", "EMITIDO POR", "USUARIO"]);
 
   let protocolos = [];
 
   for (let i = 1; i < dados.length; i++) {
     let linha = dados[i];
-    let id = String(linha[0]).trim();
+    let id = String(linha[idxId !== -1 ? idxId : 0]).trim();
     if (!id) continue;
 
     protocolos.push({
       id: id,
-      dataGeracao: formatarDataProtocolo_(linha[1]),
-      status: String(linha[2]).trim(),
-      linkDireto: String(linha[3]).trim(),
+      dataGeracao: idxData !== -1 ? formatarDataProtocolo_(linha[idxData]) : "",
+      status: idxStatus !== -1 ? String(linha[idxStatus]).trim() : "",
+      linkDireto: idxLink !== -1 ? String(linha[idxLink]).trim() : "",
       qtdDocumentos: mapaContagem[id] || 0,
-      criadoPor: linha[4] ? String(linha[4]).trim() : "Sistema",
+      criadoPor: idxCriadoPor !== -1 && linha[idxCriadoPor] ? String(linha[idxCriadoPor]).trim() : "Sistema",
       linhaPlanilha: i + 1
     });
   }
@@ -62,7 +68,7 @@ function criarProtocolo(linhasLancamentos) {
   }
 
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = obterPlanilha_();
     const abaProt = ss.getSheetByName("Protocolos");
     const abaLanc = ss.getSheetByName("Lançamentos");
 
@@ -133,7 +139,7 @@ function atualizarStatusProtocolo(idProtocolo, novoStatus) {
     throw new Error("Você não possui permissão para alterar o status de protocolos.");
   }
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Protocolos");
   if (!aba) throw new Error("Aba 'Protocolos' não encontrada.");
 
@@ -160,7 +166,7 @@ function atualizarStatusProtocolo(idProtocolo, novoStatus) {
  */
 function obterLancamentosVinculados(idProtocolo) {
   obterDadosUsuarioLogado();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (!abaLanc) return [];
 
@@ -202,7 +208,7 @@ function obterLancamentosVinculados(idProtocolo) {
  */
 function obterLancamentosPendentesProtocolo() {
   obterDadosUsuarioLogado();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (!abaLanc) return [];
 
@@ -246,7 +252,7 @@ function obterLancamentosPendentesProtocolo() {
 function obterHtmlFolhaProtocolo(idProtocolo) {
   obterDadosUsuarioLogado();
 
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaProt = ss.getSheetByName("Protocolos");
   if (!abaProt) throw new Error("Aba 'Protocolos' não encontrada.");
 
@@ -354,12 +360,18 @@ function contarLancamentosPorProtocolo_(ss) {
   if (dados.length <= 1) return {};
 
   const cabecalho = dados[0];
-  const colIdxIDProt = cabecalho.indexOf("ID_Protocolo");
-  if (colIdxIDProt === -1) return {};
+  const colIdxIDProt = indiceCabecalho_(cabecalho, ["ID PROTOCOLO"]);
+  const colIdxObservacao = indiceCabecalho_(cabecalho, ["OBSERVACAO", "OBSERVACOES"]);
+  if (colIdxIDProt === -1 && colIdxObservacao === -1) return {};
 
   let mapa = {};
   for (let i = 1; i < dados.length; i++) {
-    let id = String(dados[i][colIdxIDProt]).trim();
+    let id = colIdxIDProt !== -1 ? String(dados[i][colIdxIDProt]).trim() : "";
+    if (!id && colIdxObservacao !== -1) {
+      const observacao = String(dados[i][colIdxObservacao]).trim();
+      const encontrado = observacao.match(/(?:SETUR-\d{4}-\d{6}|\b[a-f0-9]{8}\b)/i);
+      id = encontrado ? encontrado[0] : "";
+    }
     if (id) mapa[id] = (mapa[id] || 0) + 1;
   }
   return mapa;

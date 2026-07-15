@@ -11,7 +11,7 @@ function obterListaUsuarios() {
     throw new Error("Você não possui permissão para gerenciar usuários.");
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Usuarios");
   if (!aba) return [];
   
@@ -47,7 +47,7 @@ function salvarUsuario(usuario) {
   }
   
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
     const aba = ss.getSheetByName("Usuarios");
     if (!aba) throw new Error("Aba 'Usuarios' não encontrada.");
     
@@ -69,7 +69,7 @@ function salvarUsuario(usuario) {
       aba.getRange(linhaEdit, 3).setValue(usuario.papel);
       aba.getRange(linhaEdit, 4).setValue(usuario.ativo);
       
-      lancarLog("EDITAR_USUARIO", "Usuarios", "Atualizou permissões do e-mail " + emailBusca, "Usuário", valorAntes, JSON.stringify(usuario), emailBusca);
+      lancarLogSemLock_("EDITAR_USUARIO", "Usuarios", "Atualizou permissões do e-mail " + emailBusca, "Usuário", valorAntes, JSON.stringify(usuario), emailBusca);
     } else {
       aba.appendRow([
         emailBusca,
@@ -77,7 +77,7 @@ function salvarUsuario(usuario) {
         usuario.papel,
         "Sim" // Novo usuário inicia Ativo por padrão
       ]);
-      lancarLog("CRIAR_USUARIO", "Usuarios", "Cadastrou novo usuário: " + emailBusca, "", "", JSON.stringify(usuario), emailBusca);
+      lancarLogSemLock_("CRIAR_USUARIO", "Usuarios", "Cadastrou novo usuário: " + emailBusca, "", "", JSON.stringify(usuario), emailBusca);
     }
     
     return true;
@@ -94,7 +94,7 @@ function desativarUsuario(email) {
     throw new Error("Você não possui permissão para gerenciar usuários.");
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Usuarios");
   if (!aba) throw new Error("Aba 'Usuarios' não encontrada.");
   
@@ -125,7 +125,7 @@ function desativarUsuario(email) {
 function obterListaTiposDocumento() {
   obterDadosUsuarioLogado();
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Tipos_Documento");
   if (!aba) return [];
   
@@ -156,7 +156,7 @@ function obterListaConfiguracoes() {
     throw new Error("Você não possui permissão para visualizar configurações.");
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Configuracoes");
   if (!aba) return [];
   
@@ -191,7 +191,7 @@ function salvarConfiguracao(config) {
   }
   
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
     const aba = ss.getSheetByName("Configuracoes");
     if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
     
@@ -200,7 +200,7 @@ function salvarConfiguracao(config) {
       const valorAntes = aba.getRange(linha, 2).getValue();
       aba.getRange(linha, 2).setValue(config.valor);
       
-      lancarLog(
+      lancarLogSemLock_(
         "EDITAR_CONFIG", 
         "Configuracoes", 
         "Alterou configuração da chave " + config.chave + " para: " + config.valor, 

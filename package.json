@@ -11,6 +11,7 @@
     "status": "clasp status"
   },
   "devDependencies": {
-    "@google/clasp": "^2.4.2"
+    "@google/clasp": "^2.4.2",
+    "exceljs": "^4.4.0"
   }
 }

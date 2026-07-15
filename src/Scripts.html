@@ -27,10 +27,22 @@ function escapeHtml(unsafe) {
     .replace(/'/g, "&#039;");
 }
 
+/** Mantém o app funcional mesmo quando o CDN de ícones estiver indisponível. */
+function renderizarIcones() {
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons();
+  }
+}
+
+function mensagemErro(erro) {
+  if (!erro) return "Erro desconhecido.";
+  return erro.message || String(erro);
+}
+
 // Executa automaticamente ao carregar a página
-window.addEventListener('DOMContentLoaded', (event) => {
-  // Inicializa os ícones do Lucide
-  lucide.createIcons();
+window.addEventListener('DOMContentLoaded', () => {
+  // Inicializa os ícones do Lucide quando o CDN estiver disponível.
+  renderizarIcones();
   
   // Busca informações do usuário logado no servidor Google
   inicializarUsuario();
@@ -70,7 +82,7 @@ function navegarPara(idView) {
   document.getElementById('view-title').innerText = titulos[idView] || 'RH Central';
   
   // 5. Recarrega os ícones Lucide para garantir renderização correta
-  lucide.createIcons();
+  renderizarIcones();
   
   // 6. Carrega os dados específicos da view
   carregarDadosDaView(idView);
@@ -142,6 +154,10 @@ function carregarDadosDaView(idView) {
     carregarListaServidores();
   } else if (idView === 'lancamentos') {
     carregarListaLancamentos();
+  } else if (idView === 'protocolos') {
+    carregarListaProtocolos();
+  } else if (idView === 'admin') {
+    alternarAbaAdmin('adm-usuarios');
   }
 }
 
@@ -150,6 +166,8 @@ function carregarDadosDaView(idView) {
  */
 function carregarDashboard() {
   if (typeof google === "undefined" || !google.script) return;
+
+  exibirLoader(true);
   
   google.script.run
     .withSuccessHandler(function(resumo) {
@@ -169,6 +187,12 @@ function carregarDashboard() {
       } else {
         tabela.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
       }
+      exibirLoader(false);
+    })
+    .withFailureHandler(function(erro) {
+      console.error("Erro ao carregar dashboard:", erro);
+      exibirLoader(false);
+      alert("Não foi possível carregar os dados da planilha: " + mensagemErro(erro));
     })
     .obterResumoDashboard(); // Essa função será criada no DashboardService.gs
 }
@@ -178,7 +202,7 @@ function abrirModal(idModal) {
   const modal = document.getElementById(idModal);
   if (modal) {
     modal.classList.add('active');
-    lucide.createIcons();
+    renderizarIcones();
   }
 }
 
@@ -209,7 +233,7 @@ function carregarListaServidores() {
   
   google.script.run
     .withSuccessHandler(function(servidores) {
-      AppState.servidores = servidores;
+      AppState.servidores = Array.isArray(servidores) ? servidores : [];
       renderizarTabelaServidores();
       popularFiltroLotacoes();
       exibirLoader(false);
@@ -226,7 +250,9 @@ function carregarListaServidores() {
  * Renderiza as linhas da tabela de Servidores com base nos dados locais
  */
 function renderizarTabelaServidores(listaFiltrada) {
-  const servidores = listaFiltrada || AppState.servidores;
+  const servidores = Array.isArray(listaFiltrada)
+    ? listaFiltrada
+    : (Array.isArray(AppState.servidores) ? AppState.servidores : []);
   const tbody = document.getElementById('tabela-servidores-body');
   
   if (servidores.length === 0) {
@@ -265,7 +291,7 @@ function renderizarTabelaServidores(listaFiltrada) {
       else if (action === 'desativar-servidor') confirmarDesativacaoServidor(mat, nome);
     });
   });
-  lucide.createIcons();
+  renderizarIcones();
 }
 
 /**
@@ -562,7 +588,7 @@ function carregarListaLancamentos() {
   if (typeof google === "undefined" || !google.script) {
     // Mock local para testes visuais
     AppState.lancamentos = [
-      { idoc: "14.129/2026", dataSolicitacao: "03/07/2026", tipo: "Férias", nome: "CLEUSA ROSA DE OLIVEIRA", matricula: "75280", dataInicio: "03/08/2026", dias: 10, status: "Ativo", anexo1: "https://drive.google.com/open?id=123", anexo2: "", anexo3: "" },
+      { idoc: "14.129/2026", dataSolicitacao: "03/07/2026", tipo: "Férias", nome: "CLEUSA ROSA DE OLIVEIRA", matricula: "75280", dataInicio: "03/08/2026", dias: 10, status: "Ativo", anexo1: "", anexo2: "", anexo3: "" },
       { idoc: "14.097/2026", dataSolicitacao: "02/07/2026", tipo: "Abonada", nome: "EDILEA BARBOSA DO NASCIMENTO", matricula: "74454", dataInicio: "08/07/2026", dias: 1, status: "Ativo", anexo1: "", anexo2: "", anexo3: "" }
     ];
     renderizarTabelaLancamentos();
@@ -572,7 +598,7 @@ function carregarListaLancamentos() {
   
   google.script.run
     .withSuccessHandler(function(lancamentos) {
-      AppState.lancamentos = lancamentos;
+      AppState.lancamentos = Array.isArray(lancamentos) ? lancamentos : [];
       renderizarTabelaLancamentos();
       exibirLoader(false);
     })
@@ -588,7 +614,9 @@ function carregarListaLancamentos() {
  * Renderiza linhas da tabela de Lançamentos
  */
 function renderizarTabelaLancamentos(listaFiltrada) {
-  const lancamentos = listaFiltrada || AppState.lancamentos;
+  const lancamentos = Array.isArray(listaFiltrada)
+    ? listaFiltrada
+    : (Array.isArray(AppState.lancamentos) ? AppState.lancamentos : []);
   const tbody = document.getElementById('tabela-lancamentos-body');
   
   if (lancamentos.length === 0) {
@@ -617,7 +645,7 @@ function renderizarTabelaLancamentos(listaFiltrada) {
       else if (action === 'editar-lanc') abrirModalLancamento(parseInt(this.dataset.linha));
     });
   });
-  lucide.createIcons();
+  renderizarIcones();
 }
 
 /**
@@ -845,7 +873,7 @@ function visualizarAnexos(anexo1, anexo2, anexo3) {
   }
 
   abrirModal('modal-anexos');
-  lucide.createIcons();
+  renderizarIcones();
 }
 
 /**
@@ -1043,7 +1071,7 @@ function renderizarTabelaProtocolos(listaFiltrada) {
       else if (action === 'status-prot') alterarStatusProtocoloTramite(this.dataset.id, this.dataset.status);
     });
   });
-  lucide.createIcons();
+  renderizarIcones();
 }
 
 /**
@@ -1116,7 +1144,7 @@ function atualizarQuantidadeSelecionadosProtocolo() {
 /**
  * Marca/desmarca todas as linhas da lista de pendências
  */
-function marcarTodosLançamentosPendentes(masterCheckbox) {
+function marcarTodosLancamentosPendentes(masterCheckbox) {
   const checkboxes = document.querySelectorAll('input[name="chk-lancamento-pendente"]');
   checkboxes.forEach(cb => {
     cb.checked = masterCheckbox.checked;
@@ -1565,7 +1593,7 @@ function renderizarTabelaUsuarios() {
   });
   
   tbody.innerHTML = html || `<tr><td colspan="5" style="text-align:center;">Nenhum usuário cadastrado.</td></tr>`;
-  lucide.createIcons();
+  renderizarIcones();
 }
 
 function abrirModalUsuario(email) {
@@ -1747,4 +1775,3 @@ function filtrarLogsAuditoria() {
   renderizarTabelaLogs(filtrados);
 }
 </script>
-

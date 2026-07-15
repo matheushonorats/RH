@@ -12,13 +12,15 @@
  */
 function obterDadosUsuarioLogado() {
   const emailAtivo = Session.getActiveUser().getEmail().toLowerCase().trim();
-  const emailProprietario = Session.getEffectiveUser().getEmail().toLowerCase().trim();
+  const emailAdminInicial = String(
+    PropertiesService.getScriptProperties().getProperty(CHAVE_ADMIN_INICIAL) || ""
+  ).toLowerCase().trim();
   
   if (!emailAtivo) {
     throw new Error("Não foi possível identificar seu e-mail do Google. Certifique-se de estar logado.");
   }
   
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = obterPlanilha_();
   const abaUsuarios = ss.getSheetByName("Usuarios");
   
   if (!abaUsuarios) {
@@ -50,7 +52,7 @@ function obterDadosUsuarioLogado() {
   
   // BOOTSTRAP AUTO-ADMIN: Se o usuário logado for o dono da planilha
   // e não estiver cadastrado, cadastra-o automaticamente como Administrador.
-  if (!usuarioEncontrado && emailAtivo === emailProprietario) {
+  if (!usuarioEncontrado && emailAdminInicial && emailAtivo === emailAdminInicial) {
     const nomePadrao = emailAtivo.split("@")[0].toUpperCase();
     abaUsuarios.appendRow([
       emailAtivo,
