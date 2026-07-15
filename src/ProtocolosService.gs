@@ -353,26 +353,27 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
  * Constrói mapa { idProtocolo -> count } lendo Lançamentos uma única vez. O(L). Privada.
  */
 function contarLancamentosPorProtocolo_(ss) {
-  const abaLanc = ss.getSheetByName("Lançamentos");
+  const abaLanc = ss.getSheetByName("Lancamentos") || ss.getSheetByName("Lançamentos");
   if (!abaLanc) return {};
 
   const dados = abaLanc.getDataRange().getValues();
   if (dados.length <= 1) return {};
 
   const cabecalho = dados[0];
-  const colIdxIDProt = indiceCabecalho_(cabecalho, ["ID PROTOCOLO"]);
-  const colIdxObservacao = indiceCabecalho_(cabecalho, ["OBSERVACAO", "OBSERVACOES"]);
-  if (colIdxIDProt === -1 && colIdxObservacao === -1) return {};
+  // Lê tanto ID_Protocolo quanto Link_Protocolo (dados migrados usam Link_Protocolo como ID)
+  const colIdxIDProt  = indiceCabecalho_(cabecalho, ["ID PROTOCOLO"]);
+  const colIdxLinkProt = indiceCabecalho_(cabecalho, ["LINK PROTOCOLO", "LINK PROTOCOLO"]);
+
+  if (colIdxIDProt === -1 && colIdxLinkProt === -1) return {};
 
   let mapa = {};
   for (let i = 1; i < dados.length; i++) {
-    let id = colIdxIDProt !== -1 ? String(dados[i][colIdxIDProt]).trim() : "";
-    if (!id && colIdxObservacao !== -1) {
-      const observacao = String(dados[i][colIdxObservacao]).trim();
-      const encontrado = observacao.match(/(?:SETUR-\d{4}-\d{6}|\b[a-f0-9]{8}\b)/i);
-      id = encontrado ? encontrado[0] : "";
-    }
-    if (id) mapa[id] = (mapa[id] || 0) + 1;
+    let id = "";
+    if (colIdxIDProt !== -1) id = String(dados[i][colIdxIDProt]).trim();
+    if (!id && colIdxLinkProt !== -1) id = String(dados[i][colIdxLinkProt]).trim();
+    // Ignora valores vazios ou "null"
+    if (!id || id === "null" || id === "undefined") continue;
+    mapa[id] = (mapa[id] || 0) + 1;
   }
   return mapa;
 }

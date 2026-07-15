@@ -110,7 +110,7 @@ function obterResumoDashboard() {
           matricula: matricula,
           tipo: tipoDoc,
           periodo: periodoStr,
-          dias: dias
+          dias: diasLanc
         });
       }
     }
