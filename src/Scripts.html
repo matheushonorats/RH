@@ -167,20 +167,396 @@ function carregarDashboard() {
     .obterResumoDashboard(); // Essa função será criada no DashboardService.gs
 }
 
+// Controle de Exibição de Modais
+function abrirModal(idModal) {
+  const modal = document.getElementById(idModal);
+  if (modal) {
+    modal.classList.add('active');
+    lucide.createIcons();
+  }
+}
+
+function fecharModal(idModal) {
+  const modal = document.getElementById(idModal);
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
+/**
+ * Carrega a lista completa de servidores do backend
+ */
 function carregarListaServidores() {
-  // Será implementado na Fase 2
+  exibirLoader(true);
+  
+  if (typeof google === "undefined" || !google.script) {
+    // Mock local para testes visuais
+    AppState.servidores = [
+      { nome: "ADIVANESSA PRATES DE ANDRADE", matricula: "86916", cargo: "SERVENTE", lotacao: "Rodoviária", admissao: "30/03/2024", situacao: "ESTATUTÁRIO", email: "vanessaprates@gmail.com", status: "Ativo", saldoHoje: 30, projetado: 30, infoFerias: "⚠️ ATENÇÃO: 1 Período vencido." },
+      { nome: "ANDERSON AUGUSTO DOS SANTOS", matricula: "72882", cargo: "ASSESSOR", lotacao: "Turismo", admissao: "01/01/2023", situacao: "COMISSIONADO", email: "anderson@gmail.com", status: "Férias", saldoHoje: 0, projetado: 0, infoFerias: "Regular." }
+    ];
+    renderizarTabelaServidores();
+    popularFiltroLotacoes();
+    exibirLoader(false);
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function(servidores) {
+      AppState.servidores = servidores;
+      renderizarTabelaServidores();
+      popularFiltroLotacoes();
+      exibirLoader(false);
+    })
+    .withFailureHandler(function(erro) {
+      console.error("Erro ao buscar servidores:", erro);
+      exibirLoader(false);
+      alert("Erro ao buscar servidores da planilha: " + erro.toString());
+    })
+    .obterListaServidores();
 }
 
-function carregarListaLancamentos() {
-  // Será implementado na Fase 3
+/**
+ * Renderiza as linhas da tabela de Servidores com base nos dados locais
+ */
+function renderizarTabelaServidores(listaFiltrada) {
+  const servidores = listaFiltrada || AppState.servidores;
+  const tbody = document.getElementById('tabela-servidores-body');
+  
+  if (servidores.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Nenhum servidor encontrado.</td></tr>`;
+    return;
+  }
+  
+  let html = "";
+  servidores.forEach(s => {
+    let badgeClass = "badge-ativo";
+    let badgeText = "Ativo";
+    
+    if (s.status === "Férias") {
+      badgeClass = "badge-ferias";
+      badgeText = "Em Férias";
+    } else if (s.status === "Abono") {
+      badgeClass = "badge-abono";
+      badgeText = "Em Abono";
+    } else if (s.status === "Inativo") {
+      badgeClass = "badge-inativo";
+      badgeText = "Inativo";
+    }
+    
+    html += `<tr>
+      <td><strong>${s.nome}</strong></td>
+      <td>${s.matricula}</td>
+      <td>${s.cargo}</td>
+      <td>${s.lotacao}</td>
+      <td>${s.situacao}</td>
+      <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+      <td>
+        <div class="action-buttons">
+          <button class="btn-action" onclick="abrirFichaServidor('${s.matricula}')" title="Visualizar Ficha">
+            <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
+          </button>
+          <button class="btn-action" onclick="abrirModalServidor('${s.matricula}')" title="Editar Cadastro">
+            <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
+          </button>
+          ${s.status !== 'Inativo' ? `
+            <button class="btn-action btn-delete" onclick="confirmarDesativacaoServidor('${s.matricula}', '${s.nome}')" title="Desativar Servidor">
+              <span data-lucide="trash-2" style="width: 14px; height: 14px;"></span>
+            </button>
+          ` : ''}
+        </div>
+      </td>
+    </tr>`;
+  });
+  
+  tbody.innerHTML = html;
+  lucide.createIcons();
 }
 
-// Funções de Modal vazias para inicialização
-function abrirModalServidor() {
-  alert("Formulário de Servidor em desenvolvimento.");
+/**
+ * Filtra a tabela de servidores em tempo real no lado do cliente
+ */
+function filtrarTabelaServidores() {
+  const busca = document.getElementById('filtro-busca-servidor').value.toLowerCase().trim();
+  const lotacao = document.getElementById('filtro-lotacao-servidor').value;
+  const situacao = document.getElementById('filtro-situacao-servidor').value;
+  const status = document.getElementById('filtro-status-servidor').value;
+  
+  const filtrados = AppState.servidores.filter(s => {
+    // 1. Busca textual (Nome ou Matrícula)
+    const bateBusca = !busca || s.nome.toLowerCase().includes(busca) || s.matricula.toLowerCase().includes(busca);
+    
+    // 2. Filtro de Lotação
+    const bateLotacao = !lotacao || s.lotacao === lotacao;
+    
+    // 3. Filtro de Situação
+    const bateSituacao = !situacao || s.situacao === situacao;
+    
+    // 4. Filtro de Status
+    const bateStatus = !status || s.status === status;
+    
+    return bateBusca && bateLotacao && bateSituacao && bateStatus;
+  });
+  
+  renderizarTabelaServidores(filtrados);
+}
+
+/**
+ * Popula dinamicamente o select de lotações com base nos cadastros existentes
+ */
+function popularFiltroLotacoes() {
+  const select = document.getElementById('filtro-lotacao-servidor');
+  const lotacaoForm = document.getElementById('serv-lotacao');
+  
+  // Extrai lotações exclusivas
+  const lotacoes = [...new Set(AppState.servidores.map(s => s.lotacao).filter(Boolean))].sort();
+  
+  // Popula filtro da listagem
+  let htmlFiltro = '<option value="">Todas Lotações</option>';
+  lotacoes.forEach(l => {
+    htmlFiltro += `<option value="${l}">${l}</option>`;
+  });
+  select.innerHTML = htmlFiltro;
+  
+  // Popula dropdown do formulário
+  let htmlForm = '';
+  lotacoes.forEach(l => {
+    htmlForm += `<option value="${l}">${l}</option>`;
+  });
+  if (!lotacoes.includes("Turismo")) htmlForm += '<option value="Turismo">Turismo</option>';
+  if (!lotacoes.includes("Rodoviária")) htmlForm += '<option value="Rodoviária">Rodoviária</option>';
+  if (!lotacoes.includes("Espaço Batuíra")) htmlForm += '<option value="Espaço Batuíra">Espaço Batuíra</option>';
+  htmlForm += '<option value="Outro">Outro...</option>';
+  lotacaoForm.innerHTML = htmlForm;
+}
+
+/**
+ * Abre o modal de cadastro/edição de servidor
+ */
+function abrirModalServidor(matricula) {
+  const form = document.getElementById('form-servidor');
+  form.reset();
+  
+  const titulo = document.getElementById('modal-servidor-titulo');
+  const inputMatricula = document.getElementById('serv-matricula');
+  const wrapperAtivo = document.getElementById('serv-ativo-wrapper');
+  
+  if (matricula) {
+    // Modo Edição
+    titulo.innerText = "Editar Servidor";
+    inputMatricula.disabled = true; // matrícula é a chave primária, não edita
+    wrapperAtivo.style.display = "block";
+    
+    const s = AppState.servidores.find(serv => serv.matricula === matricula);
+    if (s) {
+      document.getElementById('serv-matricula').value = s.matricula;
+      document.getElementById('serv-nome').value = s.nome;
+      document.getElementById('serv-cargo').value = s.cargo;
+      document.getElementById('serv-lotacao').value = s.lotacao;
+      document.getElementById('serv-situacao').value = s.situacao;
+      document.getElementById('serv-email').value = s.email;
+      document.getElementById('serv-ativo').value = s.status === 'Inativo' ? 'Não' : 'Sim';
+      
+      // Parse de data no formato dd/mm/yyyy para yyyy-mm-dd exigido pelo input date
+      if (s.admissao) {
+        let partes = s.admissao.split('/');
+        if (partes.length === 3) {
+          document.getElementById('serv-admissao').value = `${partes[2]}-${partes[1]}-${partes[0]}`;
+        }
+      }
+    }
+  } else {
+    // Modo Cadastro
+    titulo.innerText = "Cadastrar Servidor";
+    inputMatricula.disabled = false;
+    wrapperAtivo.style.display = "none";
+    document.getElementById('serv-ativo').value = "Sim";
+  }
+  
+  abrirModal('modal-servidor');
+}
+
+/**
+ * Envia os dados do formulário de servidor ao backend do Apps Script
+ */
+function salvarDadosServidor(event) {
+  event.preventDefault();
+  exibirLoader(true);
+  
+  const dados = {
+    matricula: document.getElementById('serv-matricula').value.trim(),
+    nome: document.getElementById('serv-nome').value.trim().toUpperCase(),
+    cargo: document.getElementById('serv-cargo').value.trim().toUpperCase(),
+    lotacao: document.getElementById('serv-lotacao').value,
+    admissao: document.getElementById('serv-admissao').value,
+    situacao: document.getElementById('serv-situacao').value,
+    email: document.getElementById('serv-email').value.trim(),
+    ativo: document.getElementById('serv-ativo').value
+  };
+  
+  if (typeof google === "undefined" || !google.script) {
+    alert("Dados salvos em modo simulação local!");
+    exibirLoader(false);
+    fecharModal('modal-servidor');
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function() {
+      fecharModal('modal-servidor');
+      carregarListaServidores(); // recarrega a tabela
+      alert("Cadastro de servidor salvo com sucesso!");
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      alert("Erro ao salvar servidor: " + erro.toString());
+    })
+    .salvarServidor(dados);
+}
+
+/**
+ * Aciona a desativação lógica (soft delete) do servidor
+ */
+function confirmarDesativacaoServidor(matricula, nome) {
+  if (confirm(`Atenção!\n\nVocê tem certeza que deseja DESATIVAR o cadastro do servidor ${nome} (Matrícula: ${matricula})?\n\nEle não aparecerá mais nos formulários ativos, mas todo o histórico dele na planilha será preservado.`)) {
+    exibirLoader(true);
+    
+    if (typeof google === "undefined" || !google.script) {
+      alert("Servidor desativado em modo de simulação local!");
+      exibirLoader(false);
+      return;
+    }
+    
+    google.script.run
+      .withSuccessHandler(function() {
+        carregarListaServidores();
+        alert("Cadastro de servidor desativado com sucesso!");
+      })
+      .withFailureHandler(function(erro) {
+        exibirLoader(false);
+        alert("Erro ao desativar servidor: " + erro.toString());
+      })
+      .desativarServidor(matricula);
+  }
+}
+
+/**
+ * Controla a navegação das abas dentro da Ficha do Servidor
+ */
+function alternarAbaFicha(idAba) {
+  document.querySelectorAll('#modal-ficha-servidor .tab-button').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('#modal-ficha-servidor .tab-panel').forEach(panel => panel.classList.remove('active'));
+  
+  // Ativa botão clicado
+  const btnAlvo = Array.from(document.querySelectorAll('#modal-ficha-servidor .tab-button')).find(btn => 
+    btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(`'${idAba}'`)
+  );
+  if (btnAlvo) btnAlvo.classList.add('active');
+  
+  // Ativa painel correspondente
+  const painel = document.getElementById(idAba);
+  if (painel) painel.classList.add('active');
+}
+
+/**
+ * Abre a Ficha Individual Detalhada do Servidor e carrega seus períodos de férias e lançamentos
+ */
+function abrirFichaServidor(matricula) {
+  const s = AppState.servidores.find(serv => serv.matricula === matricula);
+  if (!s) return;
+  
+  // 1. Limpar abas para o estado inicial
+  alternarAbaFicha('tab-dados');
+  
+  // 2. Preencher Dados de Cadastro
+  document.getElementById('ficha-nome').innerText = s.nome;
+  document.getElementById('ficha-cargo').innerText = s.cargo || 'Não cadastrado';
+  document.getElementById('ficha-lotacao').innerText = s.lotacao || 'Não cadastrado';
+  document.getElementById('ficha-matricula').innerText = s.matricula;
+  
+  document.getElementById('ficha-dados-situacao').innerText = s.situacao;
+  document.getElementById('ficha-dados-admissao').innerText = s.admissao || 'Não informada';
+  document.getElementById('ficha-dados-email').innerText = s.email || 'Não informado';
+  
+  const statusBadge = document.getElementById('ficha-dados-status');
+  statusBadge.className = "badge";
+  if (s.status === 'Ativo') {
+    statusBadge.classList.add('badge-ativo');
+    statusBadge.innerText = 'ATIVO';
+  } else if (s.status === 'Férias') {
+    statusBadge.classList.add('badge-ferias');
+    statusBadge.innerText = 'EM FÉRIAS';
+  } else if (s.status === 'Abono') {
+    statusBadge.classList.add('badge-abono');
+    statusBadge.innerText = 'EM ABONO';
+  } else {
+    statusBadge.classList.add('badge-inativo');
+    statusBadge.innerText = 'INATIVO';
+  }
+  
+  // 3. Preencher Saldo de Férias do cabeçalho
+  document.getElementById('ficha-ferias-saldo').innerText = s.saldoHoje + " dias";
+  document.getElementById('ficha-ferias-projetado').innerText = s.projetado + " dias";
+  
+  // 4. Parsear o texto do Info_Férias para desenhar os Cards de Períodos Aquisitivos
+  const gridPeriodos = document.getElementById('ficha-ferias-periodos');
+  gridPeriodos.innerHTML = "";
+  
+  // Se contiver informações sobre períodos vencidos ou ativos
+  if (s.infoFerias) {
+    // Processamento do texto estruturado
+    // Ex: "⚠️ ATENÇÃO: 1 Período vencido. | Saldo: 30 dias | Próx (+30): 30/03/2027"
+    let partes = s.infoFerias.split('|');
+    partes.forEach((p, idx) => {
+      let texto = p.trim();
+      if (!texto) return;
+      
+      let cardClass = "";
+      let fillClass = "fill-disponivel";
+      let statusTexto = "Disponível";
+      
+      if (texto.toLowerCase().includes("vencido") || texto.toLowerCase().includes("crítico")) {
+        cardClass = "style='border-color: rgba(247, 90, 90, 0.4); background-color: rgba(247, 90, 90, 0.02);'";
+        fillClass = "fill-vencido";
+        statusTexto = "Vencido (Compulsório)";
+      } else if (texto.toLowerCase().includes("próx") || texto.toLowerCase().includes("projetado")) {
+        cardClass = "";
+        fillClass = "fill-usufruido";
+        statusTexto = "Em Aquisição";
+      }
+      
+      gridPeriodos.innerHTML += `
+        <div class="period-card" ${cardClass}>
+          <div class="period-header">
+            <span class="period-title">${texto.split(':')[0] || 'Período'}</span>
+            <span class="badge ${fillClass === 'fill-vencido' ? 'badge-ferias' : 'badge-ativo'}">${statusTexto}</span>
+          </div>
+          <div class="period-dates">${texto.includes(':') ? texto.split(':')[1] : texto}</div>
+          <div class="period-status-bar">
+            <div class="period-status-fill ${fillClass}"></div>
+          </div>
+          <div class="period-legend">
+            <span>0%</span>
+            <span>Uso</span>
+            <span>100%</span>
+          </div>
+        </div>
+      `;
+    });
+  }
+  
+  if (gridPeriodos.innerHTML === "") {
+    gridPeriodos.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); font-size: 13px;">Nenhum período de férias registrado ou processado.</div>`;
+  }
+  
+  // 5. Carregar Lançamentos/Ausências Históricas no modal (Simulando ou buscando por ID)
+  // Será refinado na Fase 3 ao linkar com lançamentos reais
+  document.getElementById('ficha-historico-tabela').innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Histórico integrado carregado na Fase 3.</td></tr>`;
+  
+  abrirModal('modal-ficha-servidor');
 }
 
 function abrirModalLancamento() {
-  alert("Formulário de Lançamento em desenvolvimento.");
+  alert("Formulário de Lançamento em desenvolvimento na Fase 3.");
 }
 </script>
