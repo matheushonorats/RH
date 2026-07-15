@@ -10,7 +10,7 @@
  * Acionado por gatilho de tempo do Apps Script
  */
 function gerarCreditosAutomaticos() {
-  processarCreditosGerais(365, false);
+  processarCreditosGerais_(365, false);
 }
 
 /**
@@ -20,14 +20,14 @@ function menuGerarGeral() {
   if (!verificarSeEhAdmin()) {
     throw new Error("Apenas Administradores podem forçar a geração em massa de créditos de férias.");
   }
-  processarCreditosGerais(365, true);
+  processarCreditosGerais_(365, true);
   return true;
 }
 
 /**
  * Lógica Central de Processamento de Créditos de Férias (Com LockService e Lote)
  */
-function processarCreditosGerais(diasFuturos, exibirAlertas) {
+function processarCreditosGerais_(diasFuturos, exibirAlertas) {
   const lock = LockService.getScriptLock();
   try {
     // Tenta obter o bloqueio por até 15 segundos
@@ -119,14 +119,12 @@ function processarCreditosGerais(diasFuturos, exibirAlertas) {
       rangeLote.setValues(novosCreditosLote);
     }
     
-    lancarLog(
-      "GERAR_CREDITOS", 
-      "Creditos_Ferias", 
-      "Executou rotina de créditos de férias. Novos: " + gerados + " | Duplicados pulados: " + duplicados + " | Erros: " + erros, 
-      "", 
-      "", 
-      "", 
-      ""
+    // Log sem lock (lock já está ativo neste bloco)
+    lancarLogSemLock_(
+      "GERAR_CREDITOS",
+      "Creditos_Ferias",
+      "Executou rotina de créditos de férias. Novos: " + gerados + " | Duplicados pulados: " + duplicados + " | Erros: " + erros,
+      "", "", "", ""
     );
     
     return {

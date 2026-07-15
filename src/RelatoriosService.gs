@@ -38,8 +38,8 @@ function obterRelatorioAusenciasCalendario(dataInicioStr, dataFimStr) {
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (!abaLanc) return [];
   
-  let dataInicio = parseInputDate(dataInicioStr);
-  let dataFim = parseInputDate(dataFimStr);
+  let dataInicio = parseInputDate_(dataInicioStr);
+  let dataFim = parseInputDate_(dataFimStr);
   
   if (!dataInicio || !dataFim) {
     throw new Error("Intervalo de datas inválido.");
@@ -59,7 +59,7 @@ function obterRelatorioAusenciasCalendario(dataInicioStr, dataFimStr) {
     let tipo = String(linha[COL_TIPO - 1]).trim();
     if (!tipo || tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) continue;
     
-    let inicioLanc = lerDataFormatoBR(linha[COL_DATA_INICIO - 1]);
+    let inicioLanc = lerDataFormatoBR_(linha[COL_DATA_INICIO - 1]);
     if (!inicioLanc) continue;
     
     let dias = parseInt(linha[COL_DIAS - 1]) || 1;
@@ -76,8 +76,8 @@ function obterRelatorioAusenciasCalendario(dataInicioStr, dataFimStr) {
         nome: nomeLimpo,
         matricula: String(linha[COL_MATRICULA - 1]).trim(),
         tipo: tipo,
-        inicio: formatarDataRelatorios(inicioLanc),
-        fim: formatarDataRelatorios(fimLanc),
+        inicio: formatarDataRelatorios_(inicioLanc),
+        fim: formatarDataRelatorios_(fimLanc),
         dias: dias
       });
     }
@@ -195,7 +195,7 @@ function obterRelatorioLogs() {
   for (let i = 1; i < dados.length; i++) {
     let linha = dados[i];
     logs.push({
-      dataHora: formatarDataLogs(linha[0]),
+      dataHora: formatarDataLogs_(linha[0]),
       usuario: String(linha[1]).trim(),
       acao: String(linha[2]).trim(),
       modulo: String(linha[3]).trim(),
@@ -215,7 +215,7 @@ function obterRelatorioLogs() {
 
 // --- AUXILIARES ---
 
-function formatarDataRelatorios(data) {
+function formatarDataRelatorios_(data) {
   if (!data) return "";
   if (data instanceof Date) {
     if (isNaN(data.getTime())) return "";
@@ -224,7 +224,7 @@ function formatarDataRelatorios(data) {
   return String(data);
 }
 
-function formatarDataLogs(data) {
+function formatarDataLogs_(data) {
   if (!data) return "";
   if (data instanceof Date) {
     if (isNaN(data.getTime())) return "";

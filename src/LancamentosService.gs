@@ -192,7 +192,7 @@ function salvarLancamento(dadosLanc) {
       const rangeLote = aba.getRange(linhaEdit, 1, 1, cabecalho.length);
       rangeLote.setValues([valoresLinha]);
       
-      lancarLog("EDITAR_LANCAMENTO", "Lançamentos", "Atualizou lançamento de " + tipoDoc + " para " + servidor.nome, "Lançamento", valorAntes, JSON.stringify(dadosLanc), dadosLanc.idoc || "");
+      lancarLogSemLock_("EDITAR_LANCAMENTO", "Lançamentos", "Atualizou lançamento de " + tipoDoc + " para " + servidor.nome, "Lançamento", valorAntes, JSON.stringify(dadosLanc), dadosLanc.idoc || "");
     } else {
       // MODO CRIAÇÃO: Grava informações do criador e anexa a linha
       if (idx.criadoPor !== -1) valoresLinha[idx.criadoPor] = emailUsuario;
@@ -201,7 +201,7 @@ function salvarLancamento(dadosLanc) {
       if (idx.editadoEm !== -1) valoresLinha[idx.editadoEm] = timestamp;
       
       aba.appendRow(valoresLinha);
-      lancarLog("CRIAR_LANCAMENTO", "Lançamentos", "Criou novo lançamento de " + tipoDoc + " para " + servidor.nome, "", "", JSON.stringify(dadosLanc), dadosLanc.idoc || "");
+      lancarLogSemLock_("CRIAR_LANCAMENTO", "Lançamentos", "Criou novo lançamento de " + tipoDoc + " para " + servidor.nome, "", "", JSON.stringify(dadosLanc), dadosLanc.idoc || "");
     }
     
     return true;

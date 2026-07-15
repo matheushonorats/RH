@@ -78,14 +78,22 @@ function salvarServidor(dadosServidor) {
   if (!verificarSeEhOperador()) {
     throw new Error("Você não possui permissão para salvar ou alterar cadastros de servidores.");
   }
-  
+
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    throw new Error("Sistema ocupado. Tente novamente em alguns segundos.");
+  }
+
+  try {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const aba = ss.getSheetByName("Servidores");
   if (!aba) throw new Error("Aba 'Servidores' não encontrada.");
-  
+
   const dados = aba.getDataRange().getValues();
   const cabecalho = dados[0];
-  
+
   const idxNome = cabecalho.indexOf("NOME");
   const idxMatricula = cabecalho.indexOf("MATRÍCULA");
   const idxCargo = cabecalho.indexOf("CARGO");
@@ -94,11 +102,11 @@ function salvarServidor(dadosServidor) {
   const idxSituacao = cabecalho.indexOf("SITUAÇÃO");
   const idxEmail = cabecalho.indexOf("E-mail");
   const idxAtivo = cabecalho.indexOf("Ativo");
-  
+
   const matriculaBusca = String(dadosServidor.matricula).trim();
   let linhaEdit = -1;
   let valorAntes = "";
-  
+
   for (let i = 1; i < dados.length; i++) {
     if (String(dados[i][idxMatricula]).trim() === matriculaBusca) {
       linhaEdit = i + 1;
@@ -106,7 +114,7 @@ function salvarServidor(dadosServidor) {
       break;
     }
   }
-  
+
   // Trata a Data de Admissão
   let dataAdmissao = null;
   if (dadosServidor.admissao) {
@@ -126,21 +134,30 @@ function salvarServidor(dadosServidor) {
     if (idxSituacao !== -1) aba.getRange(linhaEdit, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(linhaEdit, idxEmail + 1).setValue(dadosServidor.email);
     if (idxAtivo !== -1) aba.getRange(linhaEdit, idxAtivo + 1).setValue(dadosServidor.ativo || "Sim");
-    
-    lancarLog("EDITAR_SERVIDOR", "Servidores", "Atualizou dados do servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "Cadastro", valorAntes, JSON.stringify(dadosServidor), matriculaBusca);
+
+    lancarLogSemLock_("EDITAR_SERVIDOR", "Servidores", "Atualizou dados do servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "Cadastro", valorAntes, JSON.stringify(dadosServidor), matriculaBusca);
   } else {
-    // MODO CRIAÇÃO: Adiciona nova linha copiando fórmulas da linha superior para preservar as colunas de saldo
+    // MODO CRIAÇÃO: Valida duplicidade de matrícula e adiciona nova linha copiando fórmulas da superior
+    // Validação de matrícula única (dentro do lock para thread-safety)
+    if (linhaEdit === -1) {
+      // garante que nenhuma outra requisição concorrente inseriu a mesma matrícula
+      const dadosAtual = aba.getDataRange().getValues();
+      for (let k = 1; k < dadosAtual.length; k++) {
+        if (String(dadosAtual[k][idxMatricula]).trim() === matriculaBusca) {
+          throw new Error("Já existe um servidor cadastrado com a matrícula " + matriculaBusca + ".");
+        }
+      }
+    }
+
     const novaLinhaIndex = aba.getLastRow() + 1;
-    
+
     if (novaLinhaIndex > 2) {
       const rangeOrigem = aba.getRange(novaLinhaIndex - 1, 1, 1, cabecalho.length);
       const rangeDestino = aba.getRange(novaLinhaIndex, 1, 1, cabecalho.length);
-      // Copia fórmulas e formatos
       rangeOrigem.copyTo(rangeDestino, SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
       rangeOrigem.copyTo(rangeDestino, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
     }
-    
-    // Sobrescreve apenas as células de valores do cadastro na nova linha (mantém fórmulas)
+
     if (idxNome !== -1) aba.getRange(novaLinhaIndex, idxNome + 1).setValue(dadosServidor.nome.toUpperCase());
     if (idxMatricula !== -1) aba.getRange(novaLinhaIndex, idxMatricula + 1).setValue(matriculaBusca);
     if (idxCargo !== -1) aba.getRange(novaLinhaIndex, idxCargo + 1).setValue(dadosServidor.cargo);
@@ -149,17 +166,20 @@ function salvarServidor(dadosServidor) {
     if (idxSituacao !== -1) aba.getRange(novaLinhaIndex, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(novaLinhaIndex, idxEmail + 1).setValue(dadosServidor.email);
     if (idxAtivo !== -1) aba.getRange(novaLinhaIndex, idxAtivo + 1).setValue("Sim");
-    
-    lancarLog("CRIAR_SERVIDOR", "Servidores", "Cadastrou novo servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "", "", JSON.stringify(dadosServidor), matriculaBusca);
-    
+
+    lancarLogSemLock_("CRIAR_SERVIDOR", "Servidores", "Cadastrou novo servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "", "", JSON.stringify(dadosServidor), matriculaBusca);
+
     try {
-      gerarCreditosAutomaticos(); 
+      gerarCreditosAutomaticos();
     } catch(e) {
-      lancarLog("ERRO_AUTO_CREDITOS", "Creditos_Ferias", "Erro ao gerar créditos automáticos para novo cadastro: " + e.toString(), "", "", "", matriculaBusca);
+      lancarLogSemLock_("ERRO_AUTO_CREDITOS", "Creditos_Ferias", "Erro ao gerar créditos automáticos para novo cadastro: " + e.toString(), "", "", "", matriculaBusca);
     }
   }
-  
+
   return true;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**

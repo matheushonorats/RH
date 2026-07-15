@@ -18,7 +18,7 @@ function verificarEEnviarEmailsDiarios() {
   }
   
   // 1. Obter parâmetros das configurações
-  const config = obterMapaConfiguracoes(abaConfig);
+  const config = obterMapaConfiguracoes_(abaConfig);
   const emailDestino = config["EMAIL_DESTINO"] || "";
   const diasAlertaFerias = parseInt(config["DIAS_INTERVALO_FERIAS"]) || 15;
   const diasAlertaAbono = parseInt(config["DIAS_INTERVALO_ABONO"]) || 5;
@@ -50,7 +50,7 @@ function verificarEEnviarEmailsDiarios() {
       continue;
     }
     
-    let dataInicio = lerDataFormatoBR(linha[COL_DATA_INICIO - 1]);
+    let dataInicio = lerDataFormatoBR_(linha[COL_DATA_INICIO - 1]);
     if (!dataInicio) continue;
     
     let dias = parseInt(linha[COL_DIAS - 1]) || 1;
@@ -69,7 +69,7 @@ function verificarEEnviarEmailsDiarios() {
           listaFeriasProximas.push({
             nome: nomeLimpo,
             tipo: tipo,
-            data: formatarDataEmail(dataInicio),
+            data: formatarDataEmail_(dataInicio),
             dias: dias,
             diasFaltando: diferencaDias,
             idoc: idoc
@@ -80,7 +80,7 @@ function verificarEEnviarEmailsDiarios() {
           listaAbonosProximos.push({
             nome: nomeLimpo,
             tipo: tipo,
-            data: formatarDataEmail(dataInicio),
+            data: formatarDataEmail_(dataInicio),
             diasFaltando: diferencaDias,
             idoc: idoc
           });
@@ -91,7 +91,7 @@ function verificarEEnviarEmailsDiarios() {
   
   // 3. Montar e enviar e-mail se houver novidades
   if (listaFeriasProximas.length > 0 || listaAbonosProximos.length > 0) {
-    enviarAlertaHtml(emailDestino, listaFeriasProximas, listaAbonosProximos);
+    enviarAlertaHtml_(emailDestino, listaFeriasProximas, listaAbonosProximos);
     lancarLog("ENVIAR_ALERTA", "Email", "Alerta diário enviado com sucesso para: " + emailDestino, "", "", "", "");
   } else {
     Logger.log("Nenhum alerta de férias ou abonos para enviar hoje.");
@@ -101,7 +101,7 @@ function verificarEEnviarEmailsDiarios() {
 /**
  * Envia o e-mail formatado
  */
-function enviarAlertaHtml(email, ferias, abonos) {
+function enviarAlertaHtml_(email, ferias, abonos) {
   let html = `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 650px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
       <div style="background-color: #00875f; color: #ffffff; padding: 24px; text-align: center;">
@@ -186,7 +186,7 @@ function enviarAlertaHtml(email, ferias, abonos) {
   });
 }
 
-function obterMapaConfiguracoes(abaConfig) {
+function obterMapaConfiguracoes_(abaConfig) {
   const dados = abaConfig.getDataRange().getValues();
   let mapa = {};
   for (let i = 1; i < dados.length; i++) {
@@ -197,6 +197,6 @@ function obterMapaConfiguracoes(abaConfig) {
   return mapa;
 }
 
-function formatarDataEmail(data) {
+function formatarDataEmail_(data) {
   return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy");
 }

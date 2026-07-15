@@ -265,14 +265,14 @@ function renderizarTabelaServidores(listaFiltrada) {
       <td><span class="badge ${badgeClass}">${badgeText}</span></td>
       <td>
         <div class="action-buttons">
-          <button class="btn-action" onclick="abrirFichaServidor('${escapeHtml(s.matricula)}')" title="Visualizar Ficha">
+          <button class="btn-action" data-action="ficha" data-mat="${escapeHtml(s.matricula)}" title="Visualizar Ficha">
             <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
           </button>
-          <button class="btn-action" onclick="abrirModalServidor('${escapeHtml(s.matricula)}')" title="Editar Cadastro">
+          <button class="btn-action" data-action="editar-servidor" data-mat="${escapeHtml(s.matricula)}" title="Editar Cadastro">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
           ${s.status !== 'Inativo' ? `
-            <button class="btn-action btn-delete" onclick="confirmarDesativacaoServidor('${escapeHtml(s.matricula)}', '${escapeHtml(s.nome).replace(/'/g, "\\'")}')" title="Desativar Servidor">
+            <button class="btn-action btn-delete" data-action="desativar-servidor" data-mat="${escapeHtml(s.matricula)}" data-nome="${escapeHtml(s.nome)}" title="Desativar Servidor">
               <span data-lucide="trash-2" style="width: 14px; height: 14px;"></span>
             </button>
           ` : ''}
@@ -280,8 +280,19 @@ function renderizarTabelaServidores(listaFiltrada) {
       </td>
     </tr>`;
   });
-  
+
   tbody.innerHTML = html;
+  // Delega eventos após inserção para evitar XSS em atributos onclick
+  tbody.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const action = this.dataset.action;
+      const mat = this.dataset.mat;
+      const nome = this.dataset.nome || '';
+      if (action === 'ficha') abrirFichaServidor(mat);
+      else if (action === 'editar-servidor') abrirModalServidor(mat);
+      else if (action === 'desativar-servidor') confirmarDesativacaoServidor(mat, nome);
+    });
+  });
   lucide.createIcons();
 }
 
@@ -656,19 +667,26 @@ function renderizarTabelaLancamentos(listaFiltrada) {
       <td>
         <div class="action-buttons">
           ${possuiAnexos ? `
-            <button class="btn-action" onclick="visualizarAnexos('${escapeHtml(l.anexo1)}', '${escapeHtml(l.anexo2)}', '${escapeHtml(l.anexo3)}')" title="Visualizar Anexos">
+            <button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos">
               <span data-lucide="paperclip" style="width: 14px; height: 14px;"></span>
             </button>
           ` : ''}
-          <button class="btn-action" onclick="abrirModalLancamento(${l.linhaPlanilha})" title="Editar Lançamento">
+          <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Lançamento">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
         </div>
       </td>
     </tr>`;
   });
-  
+
   tbody.innerHTML = html;
+  tbody.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const action = this.dataset.action;
+      if (action === 'ver-anexos') visualizarAnexos(this.dataset.a1, this.dataset.a2, this.dataset.a3);
+      else if (action === 'editar-lanc') abrirModalLancamento(parseInt(this.dataset.linha));
+    });
+  });
   lucide.createIcons();
 }
 
@@ -862,16 +880,42 @@ function abrirModalLancamento(linhaPlanilha) {
 }
 
 /**
- * Abre o modal visualizador de anexos cadastrados
+ * Abre o modal visualizador de anexos cadastrados (com validação de URL)
  */
 function visualizarAnexos(anexo1, anexo2, anexo3) {
   const lista = document.getElementById('lista-links-anexos');
   lista.innerHTML = "";
-  
-  if (anexo1 && anexo1 !== "undefined") lista.innerHTML += `<li><a href="${anexo1}" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: left;"><span data-lucide="external-link"></span> Documento Anexo 1</a></li>`;
-  if (anexo2 && anexo2 !== "undefined") lista.innerHTML += `<li><a href="${anexo2}" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: left;"><span data-lucide="external-link"></span> Documento Anexo 2</a></li>`;
-  if (anexo3 && anexo3 !== "undefined") lista.innerHTML += `<li><a href="${anexo3}" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: left;"><span data-lucide="external-link"></span> Documento Anexo 3</a></li>`;
-  
+
+  // Valida que a URL pertence ao Drive do Google antes de renderizar como link
+  function urlDriveValida(url) {
+    try {
+      if (!url || url === 'undefined' || url === '') return false;
+      const parsed = new URL(url);
+      return parsed.protocol === 'https:' && parsed.hostname === 'drive.google.com';
+    } catch (_) { return false; }
+  }
+
+  function criarItemAnexo(url, rotulo) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.className = 'btn btn-secondary';
+    a.style.cssText = 'width: 100%; text-align: left;';
+    a.textContent = rotulo;
+    li.appendChild(a);
+    return li;
+  }
+
+  if (urlDriveValida(anexo1)) lista.appendChild(criarItemAnexo(anexo1, 'Documento Anexo 1'));
+  if (urlDriveValida(anexo2)) lista.appendChild(criarItemAnexo(anexo2, 'Documento Anexo 2'));
+  if (urlDriveValida(anexo3)) lista.appendChild(criarItemAnexo(anexo3, 'Documento Anexo 3'));
+
+  if (lista.children.length === 0) {
+    lista.innerHTML = '<li style="color: var(--text-muted); font-size: 13px;">Nenhum anexo válido encontrado.</li>';
+  }
+
   abrirModal('modal-anexos');
   lucide.createIcons();
 }
@@ -1068,10 +1112,10 @@ function renderizarTabelaProtocolos(listaFiltrada) {
       <td>${escapeHtml(p.criadoPor)}</td>
       <td>
         <div class="action-buttons">
-          <button class="btn-action" onclick="abrirFolhaProtocolo('${escapeHtml(p.id)}')" title="Visualizar e Imprimir Folha">
+          <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">
             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>
           </button>
-          <button class="btn-action" onclick="alterarStatusProtocoloTramite('${escapeHtml(p.id)}', '${escapeHtml(p.status)}')" title="Transicionar Status Físico">
+          <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="${escapeHtml(p.status)}" title="Transicionar Status Físico">
             <span data-lucide="git-pull-request" style="width: 14px; height: 14px;"></span>
           </button>
         </div>
@@ -1080,6 +1124,13 @@ function renderizarTabelaProtocolos(listaFiltrada) {
   });
   
   tbody.innerHTML = html;
+  tbody.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const action = this.dataset.action;
+      if (action === 'imprimir-prot') abrirFolhaProtocolo(this.dataset.id);
+      else if (action === 'status-prot') alterarStatusProtocoloTramite(this.dataset.id, this.dataset.status);
+    });
+  });
   lucide.createIcons();
 }
 
@@ -1265,7 +1316,6 @@ function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
       alert("Erro ao transicionar status: " + erro.toString());
     })
     .atualizarStatusProtocolo(idProtocolo, novoStatus);
-}
 }
 
 // --- RELATÓRIOS E EXPORTAÇÕES ---
@@ -1661,10 +1711,10 @@ function renderizarTabelaUsuarios() {
       <td><span class="badge ${badgeClass}">${u.ativo === "Sim" ? "Ativo" : "Bloqueado"}</span></td>
       <td>
         <div class="action-buttons">
-          <button class="btn-action" onclick="abrirModalUsuario('${escapeHtml(u.email)}')" title="Editar Usuário">
+          <button class="btn-action" data-action="editar-usr" data-email="${escapeHtml(u.email)}" title="Editar Usuário">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
-          <button class="btn-action btn-delete" onclick="confirmarDesativacaoUsuario('${escapeHtml(u.email)}')" title="Desativar Usuário">
+          <button class="btn-action btn-delete" data-action="desativar-usr" data-email="${escapeHtml(u.email)}" title="Desativar Usuário">
             <span data-lucide="shield-alert" style="width: 14px; height: 14px;"></span>
           </button>
         </div>
