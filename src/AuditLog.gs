@@ -75,7 +75,7 @@ function lancarLogInterno_(acao, modulo, descricao, campoAlterado, valorAntes, v
 
 /**
  * Verifica se a quantidade de logs ultrapassou o limite e exporta os antigos para o Drive.
- * Privada — chamada apenas por lancarLogInterno_.
+ * Privada - chamada apenas por lancarLogInterno_.
  */
 function verificarERotacionarLogs_(ss, abaLogs) {
   const LIMITE_LINHAS = 5000;

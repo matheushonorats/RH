@@ -204,7 +204,7 @@ function carregarListaServidores() {
   if (typeof google === "undefined" || !google.script) {
     // Mock local para testes visuais
     AppState.servidores = [
-      { nome: "ADIVANESSA PRATES DE ANDRADE", matricula: "86916", cargo: "SERVENTE", lotacao: "Rodoviária", admissao: "30/03/2024", situacao: "ESTATUTÁRIO", email: "vanessaprates@gmail.com", status: "Ativo", saldoHoje: 30, projetado: 30, infoFerias: "⚠️ ATENÇÃO: 1 Período vencido." },
+      { nome: "ADIVANESSA PRATES DE ANDRADE", matricula: "86916", cargo: "SERVENTE", lotacao: "Rodoviária", admissao: "30/03/2024", situacao: "ESTATUTÁRIO", email: "vanessaprates@gmail.com", status: "Ativo", saldoHoje: 30, projetado: 30, infoFerias: "[AVISO] ATENÇÃO: 1 Período vencido." },
       { nome: "ANDERSON AUGUSTO DOS SANTOS", matricula: "72882", cargo: "ASSESSOR", lotacao: "Turismo", admissao: "01/01/2023", situacao: "COMISSIONADO", email: "anderson@gmail.com", status: "Férias", saldoHoje: 0, projetado: 0, infoFerias: "Regular." }
     ];
     renderizarTabelaServidores();
@@ -528,7 +528,7 @@ function abrirFichaServidor(matricula) {
   // Se contiver informações sobre períodos vencidos ou ativos
   if (s.infoFerias) {
     // Processamento do texto estruturado
-    // Ex: "⚠️ ATENÇÃO: 1 Período vencido. | Saldo: 30 dias | Próx (+30): 30/03/2027"
+    // Ex: "[AVISO] ATENÇÃO: 1 Período vencido. | Saldo: 30 dias | Próx (+30): 30/03/2027"
     let partes = s.infoFerias.split('|');
     partes.forEach((p, idx) => {
       let texto = p.trim();

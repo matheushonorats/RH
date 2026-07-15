@@ -100,7 +100,7 @@ function criarProtocolo(linhasLancamentos) {
       .map(l => parseInt(l))
       .filter(l => l > 1 && l <= abaLanc.getLastRow());
 
-    // Usa setValues em ranges individuais agrupados — mais eficiente que setValue em loop
+    // Usa setValues em ranges individuais agrupados - mais eficiente que setValue em loop
     linhasValidas.forEach(linha => {
       abaLanc.getRange(linha, colIdxIDProt + 1).setValue(idProtocolo);
     });
