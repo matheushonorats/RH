@@ -273,12 +273,186 @@
           
           <!-- View 5: Relatórios -->
           <section id="view-relatorios" class="view-section">
-            <p style="color: var(--text-secondary);">Módulo Relatórios - Em Breve.</p>
+            <div class="card" style="margin-bottom: 24px;">
+              <div class="card-title">Configurar Filtros de Emissão</div>
+              
+              <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                  <label class="form-label">Tipo de Relatório *</label>
+                  <select id="rep-tipo" class="form-control" onchange="ajustarFiltrosRelatorios()">
+                    <option value="compulsorias">Férias Compulsórias (Risco de 3ª Férias)</option>
+                    <option value="situacao_ferias">Situação Geral de Férias</option>
+                    <option value="calendario_ausencias">Calendário / Escala de Ausências</option>
+                    <option value="resumo_mensal">Resumo Mensal de Lançamentos</option>
+                    <option value="abonos_anuais">Controle de Cota de Abonadas</option>
+                  </select>
+                </div>
+                
+                <!-- Filtro de datas condicional (Escalas/Calendário) -->
+                <div class="form-group" id="rep-bloco-datas" style="display: none;">
+                  <label class="form-label">Período (Início e Fim)</label>
+                  <div style="display: flex; gap: 8px;">
+                    <input type="date" id="rep-data-inicio" class="form-control">
+                    <input type="date" id="rep-data-fim" class="form-control">
+                  </div>
+                </div>
+
+                <!-- Filtro de mês/ano condicional (Resumo Mensal) -->
+                <div class="form-group" id="rep-bloco-mesano" style="display: none;">
+                  <label class="form-label">Mês e Ano</label>
+                  <div style="display: flex; gap: 8px;">
+                    <select id="rep-mes" class="form-control">
+                      <option value="JANEIRO">Janeiro</option>
+                      <option value="FEVEREIRO">Fevereiro</option>
+                      <option value="MARÇO">Março</option>
+                      <option value="ABRIL">Abril</option>
+                      <option value="MAIO">Maio</option>
+                      <option value="JUNHO">Junho</option>
+                      <option value="JULHO">Julho</option>
+                      <option value="AGOSTO">Agosto</option>
+                      <option value="SETEMBRO">Setembro</option>
+                      <option value="OUTUBRO">Outubro</option>
+                      <option value="NOVEMBRO">Novembro</option>
+                      <option value="DEZEMBRO">Dezembro</option>
+                    </select>
+                    <input type="number" id="rep-ano" class="form-control" value="2026" min="2020" max="2035">
+                  </div>
+                </div>
+              </div>
+              
+              <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <button class="btn btn-primary" onclick="gerarDadosRelatorio()">
+                  <span data-lucide="play"></span> Gerar Relatório
+                </button>
+              </div>
+            </div>
+
+            <!-- Painel de Resultados do Relatório -->
+            <div class="table-container" id="rep-resultado-container" style="display: none;">
+              <div class="table-header">
+                <div class="table-title" id="rep-resultado-titulo">Resultado do Relatório</div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary" onclick="exportarRelatorioExcel()">
+                    <span data-lucide="download"></span> Exportar Excel
+                  </button>
+                  <button class="btn btn-primary" onclick="imprimirRelatorioLocal()">
+                    <span data-lucide="printer"></span> Imprimir PDF
+                  </button>
+                </div>
+              </div>
+              <div id="rep-conteudo-area" style="overflow-x: auto;">
+                <table class="custom-table" id="tabela-relatorio">
+                  <thead id="tabela-relatorio-head"></thead>
+                  <tbody id="tabela-relatorio-body"></tbody>
+                </table>
+              </div>
+            </div>
           </section>
           
           <!-- View 6: Administração -->
           <section id="view-admin" class="view-section">
-            <p style="color: var(--text-secondary);">Módulo Administrativo - Em Breve.</p>
+            <!-- Navegador de Sub-Abas Admin -->
+            <div class="tab-container">
+              <button class="tab-button active" id="btn-adm-usuarios" onclick="alternarAbaAdmin('adm-usuarios')">Gerenciar Usuários</button>
+              <button class="tab-button" id="btn-adm-configs" onclick="alternarAbaAdmin('adm-configs')">Parametrizações Gerais</button>
+              <button class="tab-button" id="btn-adm-logs" onclick="alternarAbaAdmin('adm-logs')">Logs de Auditoria</button>
+            </div>
+
+            <!-- Sub-Aba 1: Usuários -->
+            <div id="adm-usuarios" class="tab-panel active">
+              <div class="table-container">
+                <div class="table-header">
+                  <div class="table-title">Usuários Autorizados</div>
+                  <button class="btn btn-primary" onclick="abrirModalUsuario()">Novo Usuário</button>
+                </div>
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>E-mail do Usuário</th>
+                      <th>Nome Completo</th>
+                      <th>Papel / Perfil</th>
+                      <th>Ativo?</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabela-adm-usuarios-body">
+                    <tr>
+                      <td colspan="5" style="text-align: center; color: var(--text-secondary);">Buscando usuários...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Sub-Aba 2: Configurações Gerais -->
+            <div id="adm-configs" class="tab-panel">
+              <div class="table-container">
+                <div class="table-header">
+                  <div class="table-title">Configurações Gerais do Sistema</div>
+                </div>
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Chave / Parâmetro</th>
+                      <th>Valor Configurado</th>
+                      <th>Descrição</th>
+                      <th>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabela-adm-configs-body">
+                    <tr>
+                      <td colspan="4" style="text-align: center; color: var(--text-secondary);">Buscando configurações...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Sub-Aba 3: Logs de Auditoria -->
+            <div id="adm-logs" class="tab-panel">
+              <!-- Filtros de Logs -->
+              <div class="filter-bar">
+                <input type="text" id="log-filtro-busca" class="form-control" style="flex: 1; min-width: 200px;" placeholder="Buscar nos logs..." oninput="filtrarLogsAuditoria()">
+                <select id="log-filtro-modulo" class="form-control filter-select" onchange="filtrarLogsAuditoria()">
+                  <option value="">Todos Módulos</option>
+                  <option value="Servidores">Servidores</option>
+                  <option value="Lançamentos">Lançamentos</option>
+                  <option value="Protocolos">Protocolos</option>
+                  <option value="Usuarios">Usuários</option>
+                </select>
+                <select id="log-filtro-acao" class="form-control filter-select" onchange="filtrarLogsAuditoria()">
+                  <option value="">Todas Ações</option>
+                  <option value="CRIAR_SERVIDOR">Criar Servidor</option>
+                  <option value="EDITAR_SERVIDOR">Editar Servidor</option>
+                  <option value="CRIAR_LANCAMENTO">Criar Lançamento</option>
+                  <option value="EDITAR_LANCAMENTO">Editar Lançamento</option>
+                  <option value="CRIAR_PROTOCOLO">Criar Protocolo</option>
+                  <option value="ROTACAO_LOGS">Rotação de Logs</option>
+                </select>
+              </div>
+
+              <div class="table-container" style="max-height: 450px; overflow-y: auto;">
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Data/Hora</th>
+                      <th>Usuário</th>
+                      <th>Ação</th>
+                      <th>Módulo</th>
+                      <th>Descrição Detalhada</th>
+                      <th>Campo</th>
+                      <th>Antes</th>
+                      <th>Depois</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabela-adm-logs-body">
+                    <tr>
+                      <td colspan="8" style="text-align: center; color: var(--text-secondary);">Buscando logs...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </section>
           
         </div>
@@ -649,6 +823,71 @@
         </div>
         <div class="modal-body" id="print-area-protocolo" style="padding: 0; background-color: #fff; overflow-y: auto;">
           <!-- HTML timbrado inserido aqui -->
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 7: Cadastro e Edição de Usuário Admin -->
+    <div class="modal-overlay" id="modal-usuario">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-usuario-titulo">Gerenciar Usuário</h3>
+          <button class="modal-close" onclick="fecharModal('modal-usuario')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <form id="form-usuario" onsubmit="salvarDadosUsuario(event)">
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">E-mail Google *</label>
+              <input type="email" id="usr-email" class="form-control" required placeholder="Ex: supervisor@saosebastiao.sp.gov.br">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Nome Completo *</label>
+              <input type="text" id="usr-nome" class="form-control" required placeholder="Ex: MARCOS DE SOUZA">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Papel / Nível *</label>
+                <select id="usr-papel" class="form-control" required>
+                  <option value="Administrador">Administrador</option>
+                  <option value="Operador">Operador</option>
+                  <option value="Consulta">Consulta</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Status *</label>
+                <select id="usr-ativo" class="form-control" required>
+                  <option value="Sim">Sim, Acesso Ativo</option>
+                  <option value="Não">Não, Bloquear Acesso</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-usuario')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Salvar Usuário</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 8: Preview de Relatório para Impressão PDF -->
+    <div class="modal-overlay" id="modal-relatorio-impressao">
+      <div class="modal-content large" style="background-color: #fff; color: #000;">
+        <div class="modal-header" style="border-bottom-color: #ddd; background-color: #f8f9fa; color: #000;">
+          <h3 class="modal-title" style="color: #000;">Relatório Geral</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-primary" onclick="imprimirRelatorioLocalNativo()">
+              <span data-lucide="printer"></span> Imprimir
+            </button>
+            <button class="modal-close" onclick="fecharModal('modal-relatorio-impressao')" style="color: #000;">
+              <span data-lucide="x"></span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-body" id="print-area-relatorio" style="padding: 40px; background-color: #fff; overflow-y: auto;">
+          <!-- Relatório impresso é colocado aqui -->
         </div>
       </div>
     </div>

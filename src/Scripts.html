@@ -1245,5 +1245,611 @@ function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
     })
     .atualizarStatusProtocolo(idProtocolo, novoStatus);
 }
+}
+
+// --- RELATÓRIOS E EXPORTAÇÕES ---
+
+let dadosUltimoRelatorio = [];
+let colunasUltimoRelatorio = [];
+let tituloUltimoRelatorio = "";
+
+/**
+ * Mostra ou esconde campos de filtro baseados no relatório selecionado
+ */
+function ajustarFiltrosRelatorios() {
+  const tipo = document.getElementById('rep-tipo').value;
+  const blocoDatas = document.getElementById('rep-bloco-datas');
+  const blocoMesAno = document.getElementById('rep-bloco-mesano');
+  
+  blocoDatas.style.display = "none";
+  blocoMesAno.style.display = "none";
+  
+  if (tipo === 'calendario_ausencias') {
+    blocoDatas.style.display = "block";
+    // Define período padrão: início hoje até fim de 15 dias
+    const hoje = new Date().toISOString().split('T')[0];
+    const fim = new Date();
+    fim.setDate(fim.getDate() + 15);
+    document.getElementById('rep-data-inicio').value = hoje;
+    document.getElementById('rep-data-fim').value = fim.toISOString().split('T')[0];
+  } else if (tipo === 'resumo_mensal') {
+    blocoMesAno.style.display = "block";
+    const meses = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"];
+    document.getElementById('rep-mes').value = meses[new Date().getMonth()];
+    document.getElementById('rep-ano').value = new Date().getFullYear();
+  }
+}
+
+/**
+ * Consulta os dados do relatório no backend
+ */
+function gerarDadosRelatorio() {
+  const tipo = document.getElementById('rep-tipo').value;
+  exibirLoader(true);
+  
+  if (typeof google === "undefined" || !google.script) {
+    alert("Função disponível apenas conectada ao Apps Script (modo local)!");
+    exibirLoader(false);
+    return;
+  }
+  
+  let handlerSucesso = function(dados) {
+    dadosUltimoRelatorio = dados;
+    desenharTabelaRelatorio(tipo, dados);
+    exibirLoader(false);
+  };
+  
+  let handlerErro = function(e) {
+    exibirLoader(false);
+    alert("Erro ao emitir relatório: " + e.toString());
+  };
+  
+  if (tipo === 'compulsorias') {
+    tituloUltimoRelatorio = "Relatório de Férias Compulsórias (Acúmulo de 2 Períodos)";
+    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioCompulsorias();
+  } else if (tipo === 'situacao_ferias') {
+    tituloUltimoRelatorio = "Relatório de Situação Geral de Férias";
+    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioSituacaoFerias();
+  } else if (tipo === 'calendario_ausencias') {
+    tituloUltimoRelatorio = "Calendário / Escala de Ausências Programadas";
+    const ini = document.getElementById('rep-data-inicio').value;
+    const fim = document.getElementById('rep-data-fim').value;
+    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioAusenciasCalendario(ini, fim);
+  } else if (tipo === 'resumo_mensal') {
+    const mes = document.getElementById('rep-mes').value;
+    const ano = document.getElementById('rep-ano').value;
+    tituloUltimoRelatorio = `Resumo Mensal de Lançamentos - ${mes}/${ano}`;
+    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioResumoMensal(mes, ano);
+  } else if (tipo === 'abonos_anuais') {
+    tituloUltimoRelatorio = "Relatório de Cotas de Abonadas do Ano Corrente";
+    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioAbonosAnuais();
+  }
+}
+
+/**
+ * Desenha a tabela com os cabeçalhos e valores do relatório
+ */
+function desenharTabelaRelatorio(tipo, dados) {
+  const head = document.getElementById('tabela-relatorio-head');
+  const body = document.getElementById('tabela-relatorio-body');
+  
+  head.innerHTML = "";
+  body.innerHTML = "";
+  
+  if (dados.length === 0) {
+    body.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-secondary); padding: 20px;">Nenhum registro encontrado para este relatório com os filtros selecionados.</td></tr>`;
+    document.getElementById('rep-resultado-container').style.display = "block";
+    return;
+  }
+  
+  let htmlHead = "<tr>";
+  let htmlBody = "";
+  
+  if (tipo === 'compulsorias' || tipo === 'situacao_ferias') {
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Férias", "Projetado", "Status Férias"];
+    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo</th><th style='text-align:center;'>Projetado</th><th>Info Períodos</th>";
+    
+    dados.forEach(s => {
+      htmlBody += `<tr>
+        <td><strong>${s.nome}</strong></td>
+        <td>${s.matricula}</td>
+        <td>${s.cargo}</td>
+        <td>${s.lotacao}</td>
+        <td style='text-align:center;'>${s.saldoHoje} d</td>
+        <td style='text-align:center;'>${s.projetado} d</td>
+        <td style='font-size:12px; color: var(--text-secondary);'>${s.infoFerias}</td>
+      </tr>`;
+    });
+  } else if (tipo === 'calendario_ausencias') {
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Tipo de Ausência", "Início", "Fim", "Total de Dias"];
+    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Tipo de Ausência</th><th style='text-align:center;'>Início</th><th style='text-align:center;'>Fim</th><th style='text-align:center;'>Dias</th>";
+    
+    dados.forEach(a => {
+      htmlBody += `<tr>
+        <td><strong>${a.nome}</strong></td>
+        <td>${a.matricula}</td>
+        <td>${a.tipo}</td>
+        <td style='text-align:center;'>${a.inicio}</td>
+        <td style='text-align:center;'>${a.fim}</td>
+        <td style='text-align:center;'>${a.dias}</td>
+      </tr>`;
+    });
+  } else if (tipo === 'resumo_mensal') {
+    colunasUltimoRelatorio = ["1Doc", "Data", "Tipo", "Servidor", "Matrícula", "Data Saída", "Dias/Qtd", "Status"];
+    htmlHead += "<th>1Doc / Prot.</th><th>Data Solicitação</th><th>Tipo Documento</th><th>Servidor</th><th>Matrícula</th><th style='text-align:center;'>Data Início</th><th style='text-align:center;'>Duração</th><th>Status</th>";
+    
+    dados.forEach(l => {
+      htmlBody += `<tr>
+        <td><strong>${l.idoc}</strong></td>
+        <td>${l.dataSolicitacao}</td>
+        <td>${l.tipo}</td>
+        <td>${l.nome}</td>
+        <td>${l.matricula}</td>
+        <td style='text-align:center;'>${l.dataInicio}</td>
+        <td style='text-align:center;'>${l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-')}</td>
+        <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${l.status}</span></td>
+      </tr>`;
+    });
+  } else if (tipo === 'abonos_anuais') {
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Lotação", "Abonadas Usadas", "Cota Limite", "Saldo Restante"];
+    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Lotação</th><th style='text-align:center;'>Abonadas Usadas</th><th style='text-align:center;'>Cota Limite</th><th style='text-align:center;'>Saldo Restante</th>";
+    
+    dados.forEach(a => {
+      htmlBody += `<tr>
+        <td><strong>${a.nome}</strong></td>
+        <td>${a.matricula}</td>
+        <td>${a.lotacao}</td>
+        <td style='text-align:center;'>${a.abonosUsados} / 5</td>
+        <td style='text-align:center;'>5</td>
+        <td style='text-align:center; font-weight:bold; color: ${a.saldoRestante === 0 ? 'var(--status-leave-text)' : 'var(--status-active-text)'}'>${a.saldoRestante} d</td>
+      </tr>`;
+    });
+  }
+  
+  htmlHead += "</tr>";
+  head.innerHTML = htmlHead;
+  body.innerHTML = htmlBody;
+  
+  document.getElementById('rep-resultado-container').style.display = "block";
+}
+
+/**
+ * Exporta para arquivo de Excel (.csv formatado) diretamente pelo navegador
+ */
+function exportarRelatorioExcel() {
+  if (dadosUltimoRelatorio.length === 0) return;
+  
+  // Constrói cabeçalho CSV
+  let csv = colunasUltimoRelatorio.join(";") + "\r\n";
+  
+  dadosUltimoRelatorio.forEach(item => {
+    let linha = [];
+    if (colunasUltimoRelatorio.includes("Servidor")) {
+      linha.push(item.nome || "");
+      linha.push(item.matricula || "");
+    }
+    
+    if (colunasUltimoRelatorio.includes("Cargo")) linha.push(item.cargo || "");
+    if (colunasUltimoRelatorio.includes("Lotação")) linha.push(item.lotacao || "");
+    if (colunasUltimoRelatorio.includes("Saldo Férias")) linha.push(item.saldoHoje || "0");
+    if (colunasUltimoRelatorio.includes("Projetado")) linha.push(item.projetado || "0");
+    if (colunasUltimoRelatorio.includes("Info Períodos")) linha.push(item.infoFerias || "");
+    
+    if (colunasUltimoRelatorio.includes("Tipo de Ausência")) {
+      linha.push(item.tipo || "");
+      linha.push(item.inicio || "");
+      linha.push(item.fim || "");
+      linha.push(item.dias || "0");
+    }
+    
+    if (colunasUltimoRelatorio.includes("1Doc")) {
+      linha.push(item.idoc || "");
+      linha.push(item.dataSolicitacao || "");
+      linha.push(item.tipo || "");
+      linha.push(item.nome || "");
+      linha.push(item.matricula || "");
+      linha.push(item.dataInicio || "");
+      linha.push(item.dias > 0 ? item.dias : (item.qtdHoras || ""));
+      linha.push(item.status || "");
+    }
+    
+    if (colunasUltimoRelatorio.includes("Abonadas Usadas")) {
+      linha.push(item.lotacao || "");
+      linha.push(item.abonosUsados || "0");
+      linha.push(item.limiteAnual || "5");
+      linha.push(item.saldoRestante || "0");
+    }
+    
+    // Escapa aspas
+    let linhaEscapada = linha.map(col => {
+      let texto = String(col).replace(/"/g, '""');
+      return '"' + texto + '"';
+    });
+    csv += linhaEscapada.join(";") + "\r\n";
+  });
+  
+  // Força download
+  const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `Relatorio_${tituloUltimoRelatorio.replace(/\s+/g, "_")}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+/**
+ * Renderiza relatório em HTML timbrado e abre o modal de impressão PDF
+ */
+function imprimirRelatorioLocal() {
+  if (dadosUltimoRelatorio.length === 0) return;
+  
+  const area = document.getElementById('print-area-relatorio');
+  
+  let html = `
+    <div style="font-family: Arial, sans-serif; color: #000; line-height: 1.5;">
+      
+      <!-- Cabeçalho Oficial SETUR -->
+      <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px;">
+        <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">Prefeitura Municipal de São Sebastião</h2>
+        <h3 style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #555; text-transform: uppercase;">Secretaria de Turismo - SETUR</h3>
+        <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold;">${tituloUltimoRelatorio}</p>
+        <p style="margin: 5px 0 0 0; font-size: 11px; color: #777;">Gerado em: ${new Date().toLocaleString('pt-BR')}</p>
+      </div>
+
+      <!-- Tabela -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 40px;">
+        <thead>
+          <tr style="background-color: #f2f2f2;">
+  `;
+  
+  // Cabeçalho da tabela
+  colunasUltimoRelatorio.forEach(col => {
+    html += `<th style="border: 1px solid #111; padding: 8px; text-align: left; font-weight: 700;">${col}</th>`;
+  });
+  
+  // Adiciona a coluna extra no cabeçalho se for férias compulsórias/situação para bater com Info Períodos
+  if (colunasUltimoRelatorio.includes("Status Férias")) {
+    html = html.replace("<th>Status Férias</th>", "<th>Saldo Hoje</th><th>Projetado</th><th>Info Períodos</th>");
+  }
+  
+  html += `</tr></thead><tbody>`;
+  
+  // Linhas do corpo
+  dadosUltimoRelatorio.forEach(item => {
+    html += `<tr>`;
+    if (colunasUltimoRelatorio.includes("Servidor")) {
+      html += `<td style="border: 1px solid #111; padding: 8px;"><strong>${item.nome}</strong></td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.matricula}</td>`;
+    }
+    
+    if (colunasUltimoRelatorio.includes("Cargo")) html += `<td style="border: 1px solid #111; padding: 8px;">${item.cargo || '-'}</td>`;
+    if (colunasUltimoRelatorio.includes("Lotação")) html += `<td style="border: 1px solid #111; padding: 8px;">${item.lotacao || '-'}</td>`;
+    
+    if (colunasUltimoRelatorio.includes("Saldo Férias")) {
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.saldoHoje} d</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.projetado} d</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; font-size:11px;">${item.infoFerias}</td>`;
+    }
+    
+    if (colunasUltimoRelatorio.includes("Tipo de Ausência")) {
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.tipo}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.inicio}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.fim}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dias}</td>`;
+    }
+    
+    if (colunasUltimoRelatorio.includes("1Doc")) {
+      html += `<td style="border: 1px solid #111; padding: 8px;"><strong>${item.idoc}</strong></td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.dataSolicitacao}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.tipo}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.nome}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.matricula}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dataInicio}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dias > 0 ? item.dias + ' d' : (item.qtdHoras || '-')}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.status}</td>`;
+    }
+    
+    if (colunasUltimoRelatorio.includes("Abonadas Usadas")) {
+      html += `<td style="border: 1px solid #111; padding: 8px;">${item.lotacao || '-'}</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.abonosUsados} / 5</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">5</td>`;
+      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;"><strong>${item.saldoRestante} d</strong></td>`;
+    }
+    
+    html += `</tr>`;
+  });
+  
+  html += `</tbody></table></div>`;
+  
+  area.innerHTML = html;
+  abrirModal('modal-relatorio-impressao');
+}
+
+function imprimirRelatorioLocalNativo() {
+  window.print();
+}
+
+// --- PAINEL ADMINISTRATIVO (ADMIN) ---
+
+// Armazenamento local
+AppState.usuarios = [];
+AppState.configs = [];
+AppState.logs = [];
+
+/**
+ * Controla navegação das sub-abas do Painel Admin
+ */
+function alternarAbaAdmin(idAba) {
+  document.querySelectorAll('#view-admin .tab-button').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('#view-admin .tab-panel').forEach(panel => panel.classList.remove('active'));
+  
+  // Ativa botão
+  const btn = document.getElementById(`btn-${idAba}`);
+  if (btn) btn.classList.add('active');
+  
+  // Ativa tela
+  const painel = document.getElementById(idAba);
+  if (painel) painel.classList.add('active');
+  
+  // Carrega dados da sub-aba
+  if (idAba === 'adm-usuarios') carregarListaUsuarios();
+  else if (idAba === 'adm-configs') carregarListaConfiguracoes();
+  else if (idAba === 'adm-logs') carregarLogsAuditoria();
+}
+
+/**
+ * Busca usuários autorizados do backend
+ */
+function carregarListaUsuarios() {
+  exibirLoader(true);
+  
+  if (typeof google === "undefined" || !google.script) {
+    AppState.usuarios = [{ email: "matheus@saosebastiao.sp.gov.br", nome: "MATHEUS", papel: "Administrador", ativo: "Sim" }];
+    renderizarTabelaUsuarios();
+    exibirLoader(false);
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function(usuarios) {
+      AppState.usuarios = usuarios;
+      renderizarTabelaUsuarios();
+      exibirLoader(false);
+    })
+    .withFailureHandler(function(e) {
+      exibirLoader(false);
+      alert("Erro ao buscar usuários: " + e.toString());
+    })
+    .obterListaUsuarios();
+}
+
+function renderizarTabelaUsuarios() {
+  const tbody = document.getElementById('tabela-adm-usuarios-body');
+  let html = "";
+  
+  AppState.usuarios.forEach(u => {
+    let badgeClass = u.ativo === "Sim" ? "badge-ativo" : "badge-inativo";
+    
+    html += `<tr>
+      <td><strong>${u.email}</strong></td>
+      <td>${u.nome}</td>
+      <td>${u.papel}</td>
+      <td><span class="badge ${badgeClass}">${u.ativo === "Sim" ? "Ativo" : "Bloqueado"}</span></td>
+      <td>
+        <div class="action-buttons">
+          <button class="btn-action" onclick="abrirModalUsuario('${u.email}')" title="Editar Usuário">
+            <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
+          </button>
+          <button class="btn-action btn-delete" onclick="confirmarDesativacaoUsuario('${u.email}')" title="Desativar Usuário">
+            <span data-lucide="shield-alert" style="width: 14px; height: 14px;"></span>
+          </button>
+        </div>
+      </td>
+    </tr>`;
+  });
+  
+  tbody.innerHTML = html || `<tr><td colspan="5" style="text-align:center;">Nenhum usuário cadastrado.</td></tr>`;
+  lucide.createIcons();
+}
+
+function abrirModalUsuario(email) {
+  const form = document.getElementById('form-usuario');
+  form.reset();
+  
+  const titulo = document.getElementById('modal-usuario-titulo');
+  const inputEmail = document.getElementById('usr-email');
+  
+  if (email) {
+    titulo.innerText = "Editar Usuário";
+    inputEmail.disabled = true;
+    
+    const u = AppState.usuarios.find(usr => usr.email === email);
+    if (u) {
+      document.getElementById('usr-email').value = u.email;
+      document.getElementById('usr-nome').value = u.nome;
+      document.getElementById('usr-papel').value = u.papel;
+      document.getElementById('usr-ativo').value = u.ativo;
+    }
+  } else {
+    titulo.innerText = "Autorizar Novo Usuário";
+    inputEmail.disabled = false;
+    document.getElementById('usr-ativo').value = "Sim";
+  }
+  
+  abrirModal('modal-usuario');
+}
+
+function salvarDadosUsuario(event) {
+  event.preventDefault();
+  exibirLoader(true);
+  
+  const dados = {
+    email: document.getElementById('usr-email').value.trim(),
+    nome: document.getElementById('usr-nome').value.trim(),
+    papel: document.getElementById('usr-papel').value,
+    ativo: document.getElementById('usr-ativo').value
+  };
+  
+  google.script.run
+    .withSuccessHandler(function() {
+      fecharModal('modal-usuario');
+      carregarListaUsuarios();
+      alert("Acesso do usuário salvo com sucesso!");
+    })
+    .withFailureHandler(function(e) {
+      exibirLoader(false);
+      alert("Erro ao gerenciar usuário: " + e.toString());
+    })
+    .salvarUsuario(dados);
+}
+
+function confirmarDesativacaoUsuario(email) {
+  if (confirm(`Deseja mesmo BLOQUEAR e desativar o acesso do e-mail ${email}?\n\nEle não conseguirá mais entrar no sistema.`)) {
+    exibirLoader(true);
+    
+    google.script.run
+      .withSuccessHandler(function() {
+        carregarListaUsuarios();
+        alert("Acesso desativado com sucesso!");
+      })
+      .withFailureHandler(function(e) {
+        exibirLoader(false);
+        alert("Erro ao desativar usuário: " + e.toString());
+      })
+      .desativarUsuario(email);
+  }
+}
+
+/**
+ * Busca configurações do sistema
+ */
+function carregarListaConfiguracoes() {
+  exibirLoader(true);
+  
+  google.script.run
+    .withSuccessHandler(function(configs) {
+      AppState.configs = configs;
+      renderizarTabelaConfiguracoes();
+      exibirLoader(false);
+    })
+    .withFailureHandler(function(e) {
+      exibirLoader(false);
+      alert("Erro ao buscar configurações: " + e.toString());
+    })
+    .obterListaConfiguracoes();
+}
+
+function renderizarTabelaConfiguracoes() {
+  const tbody = document.getElementById('tabela-adm-configs-body');
+  let html = "";
+  
+  AppState.configs.forEach(c => {
+    html += `<tr>
+      <td><strong>${c.chave}</strong></td>
+      <td><input type="text" class="form-control" style="max-width:300px; padding:6px 12px;" value="${c.valor}" id="cfg-val-${c.linhaPlanilha}"></td>
+      <td style="font-size:12px; color: var(--text-secondary);">${c.descricao}</td>
+      <td>
+        <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="editarValorConfiguracao(${c.linhaPlanilha}, '${c.chave}')">
+          Salvar
+        </button>
+      </td>
+    </tr>`;
+  });
+  
+  tbody.innerHTML = html || `<tr><td colspan="4" style="text-align:center;">Nenhuma configuração disponível.</td></tr>`;
+}
+
+function editarValorConfiguracao(linha, chave) {
+  const input = document.getElementById(`cfg-val-${linha}`);
+  const valor = input.value.trim();
+  
+  if (!valor) {
+    alert("O valor do parâmetro não pode ficar em branco.");
+    return;
+  }
+  
+  exibirLoader(true);
+  
+  google.script.run
+    .withSuccessHandler(function() {
+      alert(`Parâmetro ${chave} atualizado com sucesso!`);
+      carregarListaConfiguracoes();
+    })
+    .withFailureHandler(function(e) {
+      exibirLoader(false);
+      alert("Erro ao atualizar parâmetro: " + e.toString());
+    })
+    .salvarConfiguracao({
+      linhaPlanilha: linha,
+      chave: chave,
+      valor: valor
+    });
+}
+
+/**
+ * Busca logs de auditoria do servidor
+ */
+function carregarLogsAuditoria() {
+  exibirLoader(true);
+  
+  google.script.run
+    .withSuccessHandler(function(logs) {
+      AppState.logs = logs;
+      renderizarTabelaLogs();
+      exibirLoader(false);
+    })
+    .withFailureHandler(function(e) {
+      exibirLoader(false);
+      alert("Erro ao buscar logs: " + e.toString());
+    })
+    .obterRelatorioLogs();
+}
+
+function renderizarTabelaLogs(listaFiltrada) {
+  const logs = listaFiltrada || AppState.logs;
+  const tbody = document.getElementById('tabela-adm-logs-body');
+  
+  if (logs.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Nenhum log registrado.</td></tr>`;
+    return;
+  }
+  
+  let html = "";
+  logs.slice(0, 150).forEach(l => { // Limita exibição em 150 itens por performance
+    html += `<tr>
+      <td style="font-size:11px; white-space:nowrap;">${l.dataHora}</td>
+      <td style="font-size:12px;"><strong>${l.usuario}</strong></td>
+      <td style="font-size:11px; font-weight:600;">${l.acao}</td>
+      <td style="font-size:12px;">${l.modulo}</td>
+      <td style="font-size:12px; color: var(--text-secondary); max-width: 250px; overflow:hidden; text-overflow:ellipsis;">${l.descricao}</td>
+      <td style="font-size:11px; color: var(--text-muted);">${l.campoAlterado || '-'}</td>
+      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${l.valorAntes}">${l.valorAntes || '-'}</td>
+      <td style="font-size:11px; color: var(--text-muted); max-width: 100px; overflow:hidden; text-overflow:ellipsis;" title="${l.valorDepois}">${l.valorDepois || '-'}</td>
+    </tr>`;
+  });
+  
+  tbody.innerHTML = html;
+}
+
+/**
+ * Filtra tabela de logs no cliente em tempo real
+ */
+function filtrarLogsAuditoria() {
+  const busca = document.getElementById('log-filtro-busca').value.toLowerCase().trim();
+  const modulo = document.getElementById('log-filtro-modulo').value;
+  const acao = document.getElementById('log-filtro-acao').value;
+  
+  const filtrados = AppState.logs.filter(l => {
+    const bateBusca = !busca || l.usuario.toLowerCase().includes(busca) || l.descricao.toLowerCase().includes(busca) || l.idRegistro.toLowerCase().includes(busca);
+    const bateModulo = !modulo || l.modulo === modulo;
+    const bateAcao = !acao || l.acao === acao;
+    return bateBusca && bateModulo && bateAcao;
+  });
+  
+  renderizarTabelaLogs(filtrados);
+}
 </script>
 
