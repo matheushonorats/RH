@@ -1,0 +1,37 @@
+/**
+ * RH Central de Documentos v2.0
+ * Ponto de Entrada Principal (Web App)
+ */
+
+/**
+ * Função executada ao acessar a URL pública do Web App
+ */
+function doGet(e) {
+  // Configuração para servir o HTML principal
+  const template = HtmlService.createTemplateFromFile("index");
+  
+  return template.evaluate()
+    .setTitle("RH - Central de Documentos")
+    .setSandboxMode(HtmlService.SandboxMode.IFRAME)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag("viewport", "width=device-width, initial-scale=1");
+}
+
+/**
+ * Função utilitária para incluir outros arquivos HTML dentro de templates (CSS/JS)
+ */
+function incluir(caminhoArquivo) {
+  return HtmlService.createHtmlOutputFromFile(caminhoArquivo).getContent();
+}
+
+/**
+ * Cria o menu de utilitários na planilha para o Administrador
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu("RH SETUR 2.0")
+    .addItem("🚀 Executar Configuração Inicial (Setup)", "executarConfiguracaoInicial")
+    .addSeparator()
+    .addItem("📅 Gerar Créditos de Férias (Manual)", "menuGerarGeral") // Será portado do código antigo
+    .addToUi();
+}

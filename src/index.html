@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <!-- Lucide Icons para ícones modernos e limpos (sem emojis) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <?!= incluir("Styles"); ?>
+  </head>
+  <body>
+    
+    <div class="app-container">
+      
+      <!-- Menu Lateral -->
+      <nav class="sidebar">
+        <div class="sidebar-header">
+          <h2>SETUR</h2>
+          <p>RH - Central de Documentos v2.0</p>
+        </div>
+        
+        <ul class="sidebar-menu">
+          <li class="menu-item">
+            <a class="menu-link active" onclick="navegarPara('dashboard')">
+              <span class="menu-icon" data-lucide="layout-dashboard"></span>
+              Dashboard
+            </a>
+          </li>
+          <li class="menu-item">
+            <a class="menu-link" onclick="navegarPara('servidores')">
+              <span class="menu-icon" data-lucide="users"></span>
+              Servidores
+            </a>
+          </li>
+          <li class="menu-item">
+            <a class="menu-link" onclick="navegarPara('lancamentos')">
+              <span class="menu-icon" data-lucide="file-text"></span>
+              Lançamentos
+            </a>
+          </li>
+          <li class="menu-item">
+            <a class="menu-link" onclick="navegarPara('protocolos')">
+              <span class="menu-icon" data-lucide="clipboard-list"></span>
+              Protocolos
+            </a>
+          </li>
+          <li class="menu-item">
+            <a class="menu-link" onclick="navegarPara('relatorios')">
+              <span class="menu-icon" data-lucide="bar-chart-3"></span>
+              Emitir Relatórios
+            </a>
+          </li>
+          <li class="menu-item admin-only" style="display: none;">
+            <a class="menu-link" onclick="navegarPara('admin')">
+              <span class="menu-icon" data-lucide="settings"></span>
+              Administração
+            </a>
+          </li>
+        </ul>
+      </nav>
+      
+      <!-- Conteúdo Principal -->
+      <main class="main-content">
+        <!-- Barra Superior -->
+        <header class="topbar">
+          <div class="topbar-title">
+            <h1 id="view-title">Dashboard</h1>
+          </div>
+          
+          <div class="user-info">
+            <div class="user-details">
+              <div class="user-name" id="current-user-name">Carregando...</div>
+              <div class="user-role" id="current-user-role">Acessando...</div>
+            </div>
+          </div>
+        </header>
+        
+        <!-- Container das Telas (Views) -->
+        <div class="view-container">
+          <!-- Spinner de Carregamento Geral -->
+          <div class="loader-overlay" id="global-loader">
+            <div class="loader"></div>
+          </div>
+          
+          <!-- View 1: Dashboard -->
+          <section id="view-dashboard" class="view-section active">
+            <div class="dashboard-grid">
+              <div class="card">
+                <div class="card-title">Servidores Ativos</div>
+                <div class="card-value" id="dash-servidores-ativos">0</div>
+              </div>
+              <div class="card">
+                <div class="card-title">Férias Compulsórias</div>
+                <div class="card-value" id="dash-ferias-compulsorias" style="color: var(--status-leave-text)">0</div>
+              </div>
+              <div class="card">
+                <div class="card-title">Ausentes Hoje</div>
+                <div class="card-value" id="dash-ausentes-hoje">0</div>
+              </div>
+              <div class="card">
+                <div class="card-title">Protocolos Pendentes</div>
+                <div class="card-value" id="dash-protocolos-pendentes" style="color: var(--status-warning-text)">0</div>
+              </div>
+            </div>
+            
+            <div class="table-container">
+              <div class="table-header">
+                <div class="table-title">Ausências Hoje</div>
+              </div>
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Servidor</th>
+                    <th>Matrícula</th>
+                    <th>Tipo</th>
+                    <th>Período</th>
+                    <th>Dias</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-tabela-ausencias">
+                  <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          
+          <!-- View 2: Servidores -->
+          <section id="view-servidores" class="view-section">
+            <div class="table-container">
+              <div class="table-header">
+                <div class="table-title">Servidores Cadastrados</div>
+                <button class="btn btn-primary" onclick="abrirModalServidor()">Novo Servidor</button>
+              </div>
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Matrícula</th>
+                    <th>Cargo</th>
+                    <th>Lotação</th>
+                    <th>Situação</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-servidores-body">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-secondary);">Buscando servidores...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          
+          <!-- View 3: Lançamentos -->
+          <section id="view-lancamentos" class="view-section">
+            <div class="table-container">
+              <div class="table-header">
+                <div class="table-title">Histórico de Lançamentos</div>
+                <button class="btn btn-primary" onclick="abrirModalLancamento()">Novo Lançamento</button>
+              </div>
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>1Doc / Protocolo</th>
+                    <th>Data Solicitação</th>
+                    <th>Tipo de Documento</th>
+                    <th>Servidor</th>
+                    <th>Data Saída/Falta</th>
+                    <th>Dias/Qtd</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-lancamentos-body">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-secondary);">Buscando lançamentos...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          
+          <!-- View 4: Protocolos -->
+          <section id="view-protocolos" class="view-section">
+            <p style="color: var(--text-secondary);">Módulo Protocolos - Em Breve.</p>
+          </section>
+          
+          <!-- View 5: Relatórios -->
+          <section id="view-relatorios" class="view-section">
+            <p style="color: var(--text-secondary);">Módulo Relatórios - Em Breve.</p>
+          </section>
+          
+          <!-- View 6: Administração -->
+          <section id="view-admin" class="view-section">
+            <p style="color: var(--text-secondary);">Módulo Administrativo - Em Breve.</p>
+          </section>
+          
+        </div>
+      </main>
+      
+    </div>
+
+    <!-- Scripts da Interface -->
+    <?!= incluir("Scripts"); ?>
+  </body>
+</html>

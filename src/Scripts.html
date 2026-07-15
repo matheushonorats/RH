@@ -1,0 +1,186 @@
+<script>
+/**
+ * Lógica do Cliente (Interface do Usuário)
+ * RH Central de Documentos v2.0
+ */
+
+// Estado Global do Aplicativo
+const AppState = {
+  usuarioLogado: {
+    email: "",
+    nome: "",
+    papel: "Consulta"
+  },
+  servidores: [],
+  lancamentos: []
+};
+
+// Executa automaticamente ao carregar a página
+window.addEventListener('DOMContentLoaded', (event) => {
+  // Inicializa os ícones do Lucide
+  lucide.createIcons();
+  
+  // Busca informações do usuário logado no servidor Google
+  inicializarUsuario();
+});
+
+/**
+ * Controla a navegação SPA entre as abas do menu
+ */
+function navegarPara(idView) {
+  // 1. Ocultar todas as views e desativar todos os links
+  document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+  document.querySelectorAll('.menu-link').forEach(link => link.classList.remove('active'));
+  
+  // 2. Mostrar a view selecionada
+  const viewAlvo = document.getElementById(`view-${idView}`);
+  if (viewAlvo) {
+    viewAlvo.classList.add('active');
+  }
+  
+  // 3. Ativar o link clicado
+  const linkAtivo = Array.from(document.querySelectorAll('.menu-link')).find(link => 
+    link.getAttribute('onclick') && link.getAttribute('onclick').includes(`'${idView}'`)
+  );
+  if (linkAtivo) {
+    linkAtivo.classList.add('active');
+  }
+  
+  // 4. Mudar o título superior da barra
+  const titulos = {
+    'dashboard': 'Dashboard Geral',
+    'servidores': 'Gestão de Servidores',
+    'lancamentos': 'Histórico de Lançamentos',
+    'protocolos': 'Controle de Protocolos',
+    'relatorios': 'Relatórios & Emissão',
+    'admin': 'Painel Administrativo'
+  };
+  document.getElementById('view-title').innerText = titulos[idView] || 'RH Central';
+  
+  // 5. Recarrega os ícones Lucide para garantir renderização correta
+  lucide.createIcons();
+  
+  // 6. Carrega os dados específicos da view
+  carregarDadosDaView(idView);
+}
+
+/**
+ * Busca o usuário atual logado pelo Google Apps Script
+ */
+function inicializarUsuario() {
+  exibirLoader(true);
+  
+  // Se estiver rodando fora do Apps Script (teste local no navegador, por exemplo)
+  if (typeof google === "undefined" || !google.script) {
+    AppState.usuarioLogado = { email: "teste@saosebastiao.sp.gov.br", nome: "Usuário Teste Local", papel: "Administrador" };
+    atualizarBarraUsuario();
+    exibirLoader(false);
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function(usuario) {
+      AppState.usuarioLogado = usuario;
+      atualizarBarraUsuario();
+      
+      // Se for Admin, mostra o menu administrativo
+      if (usuario.papel === "Administrador" || usuario.papel === "Admin") {
+        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
+      }
+      
+      exibirLoader(false);
+      // Carrega o dashboard inicial
+      carregarDadosDaView('dashboard');
+    })
+    .withFailureHandler(function(erro) {
+      console.error("Erro ao obter usuário:", erro);
+      document.getElementById('current-user-name').innerText = "Acesso Negado";
+      document.getElementById('current-user-role').innerText = "Não autorizado";
+      exibirLoader(false);
+      alert("Erro ao validar credenciais do Google. Verifique se seu e-mail está cadastrado no sistema.");
+    })
+    .obterDadosUsuarioLogado(); // Essa função será criada no Auth.gs
+}
+
+/**
+ * Atualiza os textos de identificação do usuário na barra superior
+ */
+function atualizarBarraUsuario() {
+  document.getElementById('current-user-name').innerText = AppState.usuarioLogado.nome;
+  document.getElementById('current-user-role').innerText = AppState.usuarioLogado.papel;
+}
+
+/**
+ * Exibe ou oculta o spinner de carregamento geral
+ */
+function exibirLoader(mostrar) {
+  const loader = document.getElementById('global-loader');
+  if (loader) {
+    loader.style.display = mostrar ? 'flex' : 'none';
+  }
+}
+
+/**
+ * Carrega ou atualiza os dados dependendo da tela aberta
+ */
+function carregarDadosDaView(idView) {
+  if (idView === 'dashboard') {
+    carregarDashboard();
+  } else if (idView === 'servidores') {
+    carregarListaServidores();
+  } else if (idView === 'lancamentos') {
+    carregarListaLancamentos();
+  }
+}
+
+/**
+ * Busca dados consolidados para o Dashboard
+ */
+function carregarDashboard() {
+  if (typeof google === "undefined" || !google.script) return;
+  
+  google.script.run
+    .withSuccessHandler(function(resumo) {
+      document.getElementById('dash-servidores-ativos').innerText = resumo.ativos || 0;
+      document.getElementById('dash-ferias-compulsorias').innerText = resumo.compulsorias || 0;
+      document.getElementById('dash-ausentes-hoje').innerText = resumo.ausentesHoje || 0;
+      document.getElementById('dash-protocolos-pendentes').innerText = resumo.protocolosPendentes || 0;
+      
+      // Renderiza tabela de ausências de hoje
+      const tabela = document.getElementById('dash-tabela-ausencias');
+      if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
+        let html = "";
+        resumo.listaAusentes.forEach(a => {
+          html += `<tr>
+            <td><strong>${a.nome}</strong></td>
+            <td>${a.matricula}</td>
+            <td>${a.tipo}</td>
+            <td>${a.periodo}</td>
+            <td style="text-align: center;">${a.dias}</td>
+          </tr>`;
+        });
+        tabela.innerHTML = html;
+      } else {
+        tabela.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
+      }
+    })
+    .obterResumoDashboard(); // Essa função será criada no DashboardService.gs
+}
+
+function carregarListaServidores() {
+  // Será implementado na Fase 2
+}
+
+function carregarListaLancamentos() {
+  // Será implementado na Fase 3
+}
+
+// Funções de Modal vazias para inicialização
+function abrirModalServidor() {
+  alert("Formulário de Servidor em desenvolvimento.");
+}
+
+function abrirModalLancamento() {
+  alert("Formulário de Lançamento em desenvolvimento.");
+}
+</script>
