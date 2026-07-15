@@ -12,8 +12,7 @@ function doGet(e) {
   
   return template.evaluate()
     .setTitle("RH - Central de Documentos")
-    .setSandboxMode(HtmlService.SandboxMode.IFRAME)
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
 
