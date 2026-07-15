@@ -11,7 +11,7 @@ function doGet(e) {
   const template = HtmlService.createTemplateFromFile("index");
   
   return template.evaluate()
-    .setTitle("RH - Central de Documentos")
+    .setTitle("RH")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
