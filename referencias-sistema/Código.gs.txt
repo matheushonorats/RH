@@ -1,0 +1,347 @@
+/**
+ * Script para notificar Férias, Abonos e Abonada Natalícia
+ * Versão: 18/03/2026 - Incluindo Filtro Natalícia e Intervalo Resiliente
+ */
+
+// --- CONFIGURAÇÃO GERAL ---
+const COL_TIPO = 3;        // Coluna C
+const COL_NOME = 5;        // Coluna E (Lê "MATRICULA : NOME")
+const COL_DATA_INICIO = 9; // Coluna I
+const COL_DIAS = 13;       // Coluna M
+
+const EMAIL_DESTINO = "turismo.setur@saosebastiao.sp.gov.br";
+
+// --- FUNÇÃO 1: AUTOMÁTICO (Gatilho Diário com Intervalo) ---
+function verificarEEnviarEmail() {
+  const DIAS_INTERVALO_FERIAS = 15; // Busca tudo que começa nos próximos 15 dias
+  const DIAS_INTERVALO_ABONO = 5;  // Busca tudo que começa nos próximos 5 dias (inclui Natalícia)
+
+  const dados = obterDadosPlanilha();
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const dataLimiteFerias = new Date(hoje);
+  dataLimiteFerias.setDate(hoje.getDate() + DIAS_INTERVALO_FERIAS);
+
+  const dataLimiteAbono = new Date(hoje);
+  dataLimiteAbono.setDate(hoje.getDate() + DIAS_INTERVALO_ABONO);
+
+  Logger.log(`[Busca] Férias até: ${formatarData(dataLimiteFerias)} | Abonos/Natalícia até: ${formatarData(dataLimiteAbono)}`);
+
+  let listaFerias = [];
+  let listaAbono = [];
+
+  dados.forEach(linha => {
+    if (!linha.nome || !linha.dataInicio) return;
+
+    // Férias
+    if (ehFerias(linha.tipo)) {
+      if (linha.dataInicio >= hoje && linha.dataInicio <= dataLimiteFerias) {
+        listaFerias.push(montarObjetoFerias(linha.nome, linha.dataInicio, linha.qtdDias));
+      }
+    }
+
+    // Abonos e Abonada Natalícia (Agrupados na mesma tabela de alertas rápidos)
+    if (ehAbono(linha.tipo) || ehNatalicia(linha.tipo)) {
+      if (linha.dataInicio >= hoje && linha.dataInicio <= dataLimiteAbono) {
+        listaAbono.push(montarObjetoAbono(linha.nome, linha.dataInicio, linha.tipo));
+      }
+    }
+  });
+
+  if (listaFerias.length > 0 || listaAbono.length > 0) {
+    // Ordenação por data para o e-mail ficar organizado
+    listaFerias.sort((a, b) => a.dataBruta - b.dataBruta);
+    
+    enviarEmail(EMAIL_DESTINO, "SETUR RH | Relatório Diário de Programação Abonos e Férias", listaFerias, listaAbono, DIAS_INTERVALO_FERIAS, DIAS_INTERVALO_ABONO);
+    Logger.log("E-mail enviado com sucesso.");
+  } else {
+    Logger.log("Nenhum registro de férias, abono ou natalícia encontrado para os próximos dias.");
+  }
+}
+
+// --- FUNÇÕES DE IDENTIFICAÇÃO (CRÍTICO) ---
+
+function ehFerias(tipo) {
+  if (!tipo) return false;
+  const t = tipo.toLowerCase();
+  return t.includes("férias") || t.includes("ferias");
+}
+
+function ehAbono(tipo) {
+  if (!tipo) return false;
+  const t = tipo.toLowerCase();
+  return t.includes("abonada") || t.includes("abono");
+}
+
+function ehNatalicia(tipo) {
+  if (!tipo) return false;
+  const t = tipo.toLowerCase();
+  return t.includes("natalícia") || t.includes("natalicia");
+}
+
+// --- FUNÇÕES AUXILIARES ---
+
+function obterDadosPlanilha() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const aba = ss.getSheetByName("Lançamentos"); 
+  if (!aba) {
+    Logger.log("ERRO: Aba 'Lançamentos' não encontrada!");
+    return [];
+  }
+  const dadosRaw = aba.getDataRange().getValues();
+  let dadosFormatados = [];
+  
+  for (let i = 1; i < dadosRaw.length; i++) {
+    let linha = dadosRaw[i];
+    let nomeBruto = String(linha[COL_NOME - 1]);
+    let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
+    let dataTratada = normalizarData(linha[COL_DATA_INICIO - 1]);
+
+    dadosFormatados.push({
+      nome: nomeLimpo,
+      tipo: String(linha[COL_TIPO - 1]),
+      dataInicio: dataTratada,
+      qtdDias: parseInt(linha[COL_DIAS - 1]) || 0
+    });
+  }
+  return dadosFormatados;
+}
+
+function montarObjetoFerias(nome, dataInicio, qtdDias) {
+  let dataRetorno = new Date(dataInicio);
+  dataRetorno.setDate(dataInicio.getDate() + qtdDias);
+  return {
+    nome: nome,
+    dataBruta: dataInicio,
+    saida: formatarData(dataInicio),
+    retorno: formatarData(dataRetorno)
+  };
+}
+
+function montarObjetoAbono(nome, dataInicio, tipo) {
+  return {
+    nome: nome,
+    data: formatarData(dataInicio),
+    tipo: tipo // Aqui aparecerá "Abonada Natalícia" ou "Abonada" no e-mail
+  };
+}
+
+function normalizarData(valor) {
+  if (!valor) return null;
+  if (valor instanceof Date) {
+    if (isNaN(valor.getTime())) return null;
+    valor.setHours(0, 0, 0, 0);
+    return valor;
+  }
+  let stringData = String(valor).trim().split(" ")[0];
+  if (stringData.includes('/')) {
+    var partes = stringData.split('/');
+    if (partes.length === 3) {
+      var d = new Date(parseInt(partes[2]) < 100 ? parseInt(partes[2]) + 2000 : partes[2], parseInt(partes[1]) - 1, parseInt(partes[0]));
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+  }
+  return null;
+}
+
+function enviarEmail(destinatario, assunto, ferias, abonos) {
+  let corpoHtml = "<div style='font-family: Arial, sans-serif; color: #333;'>";
+  corpoHtml += "<h2 style='color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px;'>Programação de solicitações lançadas</h2>";
+  
+  if (ferias.length > 0) {
+    corpoHtml += `<h4 style='background-color: #e67e22; color: white; padding: 10px; margin-bottom: 0;'>📅 Férias (Próximos 15 dias)</h4>`;
+    corpoHtml += "<table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>";
+    corpoHtml += "<tr style='background-color: #f8f9fa;'> <th style='border: 1px solid #ddd; padding: 8px;'>Servidor</th> <th style='border: 1px solid #ddd; padding: 8px;'>Início</th> <th style='border: 1px solid #ddd; padding: 8px;'>Retorno Estimado</th> </tr>";
+    ferias.forEach(f => {
+      corpoHtml += `<tr><td style='border: 1px solid #ddd; padding: 8px;'>${f.nome}</td><td style='border: 1px solid #ddd; padding: 8px; text-align: center;'>${f.saida}</td><td style='border: 1px solid #ddd; padding: 8px; text-align: center;'>${f.retorno}</td></tr>`;
+    });
+    corpoHtml += "</table>";
+  }
+
+  if (abonos.length > 0) {
+    corpoHtml += `<h4 style='background-color: #2980b9; color: white; padding: 10px; margin-bottom: 0;'>🎫 Abonadas e Abonadas Natalícias (Próximos 5 dias)</h4>`;
+    corpoHtml += "<table style='width: 100%; border-collapse: collapse;'>";
+    corpoHtml += "<tr style='background-color: #f8f9fa;'> <th style='border: 1px solid #ddd; padding: 8px;'>Servidor</th> <th style='border: 1px solid #ddd; padding: 8px;'>Data</th> <th style='border: 1px solid #ddd; padding: 8px;'>Tipo</th> </tr>";
+    abonos.forEach(a => {
+      corpoHtml += `<tr><td style='border: 1px solid #ddd; padding: 8px;'>${a.nome}</td><td style='border: 1px solid #ddd; padding: 8px; text-align: center;'>${a.data}</td><td style='border: 1px solid #ddd; padding: 8px;'>${a.tipo}</td></tr>`;
+    });
+    corpoHtml += "</table>";
+  }
+
+  corpoHtml += "<p style='font-size: 11px; color: #95a5a6; margin-top: 30px;'>Este é um e-mail automático gerado pelo RH - Central de Documentos.</p></div>";
+
+  MailApp.sendEmail({ to: destinatario, subject: assunto, htmlBody: corpoHtml });
+}
+
+function formatarData(data) {
+  return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy");
+}
+/**
+ * GERENCIADOR DE CRÉDITOS DE FÉRIAS (V6 - BLINDADO)
+ * -------------------------------------------------
+ * Correções:
+ * 1. Força leitura de datas no formato brasileiro (DD/MM/AAAA).
+ * 2. Ignora linhas em branco na tabela de créditos para evitar falsos duplicados.
+ * 3. Relatório detalhado ao final.
+ */
+
+// --- CONFIGURAÇÕES ---
+const ABA_SERVIDORES = "Servidores";
+const ABA_CREDITOS = "Creditos_Ferias";
+const COL_MATRICULA_SERV = 0; // Coluna A
+const COL_ADMISSAO_SERV = 3;  // Coluna D (Data de Admissão)
+
+// --- MENU ---
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Gestão de Férias')
+    .addItem('🚀 Corrigir e Gerar Tudo (Blindado)', 'menuGerarGeral')
+    .addToUi();
+}
+
+// --- ROBÔ DIÁRIO ---
+function gerarCreditosAutomaticos() {
+  processarGeral(365, false); 
+}
+
+// --- MANUAL (GERAL) ---
+function menuGerarGeral() {
+  const ui = SpreadsheetApp.getUi();
+  const resp = ui.alert(
+    'Atualização Geral', 
+    'Isso irá gerar créditos passados e projetar o ANO TODO (365 dias à frente).\n\nDeseja continuar?', 
+    ui.ButtonSet.YES_NO
+  );
+
+  if (resp == ui.Button.YES) {
+    // MUDANÇA AQUI: De 60 para 365 para cobrir o "Ano Corrente"
+    processarGeral(365, true);
+  }
+}
+
+// --- LÓGICA CENTRAL ---
+function processarGeral(diasFuturos, exibirAlertas) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const abaServ = ss.getSheetByName(ABA_SERVIDORES);
+  const abaCred = ss.getSheetByName(ABA_CREDITOS);
+  const dados = abaServ.getDataRange().getValues();
+  
+  let gerados = 0;
+  let erros = 0;
+  let duplicados = 0;
+  
+  const hoje = new Date();
+  const dataLimiteFuturo = new Date();
+  dataLimiteFuturo.setDate(hoje.getDate() + diasFuturos); 
+
+  // Carrega duplicidade (ignorando linhas vazias)
+  const creditosExistentes = obterChavesCreditosExistentes(abaCred);
+  
+  if (exibirAlertas) ss.toast("Iniciando varredura...", "Gestão de Férias");
+
+  for (let i = 1; i < dados.length; i++) {
+    let matricula = String(dados[i][COL_MATRICULA_SERV]).trim();
+    let dataBruta = dados[i][COL_ADMISSAO_SERV];
+
+    if (!matricula) continue;
+
+    // Tenta converter a data de forma robusta
+    let admissao = lerDataBR(dataBruta);
+
+    if (!admissao) {
+      if (exibirAlertas) Logger.log(`Erro na Matrícula ${matricula}: Data '${dataBruta}' inválida.`);
+      erros++;
+      continue;
+    }
+
+    // Loop do Histórico (Admissão + 1 ano até Hoje + 60 dias)
+    let cursorData = new Date(admissao);
+    cursorData.setFullYear(cursorData.getFullYear() + 1);
+    
+    // Zera horas para evitar problemas de fuso
+    cursorData.setHours(0,0,0,0); 
+
+    while (cursorData <= dataLimiteFuturo) {
+      
+      let anoFim = cursorData.getFullYear();
+      let anoInicio = anoFim - 1;
+      let referencia = `Aquisitivo ${anoInicio}-${anoFim}`;
+      let chaveUnica = matricula + "|" + referencia;
+
+      if (!creditosExistentes.has(chaveUnica)) {
+        lancarCredito(abaCred, matricula, referencia, 30, new Date(cursorData));
+        creditosExistentes.add(chaveUnica); // Adiciona na memória para não duplicar no loop
+        gerados++;
+      } else {
+        duplicados++;
+      }
+
+      // Avança 1 ano
+      cursorData.setFullYear(cursorData.getFullYear() + 1);
+    }
+  }
+
+  if (exibirAlertas) {
+    const ui = SpreadsheetApp.getUi();
+    ui.alert(
+      'Resumo da Operação', 
+      `✅ Novos Créditos Gerados: ${gerados}\n` +
+      `⏭️ Períodos já Existentes (Pulados): ${duplicados}\n` +
+      `❌ Erros de Data (Ignorados): ${erros}\n\n` +
+      `Verifique a aba Creditos_Ferias.`, 
+      ui.ButtonSet.OK
+    );
+  }
+}
+
+// --- AUXILIARES ---
+
+// Função poderosa para ler data (seja Objeto Date ou Texto "dd/MM/yyyy")
+function lerDataBR(valor) {
+  if (!valor) return null;
+  
+  // Se já for objeto Date do Google Sheets
+  if (valor instanceof Date) {
+    if (!isNaN(valor.getTime())) return valor;
+    return null;
+  }
+  
+  // Se for texto (ex: "31/03/2024")
+  const str = String(valor).trim();
+  const partes = str.split('/');
+  if (partes.length === 3) {
+    const dia = parseInt(partes[0], 10);
+    const mes = parseInt(partes[1], 10) - 1; // JS conta mês de 0 a 11
+    const ano = parseInt(partes[2], 10);
+    const data = new Date(ano, mes, dia);
+    if (!isNaN(data.getTime())) return data;
+  }
+  
+  return null;
+}
+
+function obterChavesCreditosExistentes(abaCred) {
+  const dados = abaCred.getDataRange().getValues();
+  const chaves = new Set();
+  // Assume: Col C (índice 2) = Matricula | Col D (índice 3) = Referencia
+  for (let i = 1; i < dados.length; i++) {
+    let mat = String(dados[i][2]).trim(); 
+    let ref = String(dados[i][3]).trim();
+    if (mat && ref) chaves.add(mat + "|" + ref);
+  }
+  return chaves;
+}
+
+function lancarCredito(abaCred, matricula, referencia, qtd, dataLiberacao) {
+  let id = Utilities.getUuid();
+  abaCred.appendRow([
+    id, 
+    new Date(), 
+    matricula, 
+    referencia, 
+    qtd, 
+    dataLiberacao
+  ]);
+}
