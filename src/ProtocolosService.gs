@@ -283,7 +283,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ddd; padding-bottom: 10px; margin-bottom: 15px;">
           <div>
             <span style="font-size: 12px; text-transform: uppercase; color: #666; font-weight: 600;">Folha de Protocolo Local</span>
-            <h1 style="margin: 2px 0 0 0; font-size: 24px; font-weight: 700; color: #111;">Nº ${protocoloInfo.id}</h1>
+            <h1 style="margin: 2px 0 0 0; font-size: 24px; font-weight: 700; color: #111;">No ${protocoloInfo.id}</h1>
           </div>
           <div style="text-align: right;">
             <p style="margin: 0; font-size: 13px;"><strong>Data Geração:</strong> ${protocoloInfo.data}</p>
@@ -301,7 +301,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
             <th style="border: 1px solid #111; padding: 10px; text-align: left; font-weight: 700;">Documento</th>
             <th style="border: 1px solid #111; padding: 10px; text-align: center; font-weight: 700;">Data Início/Falta</th>
             <th style="border: 1px solid #111; padding: 10px; text-align: center; font-weight: 700;">Qtd / Dias</th>
-            <th style="border: 1px solid #111; padding: 10px; text-align: left; font-weight: 700;">Nº 1Doc</th>
+            <th style="border: 1px solid #111; padding: 10px; text-align: left; font-weight: 700;">No 1Doc</th>
           </tr>
         </thead>
         <tbody>
