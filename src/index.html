@@ -231,7 +231,44 @@
           
           <!-- View 4: Protocolos -->
           <section id="view-protocolos" class="view-section">
-            <p style="color: var(--text-secondary);">Módulo Protocolos - Em Breve.</p>
+            <!-- Barra de Pesquisa e Filtros -->
+            <div class="filter-bar">
+              <div class="search-input-wrapper">
+                <span class="search-icon-inside" data-lucide="search"></span>
+                <input type="text" id="filtro-busca-protocolo" class="form-control" placeholder="Buscar por ID do protocolo..." oninput="filtrarTabelaProtocolos()">
+              </div>
+              <select id="filtro-status-protocolo" class="form-control filter-select" onchange="filtrarTabelaProtocolos()">
+                <option value="">Todos Status</option>
+                <option value="Aguardando Assinatura">Aguardando Assinatura</option>
+                <option value="Entregue ao Chefe">Entregue ao Chefe</option>
+                <option value="Retornado pelo Chefe">Retornado pelo Chefe</option>
+                <option value="Enviado ao DGP">Enviado ao DGP</option>
+              </select>
+            </div>
+
+            <div class="table-container">
+              <div class="table-header">
+                <div class="table-title">Controle de Protocolos (Documentos Físicos)</div>
+                <button class="btn btn-primary" onclick="abrirModalCriarProtocolo()">Criar Protocolo</button>
+              </div>
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>ID Protocolo</th>
+                    <th>Data Geração</th>
+                    <th>Qtd Documentos</th>
+                    <th>Status de Envio</th>
+                    <th>Emitido Por</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-protocolos-body">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--text-secondary);">Buscando protocolos...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </section>
           
           <!-- View 5: Relatórios -->
@@ -551,6 +588,67 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="fecharModal('modal-anexos')">Fechar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 5: Criar Novo Protocolo (Wizard com Checkbox) -->
+    <div class="modal-overlay" id="modal-criar-protocolo">
+      <div class="modal-content large">
+        <div class="modal-header">
+          <h3 class="modal-title">Criar Protocolo de Encaminhamento</h3>
+          <button class="modal-close" onclick="fecharModal('modal-criar-protocolo')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Selecione os lançamentos de documentos físicos pendentes que serão agrupados nesta folha de protocolo:</p>
+          
+          <div class="table-container" style="max-height: 350px; overflow-y: auto;">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th style="width: 40px; text-align: center;"><input type="checkbox" id="check-todos-pendentes" onchange="marcarTodosLançamentosPendentes(this)"></th>
+                  <th>Servidor (Matrícula)</th>
+                  <th>Documento</th>
+                  <th>Data Saída/Falta</th>
+                  <th>Qtd/Dias</th>
+                  <th>Nº 1Doc</th>
+                </tr>
+              </thead>
+              <tbody id="tabela-pendentes-protocolo-body">
+                <!-- Inserido dinamicamente via JS -->
+              </tbody>
+            </table>
+          </div>
+          
+          <div style="margin-top: 16px; background-color: var(--bg-tertiary); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 14px; color: var(--text-secondary);">Documentos selecionados para encaminhamento: <strong id="lbl-qtd-selecionados">0</strong></span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="fecharModal('modal-criar-protocolo')">Cancelar</button>
+          <button class="btn btn-primary" onclick="confirmarGeracaoProtocolo()">Gerar Folha de Protocolo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 6: Preview da Folha de Protocolo para Impressão -->
+    <div class="modal-overlay" id="modal-folha-protocolo">
+      <div class="modal-content large" style="background-color: #fff; color: #000;">
+        <div class="modal-header" style="border-bottom-color: #ddd; background-color: #f8f9fa; color: #000;">
+          <h3 class="modal-title" style="color: #000;">Folha de Protocolo Timbrada</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-primary" onclick="imprimirFolhaProtocoloLocal()">
+              <span data-lucide="printer"></span> Imprimir
+            </button>
+            <button class="modal-close" onclick="fecharModal('modal-folha-protocolo')" style="color: #000;">
+              <span data-lucide="x"></span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-body" id="print-area-protocolo" style="padding: 0; background-color: #fff; overflow-y: auto;">
+          <!-- HTML timbrado inserido aqui -->
         </div>
       </div>
     </div>

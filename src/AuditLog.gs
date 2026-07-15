@@ -49,8 +49,79 @@ function lancarLog(acao, modulo, descricao, campoAlterado, valorAntes, valorDepo
       idRegistro || ""
     ]);
     
+    // Evita recursão infinita se o log gerado for o da própria rotação
+    if (acao.toUpperCase() !== "ROTACAO_LOGS") {
+      verificarERotacionarLogs(ss, abaLogs);
+    }
+    
   } catch (erro) {
     // Evita travar a operação principal do usuário por falha ao escrever o log
     Logger.log("Erro grave ao salvar Log de Auditoria: " + erro.toString());
+  }
+}
+
+/**
+ * Verifica se a quantidade de logs ultrapassou o limite e exporta os antigos para o Drive
+ */
+function verificarERotacionarLogs(ss, abaLogs) {
+  const LIMITE_LINHAS = 5000; // Define limite resiliente antes de rotacionar
+  const lastRow = abaLogs.getLastRow();
+  
+  if (lastRow < LIMITE_LINHAS) {
+    return;
+  }
+  
+  try {
+    // Obter todos os logs (excluindo a linha de cabeçalho)
+    const range = abaLogs.getRange(2, 1, lastRow - 1, abaLogs.getLastColumn());
+    const dados = range.getValues();
+    
+    // Formatar em estrutura CSV para compatibilidade universal
+    let csvConteudo = "Data/Hora;Usuário;Ação;Módulo;Descrição;Campo Alterado;Valor Antes;Valor Depois;ID Registro\r\n";
+    dados.forEach(linha => {
+      let colunasFormatadas = linha.map(col => {
+        let texto = String(col).replace(/"/g, '""'); // escapa aspas internas
+        if (col instanceof Date) {
+          texto = Utilities.formatDate(col, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+        }
+        return '"' + texto + '"';
+      });
+      csvConteudo += colunasFormatadas.join(";") + "\r\n";
+    });
+    
+    // Procura ou cria a pasta 'SETUR_RH_Logs_Historicos' no Google Drive
+    const nomePasta = "SETUR_RH_Logs_Historicos";
+    let pasta = null;
+    const pastasExistentes = DriveApp.getFoldersByName(nomePasta);
+    if (pastasExistentes.hasNext()) {
+      pasta = pastasExistentes.next();
+    } else {
+      pasta = DriveApp.createFolder(nomePasta);
+    }
+    
+    // Cria o arquivo CSV
+    const dataHoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd_HH-mm-ss");
+    const nomeArquivo = "Historico_Logs_SETUR_" + dataHoje + ".csv";
+    const arquivo = pasta.createFile(nomeArquivo, csvConteudo, MimeType.CSV);
+    
+    // Compartilha permissão para leitura com link de forma interna
+    arquivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // Limpa todas as linhas de logs da tabela mantendo apenas a linha de cabeçalho
+    abaLogs.deleteRows(2, lastRow - 1);
+    
+    // Registra o evento de rotação indicando o link do arquivo gerado
+    lancarLog(
+      "ROTACAO_LOGS", 
+      "Logs", 
+      "Logs de auditoria antigos rotacionados com sucesso para o Drive: " + nomeArquivo + " (Link: " + arquivo.getUrl() + ")",
+      "Limpeza de Linhas", 
+      "Registros antigos: " + (lastRow - 1), 
+      "Registros atuais: 0", 
+      arquivo.getId()
+    );
+    
+  } catch (erroRotacao) {
+    Logger.log("Erro ao processar rotação de logs: " + erroRotacao.toString());
   }
 }

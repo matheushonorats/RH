@@ -980,5 +980,270 @@ function uploadArquivoPromessa(arquivo) {
     leitor.readAsDataURL(arquivo);
   });
 }
+
+// --- CONTROLE DE PROTOCOLOS ---
+
+// Armazena temporariamente os protocolos carregados
+AppState.protocolos = [];
+
+/**
+ * Carrega a lista completa de protocolos do backend
+ */
+function carregarListaProtocolos() {
+  exibirLoader(true);
+  
+  if (typeof google === "undefined" || !google.script) {
+    // Mock local para testes
+    AppState.protocolos = [
+      { id: "b3d77b03", dataGeracao: "15/07/2026 12:31:13", status: "Aguardando Assinatura", criadoPor: "teste@saosebastiao.sp.gov.br", qtdDocumentos: 3 }
+    ];
+    renderizarTabelaProtocolos();
+    exibirLoader(false);
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function(protocolos) {
+      AppState.protocolos = protocolos;
+      renderizarTabelaProtocolos();
+      exibirLoader(false);
+    })
+    .withFailureHandler(function(erro) {
+      console.error("Erro ao carregar protocolos:", erro);
+      exibirLoader(false);
+      alert("Erro ao buscar histórico de protocolos: " + erro.toString());
+    })
+    .obterListaProtocolos();
+}
+
+/**
+ * Renderiza linhas da tabela de Protocolos
+ */
+function renderizarTabelaProtocolos(listaFiltrada) {
+  const protocolos = listaFiltrada || AppState.protocolos;
+  const tbody = document.getElementById('tabela-protocolos-body');
+  
+  if (protocolos.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhum protocolo encontrado.</td></tr>`;
+    return;
+  }
+  
+  let html = "";
+  protocolos.forEach(p => {
+    let statusClass = "badge-abono"; // amarelo para aguardando
+    if (p.status === "Enviado ao DGP") {
+      statusClass = "badge-ativo"; // verde
+    } else if (p.status === "Entregue ao Chefe") {
+      statusClass = "badge-ferias"; // vermelho/rosa
+    } else if (p.status === "Retornado pelo Chefe") {
+      statusClass = "badge-ativo"; // verde
+    }
+    
+    html += `<tr>
+      <td><strong>${p.id}</strong></td>
+      <td>${p.dataGeracao}</td>
+      <td style="text-align: center;">${p.qtdDocumentos} documentos</td>
+      <td><span class="badge ${statusClass}">${p.status}</span></td>
+      <td>${p.criadoPor}</td>
+      <td>
+        <div class="action-buttons">
+          <button class="btn-action" onclick="abrirFolhaProtocolo('${p.id}')" title="Visualizar e Imprimir Folha">
+            <span data-lucide="printer" style="width: 14px; height: 14px;"></span>
+          </button>
+          <button class="btn-action" onclick="alterarStatusProtocoloTramite('${p.id}', '${p.status}')" title="Transicionar Status Físico">
+            <span data-lucide="git-pull-request" style="width: 14px; height: 14px;"></span>
+          </button>
+        </div>
+      </td>
+    </tr>`;
+  });
+  
+  tbody.innerHTML = html;
+  lucide.createIcons();
+}
+
+/**
+ * Filtra protocolos localmente
+ */
+function filtrarTabelaProtocolos() {
+  const busca = document.getElementById('filtro-busca-protocolo').value.toLowerCase().trim();
+  const status = document.getElementById('filtro-status-protocolo').value;
+  
+  const filtrados = AppState.protocolos.filter(p => {
+    const bateBusca = !busca || p.id.toLowerCase().includes(busca);
+    const bateStatus = !status || p.status === status;
+    return bateBusca && bateStatus;
+  });
+  
+  renderizarTabelaProtocolos(filtrados);
+}
+
+/**
+ * Carrega lançamentos pendentes de vínculo e abre o modal de criação de protocolo (wizard)
+ */
+function abrirModalCriarProtocolo() {
+  exibirLoader(true);
+  
+  // Limpa quantidade de selecionados
+  document.getElementById('lbl-qtd-selecionados').innerText = "0";
+  document.getElementById('check-todos-pendentes').checked = false;
+  
+  if (typeof google === "undefined" || !google.script) {
+    alert("Função disponível apenas com a planilha integrada!");
+    exibirLoader(false);
+    return;
+  }
+  
+  google.script.run
+    .withSuccessHandler(function(pendentes) {
+      const tbody = document.getElementById('tabela-pendentes-protocolo-body');
+      
+      if (pendentes.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Nenhum lançamento físico pendente de encaminhamento.</td></tr>`;
+        exibirLoader(false);
+        abrirModal('modal-criar-protocolo');
+        return;
+      }
+      
+      let html = "";
+      pendentes.forEach(p => {
+        html += `<tr>
+          <td style="text-align: center;">
+            <input type="checkbox" name="chk-lancamento-pendente" value="${p.linhaPlanilha}" onchange="atualizarQuantidadeSelecionadosProtocolo()">
+          </td>
+          <td><strong>${p.nome}</strong> (${p.matricula})</td>
+          <td>${p.tipo}</td>
+          <td>${p.dataInicio}</td>
+          <td style="text-align: center;">${p.dias > 0 ? p.dias + ' dias' : (p.qtdHoras || '-')}</td>
+          <td>${p.idoc || 'Aguardando Assinatura'}</td>
+        </tr>`;
+      });
+      
+      tbody.innerHTML = html;
+      exibirLoader(false);
+      abrirModal('modal-criar-protocolo');
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      alert("Erro ao buscar lançamentos pendentes: " + erro.toString());
+    })
+    .obterLancamentosPendentesProtocolo();
+}
+
+/**
+ * Conta em tempo real os itens selecionados no wizard de protocolo
+ */
+function atualizarQuantidadeSelecionadosProtocolo() {
+  const checkboxes = document.querySelectorAll('input[name="chk-lancamento-pendente"]:checked');
+  document.getElementById('lbl-qtd-selecionados').innerText = checkboxes.length;
+}
+
+/**
+ * Marca/desmarca todas as linhas da lista de pendências
+ */
+function marcarTodosLançamentosPendentes(masterCheckbox) {
+  const checkboxes = document.querySelectorAll('input[name="chk-lancamento-pendente"]');
+  checkboxes.forEach(cb => {
+    cb.checked = masterCheckbox.checked;
+  });
+  atualizarQuantidadeSelecionadosProtocolo();
+}
+
+/**
+ * Grava o protocolo com os lançamentos marcados e exibe a folha
+ */
+function confirmarGeracaoProtocolo() {
+  const selecionados = Array.from(document.querySelectorAll('input[name="chk-lancamento-pendente"]:checked')).map(cb => cb.value);
+  
+  if (selecionados.length === 0) {
+    alert("Selecione pelo menos um lançamento de documento físico para criar a folha de protocolo.");
+    return;
+  }
+  
+  exibirLoader(true);
+  
+  google.script.run
+    .withSuccessHandler(function(idProtocolo) {
+      fecharModal('modal-criar-protocolo');
+      carregarListaProtocolos();
+      carregarListaLancamentos(); // recarrega lançamentos para atualizar o vínculo nas observações
+      
+      exibirLoader(false);
+      // Abre automaticamente o preview de impressão do protocolo recém-criado
+      abrirFolhaProtocolo(idProtocolo);
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      alert("Erro ao gerar folha de protocolo: " + erro.toString());
+    })
+    .criarProtocolo(selecionados);
+}
+
+/**
+ * Abre a folha de protocolo timbrada oficial da SETUR no modal para impressão
+ */
+function abrirFolhaProtocolo(idProtocolo) {
+  exibirLoader(true);
+  
+  google.script.run
+    .withSuccessHandler(function(htmlTimbrado) {
+      document.getElementById('print-area-protocolo').innerHTML = htmlTimbrado;
+      exibirLoader(false);
+      abrirModal('modal-folha-protocolo');
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      alert("Erro ao renderizar folha timbrada: " + erro.toString());
+    })
+    .obterHtmlFolhaProtocolo(idProtocolo);
+}
+
+/**
+ * Aciona a impressão nativa do navegador
+ */
+function imprimirFolhaProtocoloLocal() {
+  window.print();
+}
+
+/**
+ * Transiciona o status físico de tramitação do protocolo
+ */
+function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
+  const opcoes = ["Aguardando Assinatura", "Entregue ao Chefe", "Retornado pelo Chefe", "Enviado ao DGP"];
+  
+  let msg = `Selecione o novo status físico para o Protocolo ${idProtocolo}:\n\n` +
+            `Status Atual: "${statusAtual}"\n\n` +
+            `Opções (digite o número):\n` +
+            `1. Aguardando Assinatura\n` +
+            `2. Entregue ao Chefe (saiu da SETUR p/ assinatura)\n` +
+            `3. Retornado pelo Chefe (assinado na mesa)\n` +
+            `4. Enviado ao DGP (encaminhado ao RH Central)`;
+            
+  let escolha = prompt(msg, "1");
+  if (escolha === null) return; // cancelou
+  
+  let novoStatus = "";
+  if (escolha === "1") novoStatus = "Aguardando Assinatura";
+  else if (escolha === "2") novoStatus = "Entregue ao Chefe";
+  else if (escolha === "3") novoStatus = "Retornado pelo Chefe";
+  else if (escolha === "4") novoStatus = "Enviado ao DGP";
+  else {
+    alert("Opção inválida.");
+    return;
+  }
+  
+  exibirLoader(true);
+  
+  google.script.run
+    .withSuccessHandler(function() {
+      carregarListaProtocolos();
+      alert(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`);
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      alert("Erro ao transicionar status: " + erro.toString());
+    })
+    .atualizarStatusProtocolo(idProtocolo, novoStatus);
+}
 </script>
 
