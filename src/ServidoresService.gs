@@ -350,6 +350,12 @@ function construirMapaSaldosFerias_(ss) {
             if (valorData instanceof Date && !isNaN(valorData.getTime())) {
               dataCredito = new Date(valorData);
               dataCredito.setHours(0, 0, 0, 0);
+            } else if (typeof valorData === 'string' && valorData.includes('/')) {
+              let partes = valorData.trim().split(" ")[0].split('/');
+              if (partes.length === 3) {
+                dataCredito = new Date(parseInt(partes[2]), parseInt(partes[1]) - 1, parseInt(partes[0]));
+                dataCredito.setHours(0, 0, 0, 0);
+              }
             }
           }
 

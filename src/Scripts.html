@@ -634,6 +634,11 @@ function abrirFichaServidor(matricula) {
         } else {
           let html = "";
           historico.forEach(l => {
+            // Garante que o lançamento exista no AppState.lancamentos para o Modal de Edição funcionar
+            if (!AppState.lancamentos.some(lanc => lanc.linhaPlanilha === l.linhaPlanilha)) {
+              AppState.lancamentos.push(l);
+            }
+            
             // Contagem de Abonadas (Ignora não efetivados e filtrados pelo ano)
             if (!l.tipo.toLowerCase().includes("não efetivado") && !l.tipo.toLowerCase().includes("anulado")) {
               if (l.dataInicio && l.dataInicio.includes(anoAtual)) {
