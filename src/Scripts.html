@@ -907,7 +907,7 @@ function sugerirDespacho() {
     const restante = Math.max(0, saldo - diasInput);
     texto = `${diasInput} / ${saldo} Disp Restam ${restante}`;
     
-  } else if (tipo.toLowerCase().includes("abonada") || tipo.toLowerCase().includes("abono")) {
+  } else if ((tipo.toLowerCase().includes("abonada") || tipo.toLowerCase().includes("abono")) && !tipo.toLowerCase().includes("natal") && !tipo.toLowerCase().includes("eleitor")) {
     const usados = parseInt(servidor.abonosUsados) || 0;
     const novoUsado = usados + 1;
     const limite = 5; // Padrão
