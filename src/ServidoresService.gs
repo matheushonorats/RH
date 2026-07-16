@@ -61,7 +61,7 @@ function obterListaServidores() {
         cargo: idxCargo !== -1 ? String(linha[idxCargo]).trim() : "",
         lotacao: idxLotacao !== -1 ? String(linha[idxLotacao]).trim() : "",
         admissao: idxAdmissao !== -1 ? formatarDataServidor_(linha[idxAdmissao]) : "",
-        admissaoBruta: idxAdmissao !== -1 ? linha[idxAdmissao] : null,
+        admissaoBruta: idxAdmissao !== -1 && linha[idxAdmissao] instanceof Date ? linha[idxAdmissao].getTime() : (idxAdmissao !== -1 ? linha[idxAdmissao] : null),
         situacao: idxSituacao !== -1 ? String(linha[idxSituacao]).trim() : "",
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
         saldoHoje: saldoCalc,

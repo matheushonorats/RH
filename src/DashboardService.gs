@@ -75,10 +75,17 @@ function obterResumoDashboard() {
       if (!tipoDoc || tipoDoc.toLowerCase().includes("não efetivado") || tipoDoc.toLowerCase().includes("anulado")) {
         continue;
       }
-      // Verifica pendência de 1DOC (não tem número preenchido)
+      // Verifica pendência de 1DOC (não tem número preenchido), desconsiderando lançamentos > 1 ano
       let num1Doc = idxLanc.idoc !== -1 ? String(linha[idxLanc.idoc]).trim() : "";
       if (!num1Doc) {
-        totalProtocolosPendentes++;
+        let dataLancObj = idxLanc.dataSolicitacao !== -1 ? normalizarDataDashboard(linha[idxLanc.dataSolicitacao]) : null;
+        let diffDias = 0;
+        if (dataLancObj) {
+          diffDias = (hoje.getTime() - dataLancObj.getTime()) / (1000 * 3600 * 24);
+        }
+        if (diffDias <= 365) {
+          totalProtocolosPendentes++;
+        }
       }
       
       let dataInicio = idxLanc.dataInicio !== -1 ? normalizarDataDashboard(linha[idxLanc.dataInicio]) : null;
@@ -103,7 +110,8 @@ function obterResumoDashboard() {
           matricula: matricula,
           tipo: tipoDoc,
           periodo: periodoStr,
-          dias: diasLanc
+          dias: diasLanc,
+          linhaPlanilha: i + 1
         });
       }
     }

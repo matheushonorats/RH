@@ -181,7 +181,7 @@ function carregarDashboard() {
       if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
         let html = "";
         resumo.listaAusentes.forEach(a => {
-          html += `<tr>             <td><a href="#" class="btn-link" onclick="abrirFichaServidor('${escapeHtml(a.matricula)}'); return false;"><strong>${escapeHtml(a.nome)}</strong></a></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
+          html += `<tr>             <td><a href="#" class="btn-link" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento"><strong>${escapeHtml(a.nome)}</strong></a></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
         });
         tabela.innerHTML = html;
       } else {
@@ -690,7 +690,20 @@ function filtrarTabelaLancamentos() {
     if (!status) {
       bateStatus = true;
     } else if (status === "SEM 1DOC") {
-      bateStatus = !l.idoc || l.idoc.trim() === "";
+      let ehSemDoc = (!l.idoc || l.idoc.trim() === "");
+      if (ehSemDoc) {
+        let diffDias = 0;
+        if (l.dataSolicitacao) {
+          const partes = l.dataSolicitacao.split('/');
+          if (partes.length === 3) {
+            const dataLanc = new Date(partes[2], partes[1] - 1, partes[0]);
+            diffDias = (new Date().getTime() - dataLanc.getTime()) / (1000 * 3600 * 24);
+          }
+        }
+        bateStatus = diffDias <= 365;
+      } else {
+        bateStatus = false;
+      }
     } else {
       bateStatus = l.status === status;
     }
