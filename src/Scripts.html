@@ -164,6 +164,15 @@ function toggleDarkMode() {
     }
     renderizarIcones();
   }
+  
+  const logo = document.getElementById('sidebar-logo');
+  if (logo) {
+    if (body.classList.contains('dark-mode')) {
+      logo.src = 'https://i.ibb.co/v8brz40/manualmarca-pmss25-28-TURISMO-BRANCO.png';
+    } else {
+      logo.src = 'https://www.turismosaosebastiao.com.br/img/sao-sebastiao/logo-rodape-horizontal.png';
+    }
+  }
 }
 
 /**
@@ -323,10 +332,10 @@ function renderizarTabelaServidores(listaFiltrada) {
     
     if (s.status === "Férias") {
       badgeClass = "badge-ferias";
-      badgeText = "Em Férias";
+      badgeText = "Férias";
     } else if (s.status === "Abono") {
       badgeClass = "badge-abono";
-      badgeText = "Em Abono";
+      badgeText = "Abono";
     } else if (s.status === "Inativo") {
       badgeClass = "badge-inativo";
       badgeText = "Inativo";
@@ -569,10 +578,10 @@ function abrirFichaServidor(matricula) {
     statusBadge.innerText = 'ATIVO';
   } else if (s.status === 'Férias') {
     statusBadge.classList.add('badge-ferias');
-    statusBadge.innerText = 'EM FÉRIAS';
+    statusBadge.innerText = 'FÉRIAS';
   } else if (s.status === 'Abono') {
     statusBadge.classList.add('badge-abono');
-    statusBadge.innerText = 'EM ABONO';
+    statusBadge.innerText = 'ABONO';
   } else {
     statusBadge.classList.add('badge-inativo');
     statusBadge.innerText = 'INATIVO';
