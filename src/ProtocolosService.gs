@@ -297,7 +297,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
             <p style="margin: 0; font-size: 13px;"><strong>Data de Entrega dos documentos:</strong> ${protocoloInfo.data}</p>
           </div>
         </div>
-        <p style="font-size: 13px; color: #333; margin: 0;">Declaramos que as solicitações físicas de RH listadas abaixo estão saindo da Diretoria Executiva da SETUR para fins de assinatura e ciência do Secretário da Pasta.</p>
+        <p style="font-size: 13px; color: #333; margin: 0;">Declaramos que as solicitações físicas entregues ao recursos humanos listadas abaixo foram repassadas anexa a este docuemento para ciência da respectiva chefia.</p>
       </div>
   `;
 

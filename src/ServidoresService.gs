@@ -86,6 +86,7 @@ function obterListaServidores() {
         projetado: projetadoCalc,
         infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias] || "").trim() : "",
         periodosFerias: feriasServidor.periodos,
+        abonosUsados: feriasServidor.abonosUsados || 0,
         status: statusText,
       linhaPlanilha: i + 1
     });
@@ -420,10 +421,28 @@ function construirResumoFerias_(ss) {
           const tipo = normalizarCabecalho_(linha[idx.tipo]);
           const efetivado = !tipo.includes("NAO EFETIVADO") && !tipo.includes("ANULADO");
           const descontaFerias = tipo.includes("FERIAS") || tipo.includes("PENALIDADE") || tipo.includes("AJUSTE");
+          const eAbono = tipo.includes("ABONADA") || tipo.includes("ABONO");
           const dias = obterDiasLancamento_(linha, idx);
 
-          if (matricula && efetivado && descontaFerias && dias > 0) {
-            obterRegistro_(matricula).debitos += dias;
+          if (matricula && efetivado) {
+            if (descontaFerias && dias > 0) {
+              obterRegistro_(matricula).debitos += dias;
+            }
+            if (eAbono) {
+              let dataInicioStr = idx.dataInicio !== -1 ? String(linha[idx.dataInicio]) : "";
+              let dataInicioObj = lerDataFormatoBR_(dataInicioStr);
+              if (!dataInicioObj) {
+                // Tenta fallback para obj Date nativo caso ja venha formatado
+                if (linha[idx.dataInicio] instanceof Date && !isNaN(linha[idx.dataInicio].getTime())) {
+                  dataInicioObj = linha[idx.dataInicio];
+                }
+              }
+              let anoInicio = dataInicioObj ? String(dataInicioObj.getFullYear()) : "";
+              if (anoInicio === String(hoje.getFullYear())) {
+                let reg = obterRegistro_(matricula);
+                reg.abonosUsados = (reg.abonosUsados || 0) + 1;
+              }
+            }
           }
         }
       }

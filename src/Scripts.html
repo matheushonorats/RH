@@ -851,6 +851,51 @@ function ajustarCamposFormularioLancamento() {
     blocoFalta.style.display = "block";
     document.getElementById('lanc-data-falta').required = true;
   }
+  
+  sugerirDespacho();
+}
+
+/**
+ * Sugere um texto para o campo Despacho baseado no servidor e tipo selecionados
+ */
+function sugerirDespacho() {
+  const tipo = document.getElementById('lanc-tipo').value;
+  const matricula = document.getElementById('lanc-matricula').value;
+  const campoDespacho = document.getElementById('lanc-despacho');
+  
+  // Só preenche automaticamente se estiver vazio ou se foi preenchido automaticamente antes
+  if (campoDespacho.value !== "" && !campoDespacho.dataset.autoFilled) {
+    return;
+  }
+
+  if (!matricula) return;
+  
+  const servidor = AppState.servidores.find(s => s.matricula === matricula);
+  if (!servidor) return;
+
+  let texto = "";
+  
+  if (tipo.toLowerCase().includes("férias") || tipo.toLowerCase().includes("ferias")) {
+    const diasInput = parseInt(document.getElementById('lanc-dias').value) || 0;
+    const saldo = parseInt(servidor.saldoHoje) || 0;
+    const restante = Math.max(0, saldo - diasInput);
+    texto = `${diasInput} / ${saldo} Disp Restam ${restante}`;
+    
+  } else if (tipo.toLowerCase().includes("abonada") || tipo.toLowerCase().includes("abono")) {
+    const usados = parseInt(servidor.abonosUsados) || 0;
+    const novoUsado = usados + 1;
+    const limite = 5; // Padrão
+    const restante = Math.max(0, limite - novoUsado);
+    texto = `${novoUsado} / ${limite}, restando ${restante}`;
+  }
+  
+  if (texto) {
+    campoDespacho.value = texto;
+    campoDespacho.dataset.autoFilled = "true";
+  } else if (campoDespacho.dataset.autoFilled) {
+    campoDespacho.value = "";
+    delete campoDespacho.dataset.autoFilled;
+  }
 }
 
 /**
@@ -904,6 +949,8 @@ function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo) 
   document.getElementById('info-serv-lotacao').innerText = lotacao || 'Não informada';
   document.getElementById('info-serv-saldo').innerText = saldo + ' dias';
   document.getElementById('lanc-servidor-info').style.display = "block";
+  
+  sugerirDespacho();
 }
 
 /**
