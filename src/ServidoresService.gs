@@ -29,6 +29,8 @@ function obterListaServidores() {
   const idxProjetado = indiceCabecalho_(cabecalho, ["FERIAS PROJETADO ESTE ANO", "PROJETADO ESTE ANO", "PROJETADO"]);
   const idxInfoFerias = indiceCabecalho_(cabecalho, ["INFO FERIAS"]);
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
+  const idxPenF = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
+  const idxPenA = indiceCabecalho_(cabecalho, ["PENALIDADE ABONOS", "PENALIDADE_ABONOS"]);
 
   if (idxNome === -1 || idxMatricula === -1) {
     throw new Error("Cabecalhos NOME/MATRICULA nao encontrados em Servidores. Encontrados: " + cabecalho.join(" | "));
@@ -67,10 +69,13 @@ function obterListaServidores() {
         : null;
       const saldoCalc = saldoDaPlanilha !== null
         ? saldoDaPlanilha
-        : feriasServidor.saldo;
-      const projetadoCalc = idxProjetado !== -1
-        ? (obterNumeroPlanilha_(linha[idxProjetado]) || 0)
-        : feriasServidor.projetado;
+        : (feriasServidor.saldo || 0);
+
+      let penF = idxPenF !== -1 ? parseInt(linha[idxPenF]) || 0 : 0;
+      let penA = idxPenA !== -1 ? parseInt(linha[idxPenA]) || 0 : 0;
+      
+      let saldoHojeCalculado = saldoCalc - penF;
+      let abonosUsadosCalculado = (feriasServidor.abonosUsados || 0) + penA;
       
       servidores.push({
         nome: String(linha[idxNome]).trim(),
@@ -81,12 +86,12 @@ function obterListaServidores() {
         admissaoBruta: idxAdmissao !== -1 && linha[idxAdmissao] instanceof Date ? linha[idxAdmissao].getTime() : (idxAdmissao !== -1 ? linha[idxAdmissao] : null),
         situacao: idxSituacao !== -1 ? String(linha[idxSituacao]).trim() : "",
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
-        saldoHoje: saldoCalc,
-        feriasCompulsorias: saldoCalc >= 60, // Nova propriedade para o dashboard/filtros
-        projetado: projetadoCalc,
+        saldoHoje: saldoHojeCalculado,
+        feriasCompulsorias: saldoHojeCalculado >= 60,
+        projetado: parseInt(feriasServidor.projetado) || 0,
         infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias] || "").trim() : "",
         periodosFerias: feriasServidor.periodos,
-        abonosUsados: feriasServidor.abonosUsados || 0,
+        abonosUsados: abonosUsadosCalculado,
         status: statusText,
       linhaPlanilha: i + 1
     });
@@ -130,6 +135,21 @@ function salvarServidor(dadosServidor) {
   const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
 
+  let idxPenF = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
+  let idxPenA = indiceCabecalho_(cabecalho, ["PENALIDADE ABONOS", "PENALIDADE_ABONOS"]);
+
+  // Cria as colunas dinamicamente se não existirem
+  if (idxPenF === -1) {
+    idxPenF = cabecalho.length;
+    aba.getRange(1, idxPenF + 1).setValue("PENALIDADE FERIAS");
+    cabecalho.push("PENALIDADE FERIAS");
+  }
+  if (idxPenA === -1) {
+    idxPenA = cabecalho.length;
+    aba.getRange(1, idxPenA + 1).setValue("PENALIDADE ABONOS");
+    cabecalho.push("PENALIDADE ABONOS");
+  }
+
   const matriculaBusca = normalizarChaveMatricula_(dadosServidor.matricula);
   let linhaEdit = -1;
   let valorAntes = "";
@@ -161,6 +181,9 @@ function salvarServidor(dadosServidor) {
     if (idxSituacao !== -1) aba.getRange(linhaEdit, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(linhaEdit, idxEmail + 1).setValue(dadosServidor.email);
     if (idxAtivo !== -1) aba.getRange(linhaEdit, idxAtivo + 1).setValue(dadosServidor.ativo || "Sim");
+    
+    aba.getRange(linhaEdit, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);
+    aba.getRange(linhaEdit, idxPenA + 1).setValue(dadosServidor.penalidadeAbono || 0);
 
     lancarLogSemLock_("EDITAR_SERVIDOR", "Servidores", "Atualizou dados do servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "Cadastro", valorAntes, JSON.stringify(dadosServidor), matriculaBusca);
   } else {
@@ -193,6 +216,9 @@ function salvarServidor(dadosServidor) {
     if (idxSituacao !== -1) aba.getRange(novaLinhaIndex, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(novaLinhaIndex, idxEmail + 1).setValue(dadosServidor.email);
     if (idxAtivo !== -1) aba.getRange(novaLinhaIndex, idxAtivo + 1).setValue("Sim");
+    
+    aba.getRange(novaLinhaIndex, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);
+    aba.getRange(novaLinhaIndex, idxPenA + 1).setValue(dadosServidor.penalidadeAbono || 0);
 
     lancarLogSemLock_("CRIAR_SERVIDOR", "Servidores", "Cadastrou novo servidor: " + dadosServidor.nome + " (Matrícula: " + matriculaBusca + ")", "", "", JSON.stringify(dadosServidor), matriculaBusca);
 

@@ -449,6 +449,8 @@ function abrirModalServidor(matricula) {
       document.getElementById('serv-situacao').value = s.situacao;
       document.getElementById('serv-email').value = s.email;
       document.getElementById('serv-ativo').value = s.status === 'Inativo' ? 'Não' : 'Sim';
+      document.getElementById('serv-penalidade-ferias').value = s.penalidadeFerias || 0;
+      document.getElementById('serv-penalidade-abonos').value = s.penalidadeAbono || 0;
       
       // Parse de data no formato dd/mm/yyyy para yyyy-mm-dd exigido pelo input date
       if (s.admissao) {
@@ -464,6 +466,8 @@ function abrirModalServidor(matricula) {
     inputMatricula.disabled = false;
     wrapperAtivo.style.display = "none";
     document.getElementById('serv-ativo').value = "Sim";
+    document.getElementById('serv-penalidade-ferias').value = 0;
+    document.getElementById('serv-penalidade-abonos').value = 0;
   }
   
   abrirModal('modal-servidor');
@@ -484,7 +488,9 @@ function salvarDadosServidor(event) {
     admissao: document.getElementById('serv-admissao').value,
     situacao: document.getElementById('serv-situacao').value,
     email: document.getElementById('serv-email').value.trim(),
-    ativo: document.getElementById('serv-ativo').value
+    ativo: document.getElementById('serv-ativo').value,
+    penalidadeFerias: parseInt(document.getElementById('serv-penalidade-ferias').value) || 0,
+    penalidadeAbono: parseInt(document.getElementById('serv-penalidade-abonos').value) || 0
   };
   
   if (typeof google === "undefined" || !google.script) {

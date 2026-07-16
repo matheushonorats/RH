@@ -324,6 +324,13 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
   });
 
   for (let tipo in porTipo) {
+    let headerPeriodo = "Data / Período";
+    if (tipo.toUpperCase().includes("FÉRIAS") || tipo.toUpperCase().includes("FERIAS")) {
+      headerPeriodo = "Início / Retorno";
+    } else if (tipo.toUpperCase().includes("ABONO") || tipo.toUpperCase().includes("ABONADA")) {
+      headerPeriodo = "Falta";
+    }
+
     html += `
       <div style="margin-bottom: 30px;">
         <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; text-transform: uppercase; color: #000; border-bottom: 1px dashed #ccc; padding-bottom: 4px;">${tipo}</h3>
@@ -331,7 +338,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
           <thead>
             <tr style="background-color: #f9f9f9;">
               <th style="border: 1px solid #222; padding: 8px; text-align: left; font-weight: 700; width: 30%;">Servidor (Matrícula)</th>
-              <th style="border: 1px solid #222; padding: 8px; text-align: center; font-weight: 700; width: 15%;">Início / Falta</th>
+              <th style="border: 1px solid #222; padding: 8px; text-align: center; font-weight: 700; width: 15%;">${headerPeriodo}</th>
               <th style="border: 1px solid #222; padding: 8px; text-align: center; font-weight: 700; width: 15%;">Qtd / Dias</th>
               <th style="border: 1px solid #222; padding: 8px; text-align: left; font-weight: 700; width: 40%;">Info Adicional (Despacho / Obs)</th>
             </tr>

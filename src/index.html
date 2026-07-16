@@ -14,7 +14,7 @@
       <nav class="sidebar">
         <div class="sidebar-header">
           <img id="sidebar-logo" src="https://i.ibb.co/v8brz40/manualmarca-pmss25-28-TURISMO-BRANCO.png" alt="SETUR Logo" style="max-width: 100%; height: auto; max-height: 40px; margin-bottom: 6px; object-fit: contain;">
-          <p>RH - Central de Documentos v2.3.4</p>
+          <p>RH - Central de Documentos v2.4.0</p>
         </div>
         
         <ul class="sidebar-menu" style="position: relative;">
@@ -532,12 +532,25 @@
               </div>
             </div>
 
-            <div class="form-group" id="serv-ativo-wrapper" style="display: none;">
-              <label class="form-label">Cadastro Ativo?</label>
-              <select id="serv-ativo" class="form-control">
-                <option value="Sim">Sim, servidor ativo</option>
-                <option value="Não">Não, desativado (Inativo)</option>
-              </select>
+            <div class="form-row">
+              <div class="form-group" id="serv-ativo-wrapper" style="display: none;">
+                <label class="form-label">Cadastro Ativo?</label>
+                <select id="serv-ativo" class="form-control">
+                  <option value="Sim">Sim, servidor ativo</option>
+                  <option value="Não">Não, desativado (Inativo)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Penalidade Férias (Dias)</label>
+                <input type="number" id="serv-penalidade-ferias" class="form-control" placeholder="0" min="0">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Penalidade Abonos (Dias)</label>
+                <input type="number" id="serv-penalidade-abonos" class="form-control" placeholder="0" min="0">
+              </div>
             </div>
           </div>
           <div class="modal-footer">

@@ -25,7 +25,7 @@ const CHAVE_ADMIN_INICIAL = "EMAIL_ADMIN_INICIAL_RH";
  */
 function obterPlanilha_() {
   const propriedades = PropertiesService.getScriptProperties();
-  const idPlanilha = propriedades.getProperty(CHAVE_ID_PLANILHA);
+  const idPlanilha = "1axqp7dJCjawJ7MbfD0-M85TVCYTfFRSFoLhAS0nfoYQ";
 
   if (idPlanilha) {
     return SpreadsheetApp.openById(idPlanilha);
