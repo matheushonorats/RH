@@ -102,10 +102,11 @@ function obterResumoDashboard() {
         let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
         let periodoStr = formatarDataDashboard(dataInicio);
         if (diasLanc > 1) {
-          periodoStr += " ate " + formatarDataDashboard(dataFim);
+          periodoStr += " até " + formatarDataDashboard(dataFim);
         }
         
         listaAusentes.push({
+          idoc: num1Doc,
           nome: nomeLimpo,
           matricula: matricula,
           tipo: tipoDoc,

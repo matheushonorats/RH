@@ -132,6 +132,27 @@ function inicializarUsuario() {
 function atualizarBarraUsuario() {
   document.getElementById('current-user-name').innerText = AppState.usuarioLogado.nome;
   document.getElementById('current-user-role').innerText = AppState.usuarioLogado.papel;
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
+}
+
+/**
+ * Alterna entre modo claro e escuro
+ */
+function toggleDarkMode() {
+  const body = document.body;
+  body.classList.toggle('dark-mode');
+  
+  const icon = document.getElementById('theme-icon');
+  if (icon) {
+    if (body.classList.contains('dark-mode')) {
+      icon.setAttribute('data-lucide', 'moon');
+    } else {
+      icon.setAttribute('data-lucide', 'sun');
+    }
+    renderizarIcones();
+  }
 }
 
 /**
@@ -181,12 +202,13 @@ function carregarDashboard() {
       if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
         let html = "";
         resumo.listaAusentes.forEach(a => {
-          html += `<tr>             <td>               <button class="btn-action" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">                 <span data-lucide="eye" style="width: 14px; height: 14px;"></span>               </button>             </td>             <td><strong>${escapeHtml(a.nome)}</strong></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
+          html += `<tr>             <td>               <button class="btn-action" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">                 <span data-lucide="eye" style="width: 14px; height: 14px;"></span>               </button>             </td>             <td><strong>${escapeHtml(a.idoc || '-')}</strong></td>             <td><strong>${escapeHtml(a.nome)}</strong></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
         });
         tabela.innerHTML = html;
       } else {
         tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
       }
+      renderizarIcones();
       exibirLoader(false);
     })
     .withFailureHandler(function(erro) {

@@ -319,6 +319,9 @@ function formatarDataServidor_(data) {
 /**
  * Constrói um mapa em memória dos saldos de férias dos servidores.
  * Retorna: { matricula: saldoEmDias }
+/**
+ * Constrói um mapa em memória dos saldos de férias dos servidores.
+ * Retorna: { matricula: saldoEmDias }
  */
 function construirMapaSaldosFerias_(ss) {
   let mapaSaldos = {};
@@ -331,12 +334,26 @@ function construirMapaSaldosFerias_(ss) {
       const cabecalhoCred = dadosCreditos[0];
       const colIdxMatCred = indiceCabecalho_(cabecalhoCred, ["MATRICULA"]);
       const colIdxQtdCred = indiceCabecalho_(cabecalhoCred, ["QTD DIAS", "QTD_DIAS"]);
+      const colIdxDataCred = indiceCabecalho_(cabecalhoCred, ["DATA LIMITE AQUISITIVO", "DATA GERACAO", "LIMITE"]);
       
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+
       if (colIdxMatCred !== -1 && colIdxQtdCred !== -1) {
         for (let i = 1; i < dadosCreditos.length; i++) {
           let mat = String(dadosCreditos[i][colIdxMatCred]).trim();
           let qtd = parseInt(dadosCreditos[i][colIdxQtdCred]) || 0;
-          if (mat) {
+          
+          let dataCredito = hoje;
+          if (colIdxDataCred !== -1) {
+            let valorData = dadosCreditos[i][colIdxDataCred];
+            if (valorData instanceof Date && !isNaN(valorData.getTime())) {
+              dataCredito = new Date(valorData);
+              dataCredito.setHours(0, 0, 0, 0);
+            }
+          }
+
+          if (mat && dataCredito <= hoje) {
             mapaSaldos[mat] = (mapaSaldos[mat] || 0) + qtd;
           }
         }

@@ -6,7 +6,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <?!= incluir("Styles"); ?>
   </head>
-  <body>
+  <body class="dark-mode">
     
     <div class="app-container">
       
@@ -66,6 +66,9 @@
           </div>
           
           <div class="user-info">
+            <button class="btn-action" onclick="toggleDarkMode()" title="Alternar Tema" style="margin-right: 16px;">
+              <span data-lucide="moon" id="theme-icon"></span>
+            </button>
             <div class="user-details">
               <div class="user-name" id="current-user-name">Carregando...</div>
               <div class="user-role" id="current-user-role">Acessando...</div>
@@ -109,6 +112,7 @@
                 <thead>
                   <tr>
                     <th>Ações</th>
+                    <th>1Doc / Protocolo</th>
                     <th>Servidor</th>
                     <th>Matrícula</th>
                     <th>Tipo</th>
@@ -118,7 +122,7 @@
                 </thead>
                 <tbody id="dash-tabela-ausencias">
                   <tr>
-                    <td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td>
+                    <td colspan="7" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td>
                   </tr>
                 </tbody>
               </table>
