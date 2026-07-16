@@ -9,29 +9,29 @@
 :root {
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   
-  /* Paleta de Cores (Premium & Profissional) */
-  --bg-primary: #121214;
-  --bg-secondary: #1a1a1e;
-  --bg-tertiary: #26262b;
-  --border-color: #323238;
+  /* Paleta de Cores (Natural / Institucional) */
+  --bg-primary: #f4f6f8;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f0f2f5;
+  --border-color: #d1d5db;
   
-  --text-primary: #e1e1e6;
-  --text-secondary: #a8a8b3;
-  --text-muted: #7c7c8a;
+  --text-primary: #1f2937;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
   
-  --brand-primary: #00875f; /* VerdeSETUR */
-  --brand-primary-hover: #00b37e;
-  --brand-secondary: #0784b5; /* Azul Protocolo */
+  --brand-primary: #2563eb; /* Azul Gestão */
+  --brand-primary-hover: #1d4ed8;
+  --brand-secondary: #059669; /* Verde Institucional */
   
   /* Cores de Feedback de Status */
-  --status-active-bg: rgba(0, 135, 95, 0.15);
-  --status-active-text: #04d361;
-  --status-leave-bg: rgba(247, 90, 90, 0.15);
-  --status-leave-text: #f75a5a;
-  --status-warning-bg: rgba(254, 180, 8, 0.15);
-  --status-warning-text: #feb408;
-  --status-inactive-bg: rgba(124, 124, 138, 0.15);
-  --status-inactive-text: #8d8d99;
+  --status-active-bg: #dcfce7;
+  --status-active-text: #166534;
+  --status-leave-bg: #fee2e2;
+  --status-leave-text: #991b1b;
+  --status-warning-bg: #fef3c7;
+  --status-warning-text: #92400e;
+  --status-inactive-bg: #f3f4f6;
+  --status-inactive-text: #374151;
 }
 
 * {
@@ -224,6 +224,17 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 24px;
+  transition: all 0.2s ease;
+}
+
+.clickable-card {
+  cursor: pointer;
+}
+
+.clickable-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  border-color: var(--brand-primary);
 }
 
 .card-title {

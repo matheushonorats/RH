@@ -352,6 +352,7 @@ function construirMapaSaldosFerias_(ss) {
       const cabecalhoLanc = dadosLanc[0];
       const colIdxTipo = indiceCabecalho_(cabecalhoLanc, ["TIPO DE DOCUMENTO", "TIPO"]);
       const colIdxMatLanc = indiceCabecalho_(cabecalhoLanc, ["MATRICULA"]);
+
       const idxDias = indiceCabecalho_(cabecalhoLanc, ["DIAS", "QTD DIAS"]);
       const idxDiasFerias = indiceCabecalho_(cabecalhoLanc, ["QUANTIDADE FERIAS", "QTD FERIAS"]);
       
@@ -362,8 +363,8 @@ function construirMapaSaldosFerias_(ss) {
           let mat = String(linha[colIdxMatLanc]).trim();
           let tipoDoc = String(linha[colIdxTipo]).trim().toLowerCase();
           
-          // Apenas deduz de férias que foram efetivadas
-          if (tipoDoc.includes("férias") || tipoDoc.includes("ferias")) {
+          // Apenas deduz de férias ou penalidades que foram efetivadas
+          if (tipoDoc.includes("férias") || tipoDoc.includes("ferias") || tipoDoc.includes("penalidade") || tipoDoc.includes("ajuste")) {
             if (!tipoDoc.includes("não efetivado") && !tipoDoc.includes("anulado")) {
               let dias = obterDiasLancamento_(linha, idxParaDias);
               if (mat) {

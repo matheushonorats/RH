@@ -175,11 +175,15 @@ function obterLancamentosVinculados(idProtocolo) {
 
   const cabecalho = dados[0];
   const idx = obterIndicesColunasLancamentos_(cabecalho);
+  const colIdxLinkProt = indiceCabecalho_(cabecalho, ["LINK PROTOCOLO", "LINK PROTOCOLO"]);
 
   let vinculados = [];
 
   for (let i = 1; i < dados.length; i++) {
     let idProtLanc = idx.idProtocolo !== -1 ? String(dados[i][idx.idProtocolo]).trim() : "";
+    if (!idProtLanc && colIdxLinkProt !== -1) {
+      idProtLanc = String(dados[i][colIdxLinkProt]).trim();
+    }
 
     if (idProtLanc === String(idProtocolo).trim()) {
       let nomeBruto = idx.nome !== -1 ? String(dados[i][idx.nome]).trim() : "";

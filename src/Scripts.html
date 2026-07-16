@@ -181,11 +181,11 @@ function carregarDashboard() {
       if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
         let html = "";
         resumo.listaAusentes.forEach(a => {
-          html += `<tr>             <td><a href="#" class="btn-link" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento"><strong>${escapeHtml(a.nome)}</strong></a></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
+          html += `<tr>             <td>               <button class="btn-action" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">                 <span data-lucide="eye" style="width: 14px; height: 14px;"></span>               </button>             </td>             <td><strong>${escapeHtml(a.nome)}</strong></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
         });
         tabela.innerHTML = html;
       } else {
-        tabela.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
+        tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
       }
       exibirLoader(false);
     })
@@ -588,15 +588,49 @@ function abrirFichaServidor(matricula) {
   if (typeof google !== "undefined" && google.script) {
     google.script.run
       .withSuccessHandler(function(historico) {
+        // 5.1 Calcular Totais de Ausências no Ano Atual
+        let anoAtual = new Date().getFullYear();
+        let contAbonadasNormais = 0;
+        let contAbonadasNatalicias = 0;
+
+        // 5.2 Renderizar Tabela
         if (historico.length === 0) {
-          tabelaHist.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Nenhuma ausência registrada no histórico.</td></tr>`;
-          return;
+          tabelaHist.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Nenhum lançamento registrado no histórico.</td></tr>`;
+        } else {
+          let html = "";
+          historico.forEach(l => {
+            // Contagem de Abonadas (Ignora não efetivados e filtrados pelo ano)
+            if (!l.tipo.toLowerCase().includes("não efetivado") && !l.tipo.toLowerCase().includes("anulado")) {
+              if (l.dataInicio && l.dataInicio.includes(anoAtual)) {
+                if (l.tipo.toLowerCase().includes("abonada eleitoral")) {
+                  // Pode colocar lógica de eleitoral se quiser, mas pediu normal/natalícia
+                } else if (l.tipo.toLowerCase().includes("natalícia") || l.tipo.toLowerCase().includes("natalicia")) {
+                  contAbonadasNatalicias += parseInt(l.dias) || 1;
+                } else if (l.tipo.toLowerCase().includes("abonada") || l.tipo.toLowerCase().includes("abono")) {
+                  contAbonadasNormais += parseInt(l.dias) || 1;
+                }
+              }
+            }
+
+            let statusClass = "badge-neutral";
+            let statusText = "Ativo";
+            if (l.tipo.toLowerCase().includes("não efetivado") || l.tipo.toLowerCase().includes("anulado")) {
+              statusClass = "badge-inativo";
+              statusText = "Anulado";
+            }
+
+            html += `<tr>               <td>                 <button class="btn-action" onclick="abrirModalLancamento(${l.linhaPlanilha}); fecharModal('modal-ficha-servidor'); return false;" title="Visualizar/Editar Lançamento">                   <span data-lucide="eye" style="width: 14px; height: 14px;"></span>                 </button>               </td>               <td><strong>${escapeHtml(l.idoc)}</strong></td>               <td>${escapeHtml(l.tipo)}</td>               <td>${escapeHtml(l.dataInicio)}</td>               <td style="text-align: center;">${escapeHtml(l.dias || l.qtdHoras || '-')}</td>               <td><span class="badge ${statusClass}">${escapeHtml(statusText)}</span></td>             </tr>`;
+          });
+          tabelaHist.innerHTML = html;
         }
-        let html = "";
-        historico.forEach(l => {
-          html += `<tr>             <td><strong>${escapeHtml(l.idoc)}</strong></td>             <td>${escapeHtml(l.tipo)}</td>             <td>${escapeHtml(l.dataInicio)}</td>             <td style="text-align: center;">${escapeHtml(l.dias || l.qtdHoras || '-')}</td>             <td style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(l.observacao || '-')}</td>           </tr>`;
-        });
-        tabelaHist.innerHTML = html;
+
+        // 5.3 Atualiza as caixinhas de Abonadas
+        let elNormais = document.getElementById('ficha-abonadas-normais');
+        let elNatalicias = document.getElementById('ficha-abonadas-natalicias');
+        if(elNormais) elNormais.innerText = contAbonadasNormais + " / 5";
+        if(elNatalicias) elNatalicias.innerText = contAbonadasNatalicias + " / 1";
+        
+        renderizarIcones();
       })
       .obterHistoricoServidor(matricula);
   } else {
@@ -1091,29 +1125,24 @@ function carregarListaProtocolos() {
  */
 function renderizarTabelaProtocolos(listaFiltrada) {
   const protocolos = listaFiltrada || AppState.protocolos;
-  const tbody = document.getElementById('tabela-protocolos-body');
+  const tabela = document.getElementById('tabela-protocolos-body');
   
   if (protocolos.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhum protocolo encontrado.</td></tr>`;
+    tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px; color: var(--text-secondary);">Nenhum protocolo encontrado.</td></tr>`;
+    exibirLoader(false);
     return;
   }
   
   let html = "";
   protocolos.forEach(p => {
-    let statusClass = "badge-abono"; // amarelo para aguardando
-    if (p.status === "Enviado ao DGP") {
-      statusClass = "badge-ativo"; // verde
-    } else if (p.status === "Entregue ao Chefe") {
-      statusClass = "badge-ferias"; // vermelho/rosa
-    } else if (p.status === "Retornado pelo Chefe") {
-      statusClass = "badge-ativo"; // verde
-    }
+    let statusClass = "badge-neutral";
+    if (p.status.toLowerCase() === "entregue" || p.status.toLowerCase() === "assinado") statusClass = "badge-success";
     
-    html += `<tr>       <td><strong>${escapeHtml(p.id)}</strong></td>       <td>${escapeHtml(p.dataGeracao)}</td>       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>       <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>       <td>${escapeHtml(p.criadoPor)}</td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="${escapeHtml(p.status)}" title="Transicionar Status Físico">             <span data-lucide="git-pull-request" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(p.id)}</strong></td>       <td>${escapeHtml(p.dataGeracao)}</td>       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>       <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>       <td>${escapeHtml(p.criadoPor)}</td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="editar-prot" data-id="${escapeHtml(p.id)}" title="Editar Protocolo">             <span data-lucide="pencil" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="Entregue" title="Marcar como Entregue">             <span data-lucide="check" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
   });
   
-  tbody.innerHTML = html;
-  tbody.querySelectorAll('button[data-action]').forEach(btn => {
+  tabela.innerHTML = html;
+  tabela.querySelectorAll('button[data-action]').forEach(btn => {
     btn.addEventListener('click', function() {
       const action = this.dataset.action;
       if (action === 'imprimir-prot') abrirFolhaProtocolo(this.dataset.id);

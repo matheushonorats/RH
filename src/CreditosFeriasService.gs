@@ -10,7 +10,7 @@
  * Acionado por gatilho de tempo do Apps Script
  */
 function gerarCreditosAutomaticos() {
-  processarCreditosGerais_(365, false);
+  processarCreditosGerais_(0, false);
 }
 
 /**
@@ -20,7 +20,7 @@ function menuGerarGeral() {
   if (!verificarSeEhAdmin()) {
     throw new Error("Apenas Administradores podem forçar a geração em massa de créditos de férias.");
   }
-  processarCreditosGerais_(365, true);
+  processarCreditosGerais_(0, true);
   return true;
 }
 

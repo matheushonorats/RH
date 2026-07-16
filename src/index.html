@@ -108,6 +108,7 @@
               <table class="custom-table">
                 <thead>
                   <tr>
+                    <th>Ações</th>
                     <th>Servidor</th>
                     <th>Matrícula</th>
                     <th>Tipo</th>
@@ -117,7 +118,7 @@
                 </thead>
                 <tbody id="dash-tabela-ausencias">
                   <tr>
-                    <td colspan="5" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td>
+                    <td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td>
                   </tr>
                 </tbody>
               </table>
@@ -202,6 +203,7 @@
                 <option value="Hora Extra">Hora Extra</option>
                 <option value="Avaliação do Estágio Probatório">Avaliação Estágio Probatório</option>
                 <option value="Não Efetivado (Anulado)">Não Efetivado</option>
+                <option value="Ajuste / Penalidade de Saldo">Ajuste / Penalidade de Saldo</option>
               </select>
               <select id="filtro-status-lancamento" class="form-control filter-select" onchange="filtrarTabelaLancamentos()">
                 <option value="">Todos Status</option>
@@ -265,7 +267,7 @@
                     <th>ID Protocolo</th>
                     <th>Data Geração</th>
                     <th>Qtd Documentos</th>
-                    <th>Status de Envio</th>
+                    <th>Status</th>
                     <th>Emitido Por</th>
                     <th>Ações</th>
                   </tr>
@@ -287,7 +289,7 @@
               <div class="form-row">
                 <div class="form-group" style="flex: 2;">
                   <label class="form-label">Tipo de Relatório *</label>
-                  <select id="rep-tipo" class="form-control" onchange="ajustarFiltrosRelatorios()">
+                  <select id="rep-tipo" class="form-control" onchange="ajustarFiltrosRelatorios(); gerarDadosRelatorio();">
                     <option value="compulsorias">Férias Compulsórias (Risco de 3a Férias)</option>
                     <option value="situacao_ferias">Situação Geral de Férias</option>
                     <option value="calendario_ausencias">Calendário / Escala de Ausências</option>
@@ -300,8 +302,8 @@
                 <div class="form-group" id="rep-bloco-datas" style="display: none;">
                   <label class="form-label">Período (Início e Fim)</label>
                   <div style="display: flex; gap: 8px;">
-                    <input type="date" id="rep-data-inicio" class="form-control">
-                    <input type="date" id="rep-data-fim" class="form-control">
+                    <input type="date" id="rep-data-inicio" class="form-control" onchange="gerarDadosRelatorio()">
+                    <input type="date" id="rep-data-fim" class="form-control" onchange="gerarDadosRelatorio()">
                   </div>
                 </div>
 
@@ -309,7 +311,7 @@
                 <div class="form-group" id="rep-bloco-mesano" style="display: none;">
                   <label class="form-label">Mês e Ano</label>
                   <div style="display: flex; gap: 8px;">
-                    <select id="rep-mes" class="form-control">
+                    <select id="rep-mes" class="form-control" onchange="gerarDadosRelatorio()">
                       <option value="JANEIRO">Janeiro</option>
                       <option value="FEVEREIRO">Fevereiro</option>
                       <option value="MARÇO">Março</option>
@@ -323,12 +325,12 @@
                       <option value="NOVEMBRO">Novembro</option>
                       <option value="DEZEMBRO">Dezembro</option>
                     </select>
-                    <input type="number" id="rep-ano" class="form-control" value="2026" min="2020" max="2035">
+                    <input type="number" id="rep-ano" class="form-control" value="2026" min="2020" max="2035" onchange="gerarDadosRelatorio()">
                   </div>
                 </div>
               </div>
               
-              <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+              <div style="display: none;">
                 <button class="btn btn-primary" onclick="gerarDadosRelatorio()">
                   <span data-lucide="play"></span> Gerar Relatório
                 </button>
@@ -565,8 +567,8 @@
           <!-- Navegação das Abas -->
           <div class="tab-container">
             <button class="tab-button active" onclick="alternarAbaFicha('tab-dados')">Dados de Cadastro</button>
-            <button class="tab-button" onclick="alternarAbaFicha('tab-ferias')">Controle de Férias</button>
-            <button class="tab-button" onclick="alternarAbaFicha('tab-historico')">Histórico de Ausências</button>
+            <button class="tab-button" onclick="alternarAbaFicha('tab-ferias')">Controle de Saldo e Ausências</button>
+            <button class="tab-button" onclick="alternarAbaFicha('tab-historico')">Histórico de Lançamentos</button>
           </div>
 
           <!-- Aba 1: Dados de Cadastro -->
@@ -593,35 +595,40 @@
             </table>
           </div>
 
-          <!-- Aba 2: Controle de Férias -->
+          <!-- Aba 2: Controle de Saldo e Ausências -->
           <div id="tab-ferias" class="tab-panel">
             <div style="margin-bottom: 20px; display: flex; gap: 16px; flex-wrap: wrap;">
-              <div class="card" style="flex: 1; padding: 16px;">
-                <div class="card-title">Saldo Disponível (Hoje)</div>
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--primary-color);">
+                <div class="card-title">Saldo Disponível de Férias (Hoje)</div>
                 <div class="card-value" id="ficha-ferias-saldo" style="font-size: 20px;">0 dias</div>
               </div>
-              <div class="card" style="flex: 1; padding: 16px;">
-                <div class="card-title">Projetado (Este Ano)</div>
-                <div class="card-value" id="ficha-ferias-projetado" style="font-size: 20px;">0 dias</div>
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--accent-color);">
+                <div class="card-title">Abonadas Normais (Ano Atual)</div>
+                <div class="card-value" id="ficha-abonadas-normais" style="font-size: 20px;">0 / 5</div>
+              </div>
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--warning-color);">
+                <div class="card-title">Abonada Natalícia (Ano Atual)</div>
+                <div class="card-value" id="ficha-abonadas-natalicias" style="font-size: 20px;">0 / 1</div>
               </div>
             </div>
             
-            <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-secondary);">Períodos Aquisitivos de Férias</h4>
+            <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-secondary);">Histórico de Períodos Aquisitivos de Férias</h4>
             <div class="periods-grid" id="ficha-ferias-periodos">
               <!-- Cards de períodos gerados via JS -->
             </div>
           </div>
 
-          <!-- Aba 3: Histórico de Ausências -->
+          <!-- Aba 3: Histórico de Lançamentos -->
           <div id="tab-historico" class="tab-panel">
             <table class="custom-table" style="border: 1px solid var(--border-color); border-radius: 6px;">
               <thead>
                 <tr>
+                  <th>Ações</th>
                   <th>1Doc / Proc.</th>
                   <th>Tipo</th>
                   <th>Data Saída/Falta</th>
                   <th>Dias</th>
-                  <th>Observação</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody id="ficha-historico-tabela">
