@@ -206,9 +206,10 @@ function aplicarFiltroDashboard(tipo) {
     document.getElementById('filtro-status-servidor').value = 'Ativo';
     filtrarTabelaServidores();
   } else if (tipo === 'compulsorias') {
-    navegarPara('servidores');
-    document.getElementById('filtro-status-servidor').value = 'Compulsorias';
-    filtrarTabelaServidores();
+    navegarPara('relatorios');
+    document.getElementById('rep-tipo').value = 'compulsorias';
+    if(typeof ajustarFiltrosRelatorios === 'function') ajustarFiltrosRelatorios();
+    if(typeof gerarDadosRelatorio === 'function') gerarDadosRelatorio();
   } else if (tipo === 'pendentes') {
     navegarPara('lancamentos');
     document.getElementById('filtro-status-lancamento').value = 'SEM 1DOC';
