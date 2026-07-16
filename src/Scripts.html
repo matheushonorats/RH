@@ -181,7 +181,7 @@ function carregarDashboard() {
       if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
         let html = "";
         resumo.listaAusentes.forEach(a => {
-          html += `<tr>             <td><strong>${a.nome}</strong></td>             <td>${a.matricula}</td>             <td>${a.tipo}</td>             <td>${a.periodo}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
+          html += `<tr>             <td><a href="#" class="btn-link" onclick="abrirFichaServidor('${escapeHtml(a.matricula)}'); return false;"><strong>${escapeHtml(a.nome)}</strong></a></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
         });
         tabela.innerHTML = html;
       } else {
@@ -194,7 +194,26 @@ function carregarDashboard() {
       exibirLoader(false);
       alert("Não foi possível carregar os dados da planilha: " + mensagemErro(erro));
     })
-    .obterResumoDashboard(); // Essa função será criada no DashboardService.gs
+    .obterResumoDashboard();
+}
+
+/**
+ * Aplica filtros ao clicar nos cartões do Dashboard e navega para a respectiva View
+ */
+function aplicarFiltroDashboard(tipo) {
+  if (tipo === 'ativos') {
+    navegarPara('servidores');
+    document.getElementById('filtro-status-servidor').value = 'Ativo';
+    filtrarTabelaServidores();
+  } else if (tipo === 'compulsorias') {
+    navegarPara('servidores');
+    document.getElementById('filtro-status-servidor').value = 'Compulsorias';
+    filtrarTabelaServidores();
+  } else if (tipo === 'pendentes') {
+    navegarPara('lancamentos');
+    document.getElementById('filtro-status-lancamento').value = 'SEM 1DOC';
+    filtrarTabelaLancamentos();
+  }
 }
 
 // Controle de Exibição de Modais
@@ -314,7 +333,14 @@ function filtrarTabelaServidores() {
     const bateSituacao = !situacao || s.situacao === situacao;
     
     // 4. Filtro de Status
-    const bateStatus = !status || s.status === status;
+    let bateStatus = false;
+    if (!status) {
+      bateStatus = true;
+    } else if (status === "Compulsorias") {
+      bateStatus = s.feriasCompulsorias === true;
+    } else {
+      bateStatus = s.status === status;
+    }
     
     return bateBusca && bateLotacao && bateSituacao && bateStatus;
   });
@@ -659,7 +685,16 @@ function filtrarTabelaLancamentos() {
   const filtrados = AppState.lancamentos.filter(l => {
     const bateBusca = !busca || l.nome.toLowerCase().includes(busca) || l.matricula.toLowerCase().includes(busca) || l.idoc.toLowerCase().includes(busca);
     const bateTipo = !tipo || l.tipo === tipo;
-    const bateStatus = !status || l.status === status;
+    
+    let bateStatus = false;
+    if (!status) {
+      bateStatus = true;
+    } else if (status === "SEM 1DOC") {
+      bateStatus = !l.idoc || l.idoc.trim() === "";
+    } else {
+      bateStatus = l.status === status;
+    }
+    
     return bateBusca && bateTipo && bateStatus;
   });
   

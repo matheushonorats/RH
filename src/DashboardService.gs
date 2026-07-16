@@ -27,8 +27,10 @@ function obterResumoDashboard() {
     // Identificar a posição das colunas
     const cabecalho = dadosServ[0];
     const colAtivoIdx = indiceCabecalho_(cabecalho, ["ATIVO"]);
-    const colInfoFeriasIdx = indiceCabecalho_(cabecalho, ["INFO FERIAS"]);
     const colMatriculaIdx = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+    
+    // Calcula saldos de todos os servidores em lote
+    const mapaSaldos = construirMapaSaldosFerias_(ss);
 
     if (colMatriculaIdx === -1) {
       throw new Error("Cabecalho MATRICULA nao encontrado na aba Servidores.");
@@ -44,31 +46,17 @@ function obterResumoDashboard() {
         totalAtivos++;
       }
       
-      // Férias Compulsórias (analisando o texto do Info_Férias)
-      if (colInfoFeriasIdx !== -1) {
-        let infoFerias = String(dadosServ[i][colInfoFeriasIdx]).toLowerCase();
-        if (infoFerias.includes("vencido") || infoFerias.includes("crítico") || infoFerias.includes("risco")) {
-          totalCompulsorias++;
-        }
+      // Férias Compulsórias (Saldo de férias >= 60 dias)
+      if (mapaSaldos[matricula] && mapaSaldos[matricula] >= 60) {
+        totalCompulsorias++;
       }
     }
   }
   
-  // 2. Processar Protocolos
-  const abaProt = ss.getSheetByName("Protocolos");
-  if (abaProt) {
-    const dadosProt = abaProt.getDataRange().getValues();
-    const cabecalhoProt = dadosProt[0] || [];
-    const idxStatusProt = indiceCabecalho_(cabecalhoProt, ["STATUS", "STATUS DE ENVIO"]);
-    for (let i = 1; i < dadosProt.length; i++) {
-      let status = idxStatusProt !== -1 ? String(dadosProt[i][idxStatusProt]).trim().toLowerCase() : "";
-      if (status === "pendente" || status === "aguardando assinatura") {
-        totalProtocolosPendentes++;
-      }
-    }
-  }
+  // 2. Processar Protocolos Pendentes (Agora: Lançamentos Sem 1DOC)
+  // Removemos a leitura da aba Protocolos, pois contaremos direto na aba Lançamentos
   
-  // 3. Processar Lançamentos & Ausências de Hoje
+  // 3. Processar Lançamentos (Ausências e Pendentes de 1DOC)
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (abaLanc) {
     const dadosLanc = abaLanc.getDataRange().getValues();
@@ -86,6 +74,11 @@ function obterResumoDashboard() {
       // Ignora lançamentos anulados ou de tipo "Não efetivado"
       if (!tipoDoc || tipoDoc.toLowerCase().includes("não efetivado") || tipoDoc.toLowerCase().includes("anulado")) {
         continue;
+      }
+      // Verifica pendência de 1DOC (não tem número preenchido)
+      let num1Doc = idxLanc.idoc !== -1 ? String(linha[idxLanc.idoc]).trim() : "";
+      if (!num1Doc) {
+        totalProtocolosPendentes++;
       }
       
       let dataInicio = idxLanc.dataInicio !== -1 ? normalizarDataDashboard(linha[idxLanc.dataInicio]) : null;

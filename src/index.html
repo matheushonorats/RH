@@ -83,11 +83,11 @@
           <!-- View 1: Dashboard -->
           <section id="view-dashboard" class="view-section active">
             <div class="dashboard-grid">
-              <div class="card">
+              <div class="card clickable-card" onclick="aplicarFiltroDashboard('ativos')">
                 <div class="card-title">Servidores Ativos</div>
                 <div class="card-value" id="dash-servidores-ativos">0</div>
               </div>
-              <div class="card">
+              <div class="card clickable-card" onclick="aplicarFiltroDashboard('compulsorias')">
                 <div class="card-title">Férias Compulsórias</div>
                 <div class="card-value" id="dash-ferias-compulsorias" style="color: var(--status-leave-text)">0</div>
               </div>
@@ -95,8 +95,8 @@
                 <div class="card-title">Ausentes Hoje</div>
                 <div class="card-value" id="dash-ausentes-hoje">0</div>
               </div>
-              <div class="card">
-                <div class="card-title">Protocolos Pendentes</div>
+              <div class="card clickable-card" onclick="aplicarFiltroDashboard('pendentes')">
+                <div class="card-title">Lançamentos sem 1DOC</div>
                 <div class="card-value" id="dash-protocolos-pendentes" style="color: var(--status-warning-text)">0</div>
               </div>
             </div>
@@ -146,6 +146,7 @@
                 <option value="Férias">Em Férias</option>
                 <option value="Abono">Em Abono</option>
                 <option value="Inativo">Inativo</option>
+                <option value="Compulsorias">Férias Compulsórias (Risco)</option>
               </select>
             </div>
 
@@ -183,6 +184,13 @@
                 <span class="search-icon-inside" data-lucide="search"></span>
                 <input type="text" id="filtro-busca-lancamento" class="form-control" placeholder="Buscar por servidor ou no 1Doc..." oninput="filtrarTabelaLancamentos()">
               </div>
+              <select id="filtro-status-lancamento" class="form-control filter-select" onchange="filtrarTabelaLancamentos()">
+                <option value="">Todos Status</option>
+                <option value="PENDENTE">Pendente</option>
+                <option value="AGUARDANDO ASSINATURA">Aguardando Assinatura</option>
+                <option value="ASSINADO">Assinado</option>
+                <option value="SEM 1DOC">Sem Nº 1DOC</option>
+              </select>
               <select id="filtro-tipo-lancamento" class="form-control filter-select" onchange="filtrarTabelaLancamentos()">
                 <option value="">Todos Documentos</option>
                 <option value="Férias">Férias</option>
