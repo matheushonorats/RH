@@ -195,7 +195,7 @@ function obterLancamentosVinculados(idProtocolo) {
       let diasL = obterDiasLancamento_(dados[i], idx);
       
       let retornoStr = "";
-      if (tipo.toUpperCase().includes("FERIAS") && diasL > 0 && idx.dataInicio !== -1) {
+      if (normalizarCabecalho_(tipo).includes("FERIAS") && diasL > 0 && idx.dataInicio !== -1) {
         let dataInicioObj = lerDataFormatoBR_(String(dados[i][idx.dataInicio]));
         if (!dataInicioObj && dados[i][idx.dataInicio] instanceof Date) dataInicioObj = dados[i][idx.dataInicio];
         if (dataInicioObj && !isNaN(dataInicioObj.getTime())) {
