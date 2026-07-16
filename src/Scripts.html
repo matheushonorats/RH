@@ -955,7 +955,7 @@ function buscarServidorAutocomplete() {
   
   let html = "";
   sugestoes.forEach(s => {
-    html += `<div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); font-size: 13px;" onclick="selecionarServidorAutocomplete('${s.matricula}', '${s.nome}', '${s.cargo}', '${s.lotacao}', '${s.saldoHoje}')">       <strong>${s.nome}</strong> (Matrícula: ${s.matricula})     </div>`;
+    html += `<div style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border-color); font-size: 13px;" onclick="selecionarServidorAutocomplete('${s.matricula}', '${s.nome}', '${s.cargo}', '${s.lotacao}', '${s.saldoHoje}', '${s.abonosUsados || 0}')">       <strong>${s.nome}</strong> (Matrícula: ${s.matricula})     </div>`;
   });
   
   listagem.innerHTML = html;
@@ -965,7 +965,7 @@ function buscarServidorAutocomplete() {
 /**
  * Preenche os dados do servidor selecionado no autocomplete
  */
-function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo) {
+function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo, abonosUsados) {
   document.getElementById('lanc-busca-servidor').value = nome;
   document.getElementById('lanc-matricula').value = matricula;
   document.getElementById('autocomplete-lista').style.display = "none";
@@ -974,6 +974,11 @@ function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo) 
   document.getElementById('info-serv-cargo').innerText = cargo || 'Não informado';
   document.getElementById('info-serv-lotacao').innerText = lotacao || 'Não informada';
   document.getElementById('info-serv-saldo').innerText = saldo + ' dias';
+  
+  const abonos = parseInt(abonosUsados) || 0;
+  const restantes = Math.max(0, 5 - abonos);
+  document.getElementById('info-serv-abonadas').innerText = `${abonos}/5`;
+  
   document.getElementById('lanc-servidor-info').style.display = "block";
   
   sugerirDespacho();
