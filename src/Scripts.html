@@ -646,6 +646,11 @@ function abrirFichaServidor(matricula) {
   const tabelaHist = document.getElementById('ficha-historico-tabela');
   tabelaHist.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Buscando histórico...</td></tr>`;
   
+  let elNormaisInit = document.getElementById('ficha-abonadas-normais');
+  let elNataliciasInit = document.getElementById('ficha-abonadas-natalicias');
+  if (elNormaisInit) elNormaisInit.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="font-size: 16px; color: var(--text-muted);"></i>';
+  if (elNataliciasInit) elNataliciasInit.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="font-size: 16px; color: var(--text-muted);"></i>';
+  
   if (typeof google !== "undefined" && google.script) {
     google.script.run
       .withSuccessHandler(function(historico) {
@@ -1078,8 +1083,14 @@ function exibirAnexosNaLista(listaElemento, anexos, modoEdicao) {
       a.href = caminho;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
-      a.className = modoEdicao ? '' : 'btn btn-secondary';
-      if (!modoEdicao) a.style.cssText = 'width: 100%; text-align: left;';
+      if (modoEdicao) {
+        a.style.color = 'var(--primary-color)';
+        a.style.textDecoration = 'none';
+        a.style.fontWeight = '500';
+      } else {
+        a.className = 'btn btn-secondary';
+        a.style.cssText = 'width: 100%; text-align: left;';
+      }
       a.textContent = rotulo;
       li.appendChild(a);
       listaElemento.appendChild(li);
@@ -1109,8 +1120,14 @@ function exibirAnexosNaLista(listaElemento, anexos, modoEdicao) {
               a.href = urlResolvida;
               a.target = '_blank';
               a.rel = 'noopener noreferrer';
-              a.className = modoEdicao ? '' : 'btn btn-secondary';
-              if (!modoEdicao) a.style.cssText = 'width: 100%; text-align: left;';
+              if (modoEdicao) {
+                a.style.color = 'var(--primary-color)';
+                a.style.textDecoration = 'none';
+                a.style.fontWeight = '500';
+              } else {
+                a.className = 'btn btn-secondary';
+                a.style.cssText = 'width: 100%; text-align: left;';
+              }
               a.textContent = item.rotulo;
               item.li.appendChild(a);
             } else {

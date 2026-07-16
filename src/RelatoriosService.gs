@@ -146,8 +146,13 @@ function obterRelatorioAbonosAnuais() {
     let ano = dataInicio ? String(dataInicio.getFullYear()) : "";
     
     // Considera apenas tipos de abono que tenham marcação de conta abono
-    // e ignora anulados
-    if (tipo.includes("ABONADA") && !tipo.includes("NAO EFETIVAD") && !tipo.includes("ANULAD") && ano === anoAtual) {
+    // Ignora Natalícias, Eleitorais, não efetivadas e anuladas
+    if ((tipo.includes("ABONADA") || tipo.includes("ABONO")) && 
+        !tipo.includes("NATALICIA") && 
+        !tipo.includes("ELEITORAL") && 
+        !tipo.includes("NAO EFETIVAD") && 
+        !tipo.includes("ANULAD") && 
+        ano === anoAtual) {
       if (!mapaAbonos[mat]) mapaAbonos[mat] = 0;
       mapaAbonos[mat]++;
     }
