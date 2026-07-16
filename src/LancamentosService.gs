@@ -189,6 +189,7 @@ function salvarLancamento(dadosLanc) {
     if (idx.matricula !== -1) valoresLinha[idx.matricula] = matricula;
     if (idx.dataInicio !== -1) valoresLinha[idx.dataInicio] = dataInicio || "";
     if (idx.dias !== -1) valoresLinha[idx.dias] = parseInt(dadosLanc.dias) || 0;
+    if (idx.diasFerias !== -1) valoresLinha[idx.diasFerias] = parseInt(dadosLanc.dias) || 0;
     if (idx.mes !== -1) valoresLinha[idx.mes] = mesNome;
     if (idx.ano !== -1) valoresLinha[idx.ano] = anoNumero;
     if (idx.qtdHoras !== -1) valoresLinha[idx.qtdHoras] = dadosLanc.qtdHoras || "";
