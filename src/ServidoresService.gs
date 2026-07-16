@@ -344,7 +344,7 @@ function construirMapaSaldosFerias_(ss) {
           let mat = String(dadosCreditos[i][colIdxMatCred]).trim();
           let qtd = parseInt(dadosCreditos[i][colIdxQtdCred]) || 0;
           
-          let dataCredito = hoje;
+          let dataCredito = null;
           if (colIdxDataCred !== -1) {
             let valorData = dadosCreditos[i][colIdxDataCred];
             if (valorData instanceof Date && !isNaN(valorData.getTime())) {
@@ -357,9 +357,13 @@ function construirMapaSaldosFerias_(ss) {
                 dataCredito.setHours(0, 0, 0, 0);
               }
             }
+          } else {
+            // Se a coluna de data limite não existir, assumimos que todos os créditos da planilha são válidos (hoje)
+            dataCredito = hoje;
           }
 
-          if (mat && dataCredito <= hoje) {
+          // Só soma se for válido (menor ou igual a hoje)
+          if (mat && dataCredito && dataCredito <= hoje) {
             mapaSaldos[mat] = (mapaSaldos[mat] || 0) + qtd;
           }
         }
