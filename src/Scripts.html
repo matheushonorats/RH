@@ -988,6 +988,22 @@ function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo, 
  * Abre o modal de lançamento limpo (criação) ou carregado (edição)
  */
 function abrirModalLancamento(linhaPlanilha) {
+  if (typeof google !== "undefined" && google.script && (!AppState.servidores || AppState.servidores.length === 0)) {
+    exibirLoader(true);
+    google.script.run
+      .withSuccessHandler(function(servidores) {
+        AppState.servidores = Array.isArray(servidores) ? servidores : [];
+        exibirLoader(false);
+        abrirModalLancamento(linhaPlanilha); // Tenta novamente após carregar
+      })
+      .withFailureHandler(function(err) {
+        exibirLoader(false);
+        alert("Erro ao carregar lista de servidores: " + mensagemErro(err));
+      })
+      .obterListaServidores();
+    return;
+  }
+
   const form = document.getElementById('form-lancamento');
   form.reset();
   
