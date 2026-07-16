@@ -851,24 +851,30 @@ function ajustarCamposFormularioLancamento() {
   blocoFalta.style.display = "none";
   blocoHoras.style.display = "none";
   
-  // Força remoção de obrigatoriedade temporária dos inputs invisíveis
-  document.getElementById('lanc-data-inicio').required = false;
-  document.getElementById('lanc-dias').required = false;
-  document.getElementById('lanc-data-falta').required = false;
-  document.getElementById('lanc-qtd-horas').required = false;
+  // Força remoção de obrigatoriedade temporária e desabilita os inputs invisíveis
+  const inputs = ['lanc-data-inicio', 'lanc-dias', 'lanc-data-falta', 'lanc-qtd-horas'];
+  inputs.forEach(id => {
+    document.getElementById(id).required = false;
+    document.getElementById(id).disabled = true;
+  });
   
   if (tipo === "Férias" || tipo === "Férias (1/3 Pecúnia)" || tipo === "Licença Prêmio") {
     blocoFerias.style.display = "flex";
+    document.getElementById('lanc-data-inicio').disabled = false;
     document.getElementById('lanc-data-inicio').required = true;
+    document.getElementById('lanc-dias').disabled = false;
     document.getElementById('lanc-dias').required = true;
   } else if (tipo === "Hora Extra") {
     blocoHoras.style.display = "block";
     blocoFalta.style.display = "block";
+    document.getElementById('lanc-data-falta').disabled = false;
     document.getElementById('lanc-data-falta').required = true;
+    document.getElementById('lanc-qtd-horas').disabled = false;
     document.getElementById('lanc-qtd-horas').required = true;
   } else {
     // Abonadas, Avaliação Probatório, Não Efetivados
     blocoFalta.style.display = "block";
+    document.getElementById('lanc-data-falta').disabled = false;
     document.getElementById('lanc-data-falta').required = true;
   }
   
