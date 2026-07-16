@@ -1208,7 +1208,23 @@ async function salvarDadosLancamento(event) {
   
   if (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)" || tipoDoc === "Licença Prêmio") {
     dataInicioInput = document.getElementById('lanc-data-inicio').value;
-    diasInput = document.getElementById('lanc-dias').value;
+    diasInput = parseInt(document.getElementById('lanc-dias').value) || 0;
+    
+    const linhaPlanilha = document.getElementById('lanc-linha').value;
+    if (!linhaPlanilha && (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)")) {
+      const servidor = AppState.servidores.find(s => s.matricula === matricula);
+      if (servidor && servidor.periodosFerias) {
+        const periodosAbertos = servidor.periodosFerias.filter(p => p.saldo > 0 && p.status === "Disponível");
+        if (periodosAbertos.length > 0) {
+          const periodoMaisAntigo = periodosAbertos[0];
+          if (diasInput > periodoMaisAntigo.saldo) {
+            exibirLoader(false);
+            alert(`🛑 REGRA FIFO: Liquidação de Período Obrigatória!\n\nO período mais antigo em aberto (${periodoMaisAntigo.referencia}) possui apenas ${periodoMaisAntigo.saldo} dias de saldo residual.\n\nVocê não pode solicitar ${diasInput} dias direto. Lance os ${periodoMaisAntigo.saldo} dias primeiro para liquidar a pendência!`);
+            return;
+          }
+        }
+      }
+    }
   } else if (tipoDoc === "Hora Extra") {
     dataInicioInput = document.getElementById('lanc-data-falta').value;
     diasInput = 0;
