@@ -111,7 +111,8 @@ function obterListaLancamentos() {
 function obterHistoricoServidor(matricula) {
   obterDadosUsuarioLogado();
   const todos = obterListaLancamentos();
-  return todos.filter(l => l.matricula === String(matricula).trim());
+  const chaveMatricula = normalizarChaveMatricula_(matricula);
+  return todos.filter(l => normalizarChaveMatricula_(l.matricula) === chaveMatricula);
 }
 
 /**

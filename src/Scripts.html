@@ -581,12 +581,38 @@ function abrirFichaServidor(matricula) {
   // 3. Preencher Saldo de Férias do cabeçalho
   document.getElementById('ficha-ferias-saldo').innerText = s.saldoHoje + " dias";
   
-  // 4. Parsear o texto do Info_Férias para desenhar os Cards de Períodos Aquisitivos
+  // 4. Renderizar os períodos aquisitivos calculados no servidor.
   const gridPeriodos = document.getElementById('ficha-ferias-periodos');
   gridPeriodos.innerHTML = "";
   
-  // Se contiver informações sobre períodos vencidos ou ativos
-  if (s.infoFerias) {
+  if (Array.isArray(s.periodosFerias) && s.periodosFerias.length > 0) {
+    s.periodosFerias.forEach(periodo => {
+      const percentualUso = periodo.diasOriginais > 0
+        ? Math.round((periodo.diasUsados / periodo.diasOriginais) * 100)
+        : 0;
+      const futuro = periodo.status === "Em aquisição";
+      const usufruido = periodo.status === "Usufruído";
+      const badgeClass = futuro ? "badge-abono" : (usufruido ? "badge-inativo" : "badge-ativo");
+      const fillClass = usufruido ? "fill-usufruido" : "fill-disponivel";
+
+      gridPeriodos.innerHTML += `
+        <div class="period-card">
+          <div class="period-header">
+            <span class="period-title">${escapeHtml(periodo.referencia)}</span>
+            <span class="badge ${badgeClass}">${escapeHtml(periodo.status)}</span>
+          </div>
+          <div class="period-dates">Liberação: ${escapeHtml(periodo.dataLiberacao)}</div>
+          <div class="period-dates">Usados: ${periodo.diasUsados} d | Saldo: ${periodo.saldo} d</div>
+          <div class="period-status-bar">
+            <div class="period-status-fill ${fillClass}" style="width:${Math.min(100, percentualUso)}% !important"></div>
+          </div>
+          <div class="period-legend">
+            <span>0%</span><span>${percentualUso}% utilizado</span><span>100%</span>
+          </div>
+        </div>`;
+    });
+  } else if (s.infoFerias) {
+    // Compatibilidade com planilhas antigas que possuíam a fórmula Info_Férias.
     // Processamento do texto estruturado
     // Ex: "[AVISO] ATENÇÃO: 1 Período vencido. | Saldo: 30 dias | Próx (+30): 30/03/2027"
     let partes = s.infoFerias.split('|');
@@ -623,6 +649,7 @@ function abrirFichaServidor(matricula) {
   if (typeof google !== "undefined" && google.script) {
     google.script.run
       .withSuccessHandler(function(historico) {
+        historico = Array.isArray(historico) ? historico : [];
         // 5.1 Calcular Totais de Ausências no Ano Atual
         let anoAtual = new Date().getFullYear();
         let contAbonadasNormais = 0;

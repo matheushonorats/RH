@@ -34,9 +34,9 @@ function obterListaServidores() {
     throw new Error("Cabecalhos NOME/MATRICULA nao encontrados em Servidores. Encontrados: " + cabecalho.join(" | "));
   }
   
-  // Otimização O(N + M): Carrega status e saldos em lote
+  // Otimização O(N + M): carrega status, saldos e períodos em lote.
   const mapaStatus = construirMapaStatusServidores_(ss);
-  const mapaSaldos = construirMapaSaldosFerias_(ss);
+  const resumoFerias = construirResumoFerias_(ss);
   
   let servidores = [];
   
@@ -53,17 +53,24 @@ function obterListaServidores() {
     } else {
       statusText = mapaStatus[matricula] || "Ativo";
     }
-      // A fórmula da aba Servidores é a fonte oficial. O cálculo em memória
-      // permanece apenas como fallback para planilhas sem essa coluna.
+      const chaveMatricula = normalizarChaveMatricula_(matricula);
+      const feriasServidor = resumoFerias[chaveMatricula] || {
+        saldo: 0,
+        projetado: 0,
+        periodos: []
+      };
+
+      // Mantém compatibilidade com cópias antigas que ainda possuem fórmula
+      // na aba Servidores; na estrutura atual, usa o resumo auditável abaixo.
       const saldoDaPlanilha = idxSaldoHoje !== -1
         ? obterNumeroPlanilha_(linha[idxSaldoHoje])
         : null;
       const saldoCalc = saldoDaPlanilha !== null
         ? saldoDaPlanilha
-        : (mapaSaldos[normalizarChaveMatricula_(matricula)] || 0);
+        : feriasServidor.saldo;
       const projetadoCalc = idxProjetado !== -1
         ? (obterNumeroPlanilha_(linha[idxProjetado]) || 0)
-        : 0;
+        : feriasServidor.projetado;
       
       servidores.push({
         nome: String(linha[idxNome]).trim(),
@@ -78,6 +85,7 @@ function obterListaServidores() {
         feriasCompulsorias: saldoCalc >= 60, // Nova propriedade para o dashboard/filtros
         projetado: projetadoCalc,
         infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias] || "").trim() : "",
+        periodosFerias: feriasServidor.periodos,
         status: statusText,
       linhaPlanilha: i + 1
     });
@@ -351,87 +359,129 @@ function obterNumeroPlanilha_(valor) {
   return encontrado ? Number(encontrado[0]) : null;
 }
 /**
- * Constrói um mapa em memória dos saldos de férias dos servidores.
- * Retorna: { matricula: saldoEmDias }
-/**
- * Constrói um mapa em memória dos saldos de férias dos servidores.
- * Retorna: { matricula: saldoEmDias }
+ * Consolida créditos liberados, créditos futuros e férias utilizadas.
+ * Os débitos são consumidos dos períodos mais antigos primeiro (FIFO).
  */
-function construirMapaSaldosFerias_(ss) {
-  let mapaSaldos = {};
+function construirResumoFerias_(ss) {
+  const resumo = {};
+  const referenciasLidas = new Set();
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
 
-  // 1. Somar os Créditos
+  function obterRegistro_(matricula) {
+    if (!resumo[matricula]) {
+      resumo[matricula] = { creditos: [], debitos: 0, saldo: 0, projetado: 0, periodos: [] };
+    }
+    return resumo[matricula];
+  }
+
   const abaCreditos = ss.getSheetByName("Creditos_Ferias");
   if (abaCreditos) {
     const dadosCreditos = abaCreditos.getDataRange().getValues();
     if (dadosCreditos.length > 1) {
-      const cabecalhoCred = dadosCreditos[0];
-      const colIdxMatCred = indiceCabecalho_(cabecalhoCred, ["MATRICULA"]);
-      const colIdxQtdCred = indiceCabecalho_(cabecalhoCred, ["QTD DIAS", "QTD_DIAS"]);
-      const colIdxDataCred = indiceCabecalho_(cabecalhoCred, ["DATA LIMITE AQUISITIVO", "LIMITE", "DATA LIMITE", "VENCIMENTO", "AQUISITIVO FIM"]);
-      
-      const hoje = new Date();
-      hoje.setHours(0, 0, 0, 0);
+      const cabecalho = dadosCreditos[0];
+      const idxMatricula = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+      const idxQtd = indiceCabecalho_(cabecalho, ["QTD DIAS", "QUANTIDADE DIAS"]);
+      const idxReferencia = indiceCabecalho_(cabecalho, ["REFERENCIA", "PERIODO AQUISITIVO"]);
+      const idxLiberacao = indiceCabecalho_(cabecalho, [
+        "DATA LIBERACAO",
+        "DATA LIMITE AQUISITIVO",
+        "DATA LIMITE",
+        "VENCIMENTO",
+        "AQUISITIVO FIM"
+      ]);
 
-      if (colIdxMatCred !== -1 && colIdxQtdCred !== -1) {
+      if (idxMatricula !== -1 && idxQtd !== -1 && idxLiberacao !== -1) {
         for (let i = 1; i < dadosCreditos.length; i++) {
-          let mat = normalizarChaveMatricula_(dadosCreditos[i][colIdxMatCred]);
-          let qtd = parseInt(dadosCreditos[i][colIdxQtdCred]) || 0;
-          
-          let dataCredito = null;
-          if (colIdxDataCred !== -1) {
-            let valorData = dadosCreditos[i][colIdxDataCred];
-            if (valorData instanceof Date && !isNaN(valorData.getTime())) {
-              dataCredito = new Date(valorData);
-              dataCredito.setHours(0, 0, 0, 0);
-            } else if (typeof valorData === 'string' && valorData.includes('/')) {
-              let partes = valorData.trim().split(" ")[0].split('/');
-              if (partes.length === 3) {
-                dataCredito = new Date(parseInt(partes[2]), parseInt(partes[1]) - 1, parseInt(partes[0]));
-                dataCredito.setHours(0, 0, 0, 0);
-              }
-            }
-          } else {
-            // Se a coluna de data limite não existir, assumimos que todos os créditos da planilha são válidos (hoje)
-            dataCredito = hoje;
-          }
+          const matricula = normalizarChaveMatricula_(dadosCreditos[i][idxMatricula]);
+          const quantidade = parseInt(dadosCreditos[i][idxQtd], 10) || 0;
+          const referencia = idxReferencia !== -1
+            ? String(dadosCreditos[i][idxReferencia] || "").trim()
+            : "Período aquisitivo";
+          const dataLiberacao = normalizarDataServidorObjeto_(dadosCreditos[i][idxLiberacao]);
 
-          // Só soma se for válido (menor ou igual a hoje)
-          if (mat && dataCredito && dataCredito <= hoje) {
-            mapaSaldos[mat] = (mapaSaldos[mat] || 0) + qtd;
+          if (!matricula || quantidade <= 0 || !dataLiberacao) continue;
+
+          // Evita somar duas vezes o mesmo período caso haja linhas duplicadas.
+          const chaveReferencia = matricula + "|" + normalizarCabecalho_(referencia);
+          if (referenciasLidas.has(chaveReferencia)) continue;
+          referenciasLidas.add(chaveReferencia);
+
+          obterRegistro_(matricula).creditos.push({
+            referencia: referencia,
+            quantidade: quantidade,
+            dataLiberacao: dataLiberacao
+          });
+        }
+      }
+    }
+  }
+
+  const abaLancamentos = ss.getSheetByName("Lançamentos") || ss.getSheetByName("Lancamentos");
+  if (abaLancamentos) {
+    const dadosLancamentos = abaLancamentos.getDataRange().getValues();
+    if (dadosLancamentos.length > 1) {
+      const idx = obterIndicesColunasLancamentos_(dadosLancamentos[0]);
+
+      if (idx.tipo !== -1 && idx.matricula !== -1) {
+        for (let i = 1; i < dadosLancamentos.length; i++) {
+          const linha = dadosLancamentos[i];
+          const matricula = normalizarChaveMatricula_(linha[idx.matricula]);
+          const tipo = normalizarCabecalho_(linha[idx.tipo]);
+          const efetivado = !tipo.includes("NAO EFETIVADO") && !tipo.includes("ANULADO");
+          const descontaFerias = tipo.includes("FERIAS") || tipo.includes("PENALIDADE") || tipo.includes("AJUSTE");
+          const dias = obterDiasLancamento_(linha, idx);
+
+          if (matricula && efetivado && descontaFerias && dias > 0) {
+            obterRegistro_(matricula).debitos += dias;
           }
         }
       }
     }
   }
 
-  // 2. Subtrair os Débitos (Lançamentos de Férias)
-  const abaLanc = ss.getSheetByName("Lançamentos") || ss.getSheetByName("Lancamentos");
-  if (abaLanc) {
-    const dadosLanc = abaLanc.getDataRange().getValues();
-    if (dadosLanc.length > 1) {
-      // Usa exatamente o mesmo mapeamento utilizado pela tela de histórico.
-      // Se um lançamento aparece no histórico, ele também entra no saldo.
-      const idxLanc = obterIndicesColunasLancamentos_(dadosLanc[0]);
-      
-      if (idxLanc.tipo !== -1 && idxLanc.matricula !== -1) {
-        for (let i = 1; i < dadosLanc.length; i++) {
-          let linha = dadosLanc[i];
-          let mat = normalizarChaveMatricula_(linha[idxLanc.matricula]);
-          let tipoDoc = normalizarCabecalho_(linha[idxLanc.tipo]);
-          
-          if (tipoDoc.includes("FERIAS") || tipoDoc.includes("PENALIDADE") || tipoDoc.includes("AJUSTE")) {
-            if (!tipoDoc.includes("NAO EFETIVADO") && !tipoDoc.includes("ANULADO")) {
-              let dias = obterDiasLancamento_(linha, idxLanc);
-              if (mat && dias > 0) {
-                mapaSaldos[mat] = (mapaSaldos[mat] || 0) - dias;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+  Object.keys(resumo).forEach(matricula => {
+    const registro = resumo[matricula];
+    registro.creditos.sort((a, b) => a.dataLiberacao.getTime() - b.dataLiberacao.getTime());
 
-  return mapaSaldos;
+    let debitoRestante = registro.debitos;
+    registro.creditos.forEach(credito => {
+      const liberado = credito.dataLiberacao <= hoje;
+      let diasUsados = 0;
+      let saldoPeriodo = 0;
+
+      if (liberado) {
+        diasUsados = Math.min(debitoRestante, credito.quantidade);
+        debitoRestante -= diasUsados;
+        saldoPeriodo = credito.quantidade - diasUsados;
+        registro.saldo += saldoPeriodo;
+      } else {
+        registro.projetado += credito.quantidade;
+      }
+
+      registro.periodos.push({
+        referencia: credito.referencia,
+        dataLiberacao: formatarDataServidor_(credito.dataLiberacao),
+        diasOriginais: credito.quantidade,
+        diasUsados: diasUsados,
+        saldo: saldoPeriodo,
+        status: !liberado ? "Em aquisição" : (saldoPeriodo > 0 ? "Disponível" : "Usufruído")
+      });
+    });
+
+    delete registro.creditos;
+    delete registro.debitos;
+  });
+
+  return resumo;
+}
+
+/** Mantém compatibilidade com Dashboard e outros serviços existentes. */
+function construirMapaSaldosFerias_(ss) {
+  const resumo = construirResumoFerias_(ss);
+  const mapa = {};
+  Object.keys(resumo).forEach(matricula => {
+    mapa[matricula] = resumo[matricula].saldo;
+  });
+  return mapa;
 }
