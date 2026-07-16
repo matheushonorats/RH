@@ -62,12 +62,23 @@ function navegarPara(idView) {
     viewAlvo.classList.add('active');
   }
   
-  // 3. Ativar o link clicado
+  // 3. Ativar o link clicado e mover o indicador
   const linkAtivo = Array.from(document.querySelectorAll('.menu-link')).find(link => 
     link.getAttribute('onclick') && link.getAttribute('onclick').includes(`'${idView}'`)
   );
   if (linkAtivo) {
     linkAtivo.classList.add('active');
+    
+    // Move o indicador flutuante
+    const ind = document.getElementById('sidebar-indicator');
+    if (ind) {
+      // O offsetTop do link (dentro do li) + o offset do próprio li em relação ao ul
+      const li = linkAtivo.closest('li');
+      if (li) {
+        ind.style.top = li.offsetTop + "px";
+        ind.style.height = linkAtivo.offsetHeight + "px";
+      }
+    }
   }
   
   // 4. Mudar o título superior da barra
@@ -177,6 +188,9 @@ function carregarDadosDaView(idView) {
     carregarListaLancamentos();
   } else if (idView === 'protocolos') {
     carregarListaProtocolos();
+  } else if (idView === 'relatorios') {
+    if(typeof ajustarFiltrosRelatorios === 'function') ajustarFiltrosRelatorios();
+    if(typeof gerarDadosRelatorio === 'function') gerarDadosRelatorio();
   } else if (idView === 'admin') {
     alternarAbaAdmin('adm-usuarios');
   }
@@ -566,7 +580,6 @@ function abrirFichaServidor(matricula) {
   
   // 3. Preencher Saldo de Férias do cabeçalho
   document.getElementById('ficha-ferias-saldo').innerText = s.saldoHoje + " dias";
-  document.getElementById('ficha-ferias-projetado').innerText = s.projetado + " dias";
   
   // 4. Parsear o texto do Info_Férias para desenhar os Cards de Períodos Aquisitivos
   const gridPeriodos = document.getElementById('ficha-ferias-periodos');
@@ -1448,11 +1461,11 @@ function desenharTabelaRelatorio(tipo, dados) {
   let htmlBody = "";
   
   if (tipo === 'compulsorias' || tipo === 'situacao_ferias') {
-    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Férias", "Projetado", "Status Férias"];
-    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo</th><th style='text-align:center;'>Projetado</th><th>Info Períodos</th>";
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Férias", "Projetado"];
+    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo Atual</th><th style='text-align:center;'>Projetado</th>";
     
     dados.forEach(s => {
-      htmlBody += `<tr>         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>         <td style='text-align:center;'>${s.projetado} d</td>         <td style='font-size:12px; color: var(--text-secondary);'>${escapeHtml(s.infoFerias)}</td>       </tr>`;
+      htmlBody += `<tr>         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>         <td style='text-align:center;'>${s.projetado} d</td>       </tr>`;
     });
   } else if (tipo === 'calendario_ausencias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Tipo de Ausência", "Início", "Fim", "Total de Dias"];

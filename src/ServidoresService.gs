@@ -334,7 +334,7 @@ function construirMapaSaldosFerias_(ss) {
       const cabecalhoCred = dadosCreditos[0];
       const colIdxMatCred = indiceCabecalho_(cabecalhoCred, ["MATRICULA"]);
       const colIdxQtdCred = indiceCabecalho_(cabecalhoCred, ["QTD DIAS", "QTD_DIAS"]);
-      const colIdxDataCred = indiceCabecalho_(cabecalhoCred, ["DATA LIMITE AQUISITIVO", "DATA GERACAO", "LIMITE"]);
+      const colIdxDataCred = indiceCabecalho_(cabecalhoCred, ["DATA LIMITE AQUISITIVO", "LIMITE", "DATA LIMITE"]);
       
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
@@ -370,7 +370,7 @@ function construirMapaSaldosFerias_(ss) {
       const colIdxTipo = indiceCabecalho_(cabecalhoLanc, ["TIPO DE DOCUMENTO", "TIPO"]);
       const colIdxMatLanc = indiceCabecalho_(cabecalhoLanc, ["MATRICULA"]);
 
-      const idxDias = indiceCabecalho_(cabecalhoLanc, ["DIAS", "QTD DIAS"]);
+      const idxDias = indiceCabecalho_(cabecalhoLanc, ["DIAS", "QTD DIAS", "QTD", "QUANTIDADE"]);
       const idxDiasFerias = indiceCabecalho_(cabecalhoLanc, ["QUANTIDADE FERIAS", "QTD FERIAS"]);
       
       if (colIdxTipo !== -1 && colIdxMatLanc !== -1) {
