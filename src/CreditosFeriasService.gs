@@ -50,9 +50,13 @@ function processarCreditosGerais_(diasFuturos, exibirAlertas) {
     const dados = abaServ.getDataRange().getValues();
     const cabecalho = dados[0];
     
-    const colMatriculaIdx = cabecalho.indexOf("MATRÍCULA");
-    const colAdmissaoIdx = cabecalho.indexOf("Data de Admissão");
-    const colAtivoIdx = cabecalho.indexOf("Ativo");
+    const colMatriculaIdx = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+    const colAdmissaoIdx = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
+    const colAtivoIdx = indiceCabecalho_(cabecalho, ["ATIVO"]);
+
+    if (colMatriculaIdx === -1 || colAdmissaoIdx === -1) {
+      throw new Error("Cabecalhos MATRICULA/DATA DE ADMISSAO nao encontrados em Servidores.");
+    }
     
     let gerados = 0;
     let erros = 0;
@@ -69,7 +73,7 @@ function processarCreditosGerais_(diasFuturos, exibirAlertas) {
     let novosCreditosLote = [];
     
     for (let i = 1; i < dados.length; i++) {
-      let matricula = String(dados[i][colMatriculaIdx]).trim();
+      let matricula = normalizarChaveMatricula_(dados[i][colMatriculaIdx]);
       let dataBruta = dados[i][colAdmissaoIdx];
       let ativo = colAtivoIdx !== -1 ? String(dados[i][colAtivoIdx]).trim() : "Sim";
       
@@ -166,7 +170,7 @@ function obterChavesCreditosExistentesLocal_(abaCred) {
   const dados = abaCred.getDataRange().getValues();
   const chaves = new Set();
   for (let i = 1; i < dados.length; i++) {
-    let mat = String(dados[i][2]).trim(); 
+    let mat = normalizarChaveMatricula_(dados[i][2]); 
     let ref = String(dados[i][3]).trim();
     if (mat && ref) chaves.add(mat + "|" + ref);
   }

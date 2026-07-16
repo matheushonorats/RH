@@ -934,8 +934,27 @@ function abrirModalLancamento(linhaPlanilha) {
     buscaServidorInput.disabled = true; // Não altera o servidor do lançamento cadastrado
     
     const l = AppState.lancamentos.find(lanc => lanc.linhaPlanilha === linhaPlanilha);
-    if (l) {
-      document.getElementById('lanc-tipo').value = l.tipo;
+    if (!l) {
+      if (typeof google !== "undefined" && google.script) {
+        exibirLoader(true);
+        google.script.run
+          .withSuccessHandler(function(lancamentos) {
+            AppState.lancamentos = Array.isArray(lancamentos) ? lancamentos : [];
+            exibirLoader(false);
+            abrirModalLancamento(linhaPlanilha);
+          })
+          .withFailureHandler(function(err) {
+            exibirLoader(false);
+            alert("Erro ao carregar detalhes do lançamento: " + mensagemErro(err));
+          })
+          .obterListaLancamentos();
+      } else {
+        console.warn("Lançamento não encontrado em modo local: ", linhaPlanilha);
+      }
+      return;
+    }
+    
+    document.getElementById('lanc-tipo').value = l.tipo;
       document.getElementById('lanc-idoc').value = l.idoc;
       document.getElementById('lanc-busca-servidor').value = l.nome;
       document.getElementById('lanc-matricula').value = l.matricula;

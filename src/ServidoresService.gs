@@ -51,7 +51,7 @@ function obterListaServidores() {
     if (ativo === "Não") {
       statusText = "Inativo";
     } else {
-      statusText = mapaStatus[matricula] || "Ativo";
+      statusText = mapaStatus[normalizarChaveMatricula_(matricula)] || "Ativo";
     }
       const chaveMatricula = normalizarChaveMatricula_(matricula);
       const feriasServidor = resumoFerias[chaveMatricula] || {
@@ -129,12 +129,12 @@ function salvarServidor(dadosServidor) {
   const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
 
-  const matriculaBusca = String(dadosServidor.matricula).trim();
+  const matriculaBusca = normalizarChaveMatricula_(dadosServidor.matricula);
   let linhaEdit = -1;
   let valorAntes = "";
 
   for (let i = 1; i < dados.length; i++) {
-    if (String(dados[i][idxMatricula]).trim() === matriculaBusca) {
+    if (normalizarChaveMatricula_(dados[i][idxMatricula]) === matriculaBusca) {
       linhaEdit = i + 1;
       valorAntes = JSON.stringify(dados[i]);
       break;
@@ -169,7 +169,7 @@ function salvarServidor(dadosServidor) {
       // garante que nenhuma outra requisição concorrente inseriu a mesma matrícula
       const dadosAtual = aba.getDataRange().getValues();
       for (let k = 1; k < dadosAtual.length; k++) {
-        if (String(dadosAtual[k][idxMatricula]).trim() === matriculaBusca) {
+        if (normalizarChaveMatricula_(dadosAtual[k][idxMatricula]) === matriculaBusca) {
           throw new Error("Já existe um servidor cadastrado com a matrícula " + matriculaBusca + ".");
         }
       }
@@ -234,7 +234,7 @@ function desativarServidor(matricula) {
   }
   
   for (let i = 1; i < dados.length; i++) {
-    if (String(dados[i][idxMatricula]).trim() === String(matricula).trim()) {
+    if (normalizarChaveMatricula_(dados[i][idxMatricula]) === normalizarChaveMatricula_(matricula)) {
       const linhaPlanilha = i + 1;
       aba.getRange(linhaPlanilha, idxAtivo + 1).setValue("Não");
       
@@ -275,7 +275,7 @@ function construirMapaStatusServidores_(ss) {
   
   for (let i = 1; i < dadosLanc.length; i++) {
     let linha = dadosLanc[i];
-    let mat = String(linha[colIdxMat]).trim();
+    let mat = normalizarChaveMatricula_(linha[colIdxMat]);
     let tipoDoc = normalizarCabecalho_(linha[colIdxTipo]);
     
     // Ignora anulados
@@ -340,16 +340,6 @@ function formatarDataServidor_(data) {
  * Gera uma chave única para matrícula, tolerando número, texto e referências
  * produzidas pelo AppSheet (ex.: "86916: NOME DO SERVIDOR").
  */
-function normalizarChaveMatricula_(valor) {
-  const texto = String(valor == null ? "" : valor).trim();
-  if (!texto) return "";
-
-  const numeroInicial = texto.match(/^0*(\d+)/);
-  if (numeroInicial) return numeroInicial[1];
-
-  return normalizarCabecalho_(texto);
-}
-
 /** Converte números e textos como "30 dias" sem transformar vazio em zero. */
 function obterNumeroPlanilha_(valor) {
   if (typeof valor === "number" && isFinite(valor)) return valor;

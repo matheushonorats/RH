@@ -140,7 +140,7 @@ function salvarLancamento(dadosLanc) {
     const dados = aba.getDataRange().getValues();
     const cabecalho = dados[0];
     const idx = obterIndicesColunasLancamentos_(cabecalho);
-    const matricula = String(dadosLanc.matricula).trim();
+    const matricula = normalizarChaveMatricula_(dadosLanc.matricula);
     const tipoDoc = String(dadosLanc.tipo).trim();
     
     // 1. Validar servidor
@@ -301,7 +301,7 @@ function obterInfoServidorBasico_(ss, matricula) {
   const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
   
   for (let i = 1; i < dados.length; i++) {
-    if (String(dados[i][idxMat]).trim() === matricula) {
+    if (normalizarChaveMatricula_(dados[i][idxMat]) === normalizarChaveMatricula_(matricula)) {
       return {
         nome: String(dados[i][idxNome]).trim(),
         matricula: matricula

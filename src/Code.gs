@@ -90,6 +90,17 @@ function indiceCabecalho_(cabecalho, alternativas) {
   return -1;
 }
 
+/** Chave canônica usada para relacionar todas as abas do sistema. */
+function normalizarChaveMatricula_(valor) {
+  const texto = String(valor == null ? "" : valor).trim();
+  if (!texto) return "";
+
+  const numeroInicial = texto.match(/^0*(\d+)/);
+  if (numeroInicial) return numeroInicial[1];
+
+  return normalizarCabecalho_(texto);
+}
+
 /**
  * Cria o menu de utilitários na planilha para o Administrador
  */

@@ -34,30 +34,30 @@ function verificarEEnviarEmailsDiarios() {
   let listaFeriasProximas = [];
   let listaAbonosProximos = [];
   
-  // 2. Filtrar Lançamentos
+  // 2. Filtrar Lançamentos usando os cabeçalhos reais da planilha.
   const dadosLanc = abaLanc.getDataRange().getValues();
-  const COL_TIPO = 3;        // Col C
-  const COL_NOME = 5;        // Col E
-  const COL_DATA_INICIO = 9; // Col I
-  const COL_DIAS = 13;       // Col M
-  const COL_MATRICULA = 6;   // Col F
-  const COL_IDOC = 1;        // Col A
+  const idx = obterIndicesColunasLancamentos_(dadosLanc[0]);
+
+  if (idx.tipo === -1 || idx.nome === -1 || idx.matricula === -1 || idx.dataInicio === -1) {
+    throw new Error("Cabecalhos obrigatorios nao encontrados na aba Lancamentos.");
+  }
   
   for (let i = 1; i < dadosLanc.length; i++) {
     let linha = dadosLanc[i];
-    let tipo = String(linha[COL_TIPO - 1]).trim();
+    let tipo = String(linha[idx.tipo]).trim();
     if (!tipo || tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) {
       continue;
     }
     
-    let dataInicio = lerDataFormatoBR_(linha[COL_DATA_INICIO - 1]);
+    let dataInicio = lerDataFormatoBR_(linha[idx.dataInicio]);
     if (!dataInicio) continue;
     
-    let dias = parseInt(linha[COL_DIAS - 1]) || 1;
-    let nomeBruto = String(linha[COL_NOME - 1]).trim();
+    let dias = obterDiasLancamento_(linha, idx) || 1;
+    let nomeBruto = String(linha[idx.nome]).trim();
     let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
-    let matricula = String(linha[COL_MATRICULA - 1]).trim();
-    let idoc = String(linha[COL_IDOC - 1]).trim() || "Sem 1Doc";
+    let matricula = normalizarChaveMatricula_(linha[idx.matricula]);
+    let idoc = idx.idoc !== -1 ? String(linha[idx.idoc]).trim() : "";
+    idoc = idoc || "Sem 1Doc";
     
     // Calcula diferença em dias
     let diferencaTempo = dataInicio.getTime() - hoje.getTime();

@@ -45,34 +45,33 @@ function obterRelatorioAusenciasCalendario(dataInicioStr, dataFimStr) {
   
   const dados = abaLanc.getDataRange().getValues();
   let resultados = [];
-  
-  const COL_TIPO = 3;        // Col C
-  const COL_NOME = 5;        // Col E
-  const COL_DATA_INICIO = 9; // Col I
-  const COL_DIAS = 13;       // Col M
-  const COL_MATRICULA = 6;   // Col F
+  const idx = obterIndicesColunasLancamentos_(dados[0]);
+
+  if (idx.tipo === -1 || idx.nome === -1 || idx.matricula === -1 || idx.dataInicio === -1) {
+    throw new Error("Cabecalhos obrigatorios nao encontrados na aba Lancamentos.");
+  }
   
   for (let i = 1; i < dados.length; i++) {
     let linha = dados[i];
-    let tipo = String(linha[COL_TIPO - 1]).trim();
+    let tipo = String(linha[idx.tipo]).trim();
     if (!tipo || tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) continue;
     
-    let inicioLanc = lerDataFormatoBR_(linha[COL_DATA_INICIO - 1]);
+    let inicioLanc = lerDataFormatoBR_(linha[idx.dataInicio]);
     if (!inicioLanc) continue;
     
-    let dias = parseInt(linha[COL_DIAS - 1]) || 1;
+    let dias = obterDiasLancamento_(linha, idx) || 1;
     let fimLanc = new Date(inicioLanc);
     fimLanc.setDate(inicioLanc.getDate() + (dias - 1));
     fimLanc.setHours(0,0,0,0);
     
     // Verifica sobreposição de intervalos
     if (inicioLanc <= dataFim && fimLanc >= dataInicio) {
-      let nomeBruto = String(linha[COL_NOME - 1]).trim();
+      let nomeBruto = String(linha[idx.nome]).trim();
       let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
       
       resultados.push({
         nome: nomeLimpo,
-        matricula: String(linha[COL_MATRICULA - 1]).trim(),
+        matricula: normalizarChaveMatricula_(linha[idx.matricula]),
         tipo: tipo,
         inicio: formatarDataRelatorios_(inicioLanc),
         fim: formatarDataRelatorios_(fimLanc),
@@ -112,23 +111,25 @@ function obterRelatorioAbonosAnuais() {
   const servidores = abaServ.getDataRange().getValues();
   const lancamentos = abaLanc.getDataRange().getValues();
   const anoAtual = String(new Date().getFullYear());
-  
-  const COL_TIPO = 3;        // Col C
-  const COL_MATRICULA = 6;   // Col F
-  const COL_ANO = 15;        // Col O
+  const idxLanc = obterIndicesColunasLancamentos_(lancamentos[0]);
+
+  if (idxLanc.tipo === -1 || idxLanc.matricula === -1 || idxLanc.dataInicio === -1) {
+    throw new Error("Cabecalhos TIPO/MATRICULA/DATA INICIO nao encontrados em Lancamentos.");
+  }
   
   let mapaAbonos = {};
   
   // 1. Processar lançamentos de abono ativos do ano
   for (let i = 1; i < lancamentos.length; i++) {
     let linha = lancamentos[i];
-    let tipo = String(linha[COL_TIPO - 1]).trim().toLowerCase();
-    let mat = String(linha[COL_MATRICULA - 1]).trim();
-    let ano = String(linha[COL_ANO - 1]).trim();
+    let tipo = normalizarCabecalho_(linha[idxLanc.tipo]);
+    let mat = normalizarChaveMatricula_(linha[idxLanc.matricula]);
+    let dataInicio = lerDataFormatoBR_(linha[idxLanc.dataInicio]);
+    let ano = dataInicio ? String(dataInicio.getFullYear()) : "";
     
     // Considera apenas tipos de abono que tenham marcação de conta abono
     // e ignora anulados
-    if (tipo.includes("abonada") && !tipo.includes("não efetivado") && !tipo.includes("anulado") && ano === anoAtual) {
+    if (tipo.includes("ABONADA") && !tipo.includes("NAO EFETIVADO") && !tipo.includes("ANULADO") && ano === anoAtual) {
       if (!mapaAbonos[mat]) mapaAbonos[mat] = 0;
       mapaAbonos[mat]++;
     }
@@ -150,13 +151,18 @@ function obterRelatorioAbonosAnuais() {
   // 2. Mesclar com servidores
   let relatorio = [];
   const cabecalho = servidores[0];
-  const idxNome = cabecalho.indexOf("NOME");
-  const idxMat = cabecalho.indexOf("MATRÍCULA");
-  const idxLot = cabecalho.indexOf("LOTAÇÃO");
+  const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
+  const idxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+  const idxLot = indiceCabecalho_(cabecalho, ["LOTACAO"]);
+  const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
+
+  if (idxNome === -1 || idxMat === -1) {
+    throw new Error("Cabecalhos NOME/MATRICULA nao encontrados em Servidores.");
+  }
   
   for (let i = 1; i < servidores.length; i++) {
-    let mat = String(servidores[i][idxMat]).trim();
-    let ativo = cabecalho.indexOf("Ativo") !== -1 ? String(servidores[i][cabecalho.indexOf("Ativo")]).trim() : "Sim";
+    let mat = normalizarChaveMatricula_(servidores[i][idxMat]);
+    let ativo = idxAtivo !== -1 ? String(servidores[i][idxAtivo]).trim() : "Sim";
     
     if (!mat || ativo === "Não") continue;
     
