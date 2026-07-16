@@ -47,7 +47,8 @@ function obterResumoDashboard() {
       }
       
       // Férias Compulsórias (Saldo de férias >= 60 dias)
-      if (mapaSaldos[matricula] && mapaSaldos[matricula] >= 60) {
+      const saldoFerias = mapaSaldos[normalizarChaveMatricula_(matricula)] || 0;
+      if (saldoFerias >= 60) {
         totalCompulsorias++;
       }
     }

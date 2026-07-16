@@ -53,7 +53,7 @@ function obterListaServidores() {
     } else {
       statusText = mapaStatus[matricula] || "Ativo";
     }
-      let saldoCalc = mapaSaldos[matricula] || 0;
+      let saldoCalc = mapaSaldos[normalizarChaveMatricula_(matricula)] || 0;
       
       servidores.push({
         nome: String(linha[idxNome]).trim(),
@@ -316,6 +316,20 @@ function formatarDataServidor_(data) {
   }
   return String(data);
 }
+
+/**
+ * Gera uma chave única para matrícula, tolerando número, texto e referências
+ * produzidas pelo AppSheet (ex.: "86916: NOME DO SERVIDOR").
+ */
+function normalizarChaveMatricula_(valor) {
+  const texto = String(valor == null ? "" : valor).trim();
+  if (!texto) return "";
+
+  const numeroInicial = texto.match(/^0*(\d+)/);
+  if (numeroInicial) return numeroInicial[1];
+
+  return normalizarCabecalho_(texto);
+}
 /**
  * Constrói um mapa em memória dos saldos de férias dos servidores.
  * Retorna: { matricula: saldoEmDias }
@@ -341,7 +355,7 @@ function construirMapaSaldosFerias_(ss) {
 
       if (colIdxMatCred !== -1 && colIdxQtdCred !== -1) {
         for (let i = 1; i < dadosCreditos.length; i++) {
-          let mat = String(dadosCreditos[i][colIdxMatCred]).trim();
+          let mat = normalizarChaveMatricula_(dadosCreditos[i][colIdxMatCred]);
           let qtd = parseInt(dadosCreditos[i][colIdxQtdCred]) || 0;
           
           let dataCredito = null;
@@ -376,23 +390,19 @@ function construirMapaSaldosFerias_(ss) {
   if (abaLanc) {
     const dadosLanc = abaLanc.getDataRange().getValues();
     if (dadosLanc.length > 1) {
-      const cabecalhoLanc = dadosLanc[0];
-      const colIdxTipo = indiceCabecalho_(cabecalhoLanc, ["TIPO DE DOCUMENTO", "TIPO"]);
-      const colIdxMatLanc = indiceCabecalho_(cabecalhoLanc, ["MATRICULA"]);
-
-      const idxDias = indiceCabecalho_(cabecalhoLanc, ["DIAS", "QTD DIAS", "QTD", "QUANTIDADE"]);
-      const idxDiasFerias = indiceCabecalho_(cabecalhoLanc, ["QUANTIDADE FERIAS", "QTD FERIAS"]);
+      // Usa exatamente o mesmo mapeamento utilizado pela tela de histórico.
+      // Se um lançamento aparece no histórico, ele também entra no saldo.
+      const idxLanc = obterIndicesColunasLancamentos_(dadosLanc[0]);
       
-      if (colIdxTipo !== -1 && colIdxMatLanc !== -1) {
-        const idxParaDias = { dias: idxDias, diasFerias: idxDiasFerias };
+      if (idxLanc.tipo !== -1 && idxLanc.matricula !== -1) {
         for (let i = 1; i < dadosLanc.length; i++) {
           let linha = dadosLanc[i];
-          let mat = String(linha[colIdxMatLanc]).trim();
-          let tipoDoc = normalizarCabecalho_(linha[colIdxTipo]);
+          let mat = normalizarChaveMatricula_(linha[idxLanc.matricula]);
+          let tipoDoc = normalizarCabecalho_(linha[idxLanc.tipo]);
           
           if (tipoDoc.includes("FERIAS") || tipoDoc.includes("PENALIDADE") || tipoDoc.includes("AJUSTE")) {
             if (!tipoDoc.includes("NAO EFETIVADO") && !tipoDoc.includes("ANULADO")) {
-              let dias = obterDiasLancamento_(linha, idxParaDias);
+              let dias = obterDiasLancamento_(linha, idxLanc);
               if (mat && dias > 0) {
                 mapaSaldos[mat] = (mapaSaldos[mat] || 0) - dias;
               }
