@@ -26,7 +26,7 @@ function obterListaServidores() {
   const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
   const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
   const idxSaldoHoje = indiceCabecalho_(cabecalho, ["FERIAS SALDO HOJE", "SALDO HOJE", "SALDO FERIAS"]);
-  const idxProjetado = indiceCabecalho_(cabecalho, ["PROJETADO ESTE ANO", "PROJETADO"]);
+  const idxProjetado = indiceCabecalho_(cabecalho, ["FERIAS PROJETADO ESTE ANO", "PROJETADO ESTE ANO", "PROJETADO"]);
   const idxInfoFerias = indiceCabecalho_(cabecalho, ["INFO FERIAS"]);
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
 
@@ -53,7 +53,17 @@ function obterListaServidores() {
     } else {
       statusText = mapaStatus[matricula] || "Ativo";
     }
-      let saldoCalc = mapaSaldos[normalizarChaveMatricula_(matricula)] || 0;
+      // A fórmula da aba Servidores é a fonte oficial. O cálculo em memória
+      // permanece apenas como fallback para planilhas sem essa coluna.
+      const saldoDaPlanilha = idxSaldoHoje !== -1
+        ? obterNumeroPlanilha_(linha[idxSaldoHoje])
+        : null;
+      const saldoCalc = saldoDaPlanilha !== null
+        ? saldoDaPlanilha
+        : (mapaSaldos[normalizarChaveMatricula_(matricula)] || 0);
+      const projetadoCalc = idxProjetado !== -1
+        ? (obterNumeroPlanilha_(linha[idxProjetado]) || 0)
+        : 0;
       
       servidores.push({
         nome: String(linha[idxNome]).trim(),
@@ -66,7 +76,8 @@ function obterListaServidores() {
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
         saldoHoje: saldoCalc,
         feriasCompulsorias: saldoCalc >= 60, // Nova propriedade para o dashboard/filtros
-        projetado: idxProjetado !== -1 ? parseInt(linha[idxProjetado]) || 0 : 0,
+        projetado: projetadoCalc,
+        infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias] || "").trim() : "",
         status: statusText,
       linhaPlanilha: i + 1
     });
@@ -329,6 +340,15 @@ function normalizarChaveMatricula_(valor) {
   if (numeroInicial) return numeroInicial[1];
 
   return normalizarCabecalho_(texto);
+}
+
+/** Converte números e textos como "30 dias" sem transformar vazio em zero. */
+function obterNumeroPlanilha_(valor) {
+  if (typeof valor === "number" && isFinite(valor)) return valor;
+  if (valor === null || valor === undefined || String(valor).trim() === "") return null;
+
+  const encontrado = String(valor).replace(",", ".").match(/-?\d+(?:\.\d+)?/);
+  return encontrado ? Number(encontrado[0]) : null;
 }
 /**
  * Constrói um mapa em memória dos saldos de férias dos servidores.

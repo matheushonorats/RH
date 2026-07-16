@@ -28,6 +28,7 @@ function obterResumoDashboard() {
     const cabecalho = dadosServ[0];
     const colAtivoIdx = indiceCabecalho_(cabecalho, ["ATIVO"]);
     const colMatriculaIdx = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+    const colSaldoFeriasIdx = indiceCabecalho_(cabecalho, ["FERIAS SALDO HOJE", "SALDO HOJE", "SALDO FERIAS"]);
     
     // Calcula saldos de todos os servidores em lote
     const mapaSaldos = construirMapaSaldosFerias_(ss);
@@ -47,7 +48,12 @@ function obterResumoDashboard() {
       }
       
       // Férias Compulsórias (Saldo de férias >= 60 dias)
-      const saldoFerias = mapaSaldos[normalizarChaveMatricula_(matricula)] || 0;
+      const saldoPlanilha = colSaldoFeriasIdx !== -1
+        ? obterNumeroPlanilha_(dadosServ[i][colSaldoFeriasIdx])
+        : null;
+      const saldoFerias = saldoPlanilha !== null
+        ? saldoPlanilha
+        : (mapaSaldos[normalizarChaveMatricula_(matricula)] || 0);
       if (saldoFerias >= 60) {
         totalCompulsorias++;
       }
