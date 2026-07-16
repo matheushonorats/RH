@@ -1323,7 +1323,7 @@ function renderizarTabelaProtocolos(listaFiltrada) {
     let statusClass = "badge-neutral";
     if (p.status.toLowerCase() === "entregue" || p.status.toLowerCase() === "assinado") statusClass = "badge-success";
     
-    html += `<tr>       <td><strong>${escapeHtml(p.id)}</strong></td>       <td>${escapeHtml(p.dataGeracao)}</td>       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>       <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>       <td>${escapeHtml(p.criadoPor)}</td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="editar-prot" data-id="${escapeHtml(p.id)}" title="Editar Protocolo">             <span data-lucide="pencil" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="Entregue" title="Marcar como Entregue">             <span data-lucide="check" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(p.id)}</strong></td>       <td>${escapeHtml(p.dataGeracao)}</td>       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>       <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>       <td>${escapeHtml(p.criadoPor)}</td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="${escapeHtml(p.status)}" title="Alternar status Entregue">             <span data-lucide="check" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
   });
   
   tabela.innerHTML = html;
@@ -1475,27 +1475,11 @@ function imprimirFolhaProtocoloLocal() {
  * Transiciona o status físico de tramitação do protocolo
  */
 function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
-  const opcoes = ["Aguardando Assinatura", "Entregue ao Chefe", "Retornado pelo Chefe", "Enviado ao DGP"];
+  let novoStatus = "Entregue ao Chefe";
   
-  let msg = `Selecione o novo status físico para o Protocolo ${idProtocolo}:\n\n` +
-            `Status Atual: "${statusAtual}"\n\n` +
-            `Opções (digite o número):\n` +
-            `1. Aguardando Assinatura\n` +
-            `2. Entregue ao Chefe (saiu da SETUR p/ assinatura)\n` +
-            `3. Retornado pelo Chefe (assinado na mesa)\n` +
-            `4. Enviado ao DGP (encaminhado ao RH Central)`;
-            
-  let escolha = prompt(msg, "1");
-  if (escolha === null) return; // cancelou
-  
-  let novoStatus = "";
-  if (escolha === "1") novoStatus = "Aguardando Assinatura";
-  else if (escolha === "2") novoStatus = "Entregue ao Chefe";
-  else if (escolha === "3") novoStatus = "Retornado pelo Chefe";
-  else if (escolha === "4") novoStatus = "Enviado ao DGP";
-  else {
-    alert("Opção inválida.");
-    return;
+  // Se já estiver como Entregue, podemos permitir retornar para Aguardando Assinatura
+  if (statusAtual === "Entregue ao Chefe" || statusAtual === "Entregue") {
+    novoStatus = "Aguardando Assinatura";
   }
   
   exibirLoader(true);
@@ -1611,11 +1595,11 @@ function desenharTabelaRelatorio(tipo, dados) {
   let htmlBody = "";
   
   if (tipo === 'compulsorias' || tipo === 'situacao_ferias') {
-    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Férias", "Projetado"];
-    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo Atual</th><th style='text-align:center;'>Projetado</th>";
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual"];
+    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo Atual</th>";
     
     dados.forEach(s => {
-      htmlBody += `<tr>         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>         <td style='text-align:center;'>${s.projetado} d</td>       </tr>`;
+      htmlBody += `<tr>         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>       </tr>`;
     });
   } else if (tipo === 'calendario_ausencias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Tipo de Ausência", "Início", "Fim", "Total de Dias"];

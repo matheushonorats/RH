@@ -191,14 +191,28 @@ function obterLancamentosVinculados(idProtocolo) {
 
       let despacho = idx.despacho !== -1 ? String(dados[i][idx.despacho]).trim() : "";
       let observacao = idx.observacao !== -1 ? String(dados[i][idx.observacao]).trim() : "";
+      let tipo = idx.tipo !== -1 ? String(dados[i][idx.tipo]).trim() : "";
+      let diasL = obterDiasLancamento_(dados[i], idx);
+      
+      let retornoStr = "";
+      if (tipo.toUpperCase().includes("FERIAS") && diasL > 0 && idx.dataInicio !== -1) {
+        let dataInicioObj = lerDataFormatoBR_(String(dados[i][idx.dataInicio]));
+        if (!dataInicioObj && dados[i][idx.dataInicio] instanceof Date) dataInicioObj = dados[i][idx.dataInicio];
+        if (dataInicioObj && !isNaN(dataInicioObj.getTime())) {
+          let dataRetornoObj = new Date(dataInicioObj.getTime());
+          dataRetornoObj.setDate(dataRetornoObj.getDate() + diasL);
+          retornoStr = Utilities.formatDate(dataRetornoObj, Session.getScriptTimeZone(), "dd/MM/yyyy");
+        }
+      }
 
       vinculados.push({
         idoc: idx.idoc !== -1 ? String(dados[i][idx.idoc]).trim() : "",
-        tipo: idx.tipo !== -1 ? String(dados[i][idx.tipo]).trim() : "",
+        tipo: tipo,
         nome: nomeLimpo,
         matricula: idx.matricula !== -1 ? String(dados[i][idx.matricula]).trim() : "",
-        dataInicio: idx.dataInicio !== -1 ? formatarDataProtocolo_(dados[i][idx.dataInicio]) : "",
-        dias: idx.dias !== -1 ? parseInt(dados[i][idx.dias]) || 0 : 0,
+        dataInicio: idx.dataInicio !== -1 ? formatarDataApenas_(dados[i][idx.dataInicio]) : "",
+        retorno: retornoStr,
+        dias: diasL,
         qtdHoras: idx.qtdHoras !== -1 ? String(dados[i][idx.qtdHoras]).trim() : "",
         despacho: despacho,
         observacao: observacao,
@@ -246,8 +260,8 @@ function obterLancamentosPendentesProtocolo() {
       tipo: tipo,
       nome: nomeLimpo,
       matricula: idx.matricula !== -1 ? String(dados[i][idx.matricula]).trim() : "",
-      dataInicio: idx.dataInicio !== -1 ? formatarDataProtocolo_(dados[i][idx.dataInicio]) : "",
-      dias: idx.dias !== -1 ? parseInt(dados[i][idx.dias]) || 0 : 0,
+      dataInicio: idx.dataInicio !== -1 ? formatarDataApenas_(dados[i][idx.dataInicio]) : "",
+      dias: obterDiasLancamento_(dados[i], idx),
       qtdHoras: idx.qtdHoras !== -1 ? String(dados[i][idx.qtdHoras]).trim() : "",
       linhaPlanilha: i + 1
     });
@@ -330,10 +344,13 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
       if (l.despacho) infoAdicional += `<strong>Despacho:</strong> ${l.despacho}<br>`;
       if (l.observacao) infoAdicional += `<strong>Obs:</strong> ${l.observacao}`;
       
+      let retornoHtml = "";
+      if (l.retorno) retornoHtml = ` - ${l.retorno}`;
+      
       html += `
         <tr>
           <td style="border: 1px solid #222; padding: 8px;"><strong>${l.nome}</strong><br><span style="color:#555; font-size:11px;">${l.matricula}</span></td>
-          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dataInicio}</td>
+          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dataInicio}${retornoHtml}</td>
           <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-')}</td>
           <td style="border: 1px solid #222; padding: 8px;">${infoAdicional || '-'}</td>
         </tr>
@@ -391,5 +408,20 @@ function formatarDataProtocolo_(data) {
     if (isNaN(data.getTime())) return "";
     return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
   }
+  return String(data);
+}
+
+function formatarDataApenas_(data) {
+  if (!data) return "";
+  if (data instanceof Date) {
+    if (isNaN(data.getTime())) return "";
+    return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  }
+  
+  if (typeof data === "string" && data.includes("T")) {
+    let d = new Date(data);
+    if (!isNaN(d.getTime())) return Utilities.formatDate(d, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  }
+  
   return String(data);
 }

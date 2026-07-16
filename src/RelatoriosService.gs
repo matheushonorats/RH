@@ -90,10 +90,28 @@ function obterRelatorioResumoMensal(mes, ano) {
   obterDadosUsuarioLogado();
   const todos = obterListaLancamentos();
   
-  return todos.filter(l => 
-    l.mes.toUpperCase() === String(mes).toUpperCase() && 
-    l.ano === String(ano)
-  );
+  return todos.filter(l => {
+    let m = String(l.mes).toUpperCase();
+    let a = String(l.ano);
+    
+    // Fallback: se mês ou ano não estiverem nas colunas, extrai da data
+    if (!m || !a) {
+      let dataStr = l.dataInicio || l.dataSolicitacao;
+      if (dataStr && typeof dataStr === "string" && dataStr.includes("/")) {
+        let partes = dataStr.split("/");
+        if (partes.length === 3) {
+          let numMes = parseInt(partes[1], 10);
+          let nomesMeses = ["", "JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"];
+          if (numMes >= 1 && numMes <= 12) {
+            m = nomesMeses[numMes];
+            a = partes[2].split(" ")[0]; // Pega só o ano caso tenha hora
+          }
+        }
+      }
+    }
+    
+    return m === String(mes).toUpperCase() && a === String(ano);
+  });
 }
 
 /**
@@ -129,7 +147,7 @@ function obterRelatorioAbonosAnuais() {
     
     // Considera apenas tipos de abono que tenham marcação de conta abono
     // e ignora anulados
-    if (tipo.includes("ABONADA") && !tipo.includes("NAO EFETIVADO") && !tipo.includes("ANULADO") && ano === anoAtual) {
+    if (tipo.includes("ABONADA") && !tipo.includes("NAO EFETIVAD") && !tipo.includes("ANULAD") && ano === anoAtual) {
       if (!mapaAbonos[mat]) mapaAbonos[mat] = 0;
       mapaAbonos[mat]++;
     }

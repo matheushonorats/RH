@@ -419,7 +419,7 @@ function construirResumoFerias_(ss) {
           const linha = dadosLancamentos[i];
           const matricula = normalizarChaveMatricula_(linha[idx.matricula]);
           const tipo = normalizarCabecalho_(linha[idx.tipo]);
-          const efetivado = !tipo.includes("NAO EFETIVADO") && !tipo.includes("ANULADO");
+          const efetivado = !tipo.includes("NAO EFETIVAD") && !tipo.includes("ANULAD");
           const descontaFerias = tipo.includes("FERIAS") || tipo.includes("PENALIDADE") || tipo.includes("AJUSTE");
           const eAbono = tipo.includes("ABONADA") || tipo.includes("ABONO");
           const dias = obterDiasLancamento_(linha, idx);
