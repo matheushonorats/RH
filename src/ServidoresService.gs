@@ -334,7 +334,7 @@ function construirMapaSaldosFerias_(ss) {
       const cabecalhoCred = dadosCreditos[0];
       const colIdxMatCred = indiceCabecalho_(cabecalhoCred, ["MATRICULA"]);
       const colIdxQtdCred = indiceCabecalho_(cabecalhoCred, ["QTD DIAS", "QTD_DIAS"]);
-      const colIdxDataCred = indiceCabecalho_(cabecalhoCred, ["DATA LIMITE AQUISITIVO", "LIMITE", "DATA LIMITE"]);
+      const colIdxDataCred = indiceCabecalho_(cabecalhoCred, ["DATA LIMITE AQUISITIVO", "LIMITE", "DATA LIMITE", "VENCIMENTO", "AQUISITIVO FIM"]);
       
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
@@ -362,7 +362,7 @@ function construirMapaSaldosFerias_(ss) {
   }
 
   // 2. Subtrair os Débitos (Lançamentos de Férias)
-  const abaLanc = ss.getSheetByName("Lancamentos") || ss.getSheetByName("Lançamentos");
+  const abaLanc = ss.getSheetByName("Lançamentos") || ss.getSheetByName("Lancamentos");
   if (abaLanc) {
     const dadosLanc = abaLanc.getDataRange().getValues();
     if (dadosLanc.length > 1) {
