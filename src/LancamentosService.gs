@@ -163,7 +163,7 @@ function salvarLancamento(dadosLanc) {
     
     const emailUsuario = Session.getActiveUser().getEmail().toLowerCase().trim();
     const timestamp = new Date();
-    const nomePlanilha = matricula + " : " + servidor.nome;
+    const nomePlanilha = matricula + ": " + servidor.nome;
     
     let linhaEdit = -1;
     let valorAntes = "";
