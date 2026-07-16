@@ -185,6 +185,9 @@ function obterLancamentosVinculados(idProtocolo) {
       let nomeBruto = idx.nome !== -1 ? String(dados[i][idx.nome]).trim() : "";
       let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
 
+      let despacho = idx.despacho !== -1 ? String(dados[i][idx.despacho]).trim() : "";
+      let observacao = idx.observacao !== -1 ? String(dados[i][idx.observacao]).trim() : "";
+
       vinculados.push({
         idoc: idx.idoc !== -1 ? String(dados[i][idx.idoc]).trim() : "",
         tipo: idx.tipo !== -1 ? String(dados[i][idx.tipo]).trim() : "",
@@ -193,7 +196,8 @@ function obterLancamentosVinculados(idProtocolo) {
         dataInicio: idx.dataInicio !== -1 ? formatarDataProtocolo_(dados[i][idx.dataInicio]) : "",
         dias: idx.dias !== -1 ? parseInt(dados[i][idx.dias]) || 0 : 0,
         qtdHoras: idx.qtdHoras !== -1 ? String(dados[i][idx.qtdHoras]).trim() : "",
-        observacao: idx.observacao !== -1 ? String(dados[i][idx.observacao]).trim() : "",
+        despacho: despacho,
+        observacao: observacao,
         idProtocolo: idProtLanc,
         linhaPlanilha: i + 1
       });
@@ -226,6 +230,8 @@ function obterLancamentosPendentesProtocolo() {
     if (!tipo) continue;
 
     if (idProtLanc) continue;
+    let idoc = idx.idoc !== -1 ? String(dados[i][idx.idoc]).trim() : "";
+    if (idoc) continue;
     if (tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) continue;
 
     let nomeBruto = idx.nome !== -1 ? String(dados[i][idx.nome]).trim() : "";
@@ -275,72 +281,69 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
   const lancamentos = obterLancamentosVinculados(idProtocolo);
 
   let html = `
-    <div style="font-family: Arial, sans-serif; color: #000; padding: 40px; line-height: 1.5; background-color: #fff; max-width: 800px; margin: 0 auto; border: 1px solid #ddd;">
+    <div style="font-family: Arial, sans-serif; color: #000; padding: 20px 40px; line-height: 1.5; background-color: #fff; width: 100%;">
       
-      <!-- Cabeçalho Oficial -->
-      <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px;">
-        <h2 style="margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px;">Prefeitura Municipal de São Sebastião</h2>
-        <h3 style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #555; text-transform: uppercase;">Secretaria de Turismo - SETUR</h3>
-        <p style="margin: 5px 0 0 0; font-size: 11px; color: #777;">Rua da Praia, s/n - Centro, São Sebastião - SP</p>
-      </div>
- 
       <!-- Detalhes do Protocolo -->
-      <div style="margin-bottom: 30px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ddd; padding-bottom: 10px; margin-bottom: 15px;">
+      <div style="margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #000; padding-bottom: 10px; margin-bottom: 15px;">
           <div>
-            <span style="font-size: 12px; text-transform: uppercase; color: #666; font-weight: 600;">Folha de Protocolo Local</span>
-            <h1 style="margin: 2px 0 0 0; font-size: 24px; font-weight: 700; color: #111;">No ${protocoloInfo.id}</h1>
+            <span style="font-size: 16px; text-transform: uppercase; color: #111; font-weight: 700;">Folha de Protocolo Local - No ${protocoloInfo.id}</span>
           </div>
           <div style="text-align: right;">
-            <p style="margin: 0; font-size: 13px;"><strong>Data Geração:</strong> ${protocoloInfo.data}</p>
-            <p style="margin: 3px 0 0 0; font-size: 13px;"><strong>Status:</strong> ${protocoloInfo.status}</p>
+            <p style="margin: 0; font-size: 13px;"><strong>Data de Entrega dos documentos:</strong> ${protocoloInfo.data}</p>
           </div>
         </div>
         <p style="font-size: 13px; color: #333; margin: 0;">Declaramos que as solicitações físicas de RH listadas abaixo estão saindo da Diretoria Executiva da SETUR para fins de assinatura e ciência do Secretário da Pasta.</p>
       </div>
- 
-      <!-- Tabela de Documentos -->
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 40px; font-size: 13px;">
-        <thead>
-          <tr style="background-color: #f2f2f2;">
-            <th style="border: 1px solid #111; padding: 10px; text-align: left; font-weight: 700;">Servidor (Matrícula)</th>
-            <th style="border: 1px solid #111; padding: 10px; text-align: left; font-weight: 700;">Documento</th>
-            <th style="border: 1px solid #111; padding: 10px; text-align: center; font-weight: 700;">Data Início/Falta</th>
-            <th style="border: 1px solid #111; padding: 10px; text-align: center; font-weight: 700;">Qtd / Dias</th>
-            <th style="border: 1px solid #111; padding: 10px; text-align: left; font-weight: 700;">No 1Doc</th>
-          </tr>
-        </thead>
-        <tbody>
   `;
 
+  // Agrupar por tipo
+  let porTipo = {};
   lancamentos.forEach(l => {
-    html += `
-      <tr>
-        <td style="border: 1px solid #111; padding: 10px;"><strong>${l.nome}</strong> (${l.matricula})</td>
-        <td style="border: 1px solid #111; padding: 10px;">${l.tipo}</td>
-        <td style="border: 1px solid #111; padding: 10px; text-align: center;">${l.dataInicio}</td>
-        <td style="border: 1px solid #111; padding: 10px; text-align: center;">${l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-')}</td>
-        <td style="border: 1px solid #111; padding: 10px;">${l.idoc || 'Aguardando Assinatura'}</td>
-      </tr>
-    `;
+    let tipo = l.tipo || "Outros";
+    if (!porTipo[tipo]) porTipo[tipo] = [];
+    porTipo[tipo].push(l);
   });
 
-  html += `
-        </tbody>
-      </table>
- 
-      <!-- Rodapé com Assinaturas -->
-      <div style="margin-top: 60px; display: flex; justify-content: space-between; gap: 40px;">
-        <div style="flex: 1; text-align: center;">
-          <div style="border-top: 1px solid #000; width: 100%; margin-bottom: 8px; padding-top: 8px; font-size: 13px; font-weight: 600;">Emitido por</div>
-          <span style="font-size: 12px; color: #555;">${protocoloInfo.criadoPor}</span>
-        </div>
-        <div style="flex: 1; text-align: center;">
-          <div style="border-top: 1px solid #000; width: 100%; margin-bottom: 8px; padding-top: 8px; font-size: 13px; font-weight: 600;">Assinatura do Chefe / Secretário</div>
-          <span style="font-size: 12px; color: #555;">Secretaria de Turismo</span>
-        </div>
+  for (let tipo in porTipo) {
+    html += `
+      <div style="margin-bottom: 30px;">
+        <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; text-transform: uppercase; color: #000; border-bottom: 1px dashed #ccc; padding-bottom: 4px;">${tipo}</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="background-color: #f9f9f9;">
+              <th style="border: 1px solid #222; padding: 8px; text-align: left; font-weight: 700; width: 30%;">Servidor (Matrícula)</th>
+              <th style="border: 1px solid #222; padding: 8px; text-align: center; font-weight: 700; width: 15%;">Início / Falta</th>
+              <th style="border: 1px solid #222; padding: 8px; text-align: center; font-weight: 700; width: 15%;">Qtd / Dias</th>
+              <th style="border: 1px solid #222; padding: 8px; text-align: left; font-weight: 700; width: 40%;">Info Adicional (Despacho / Obs)</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    porTipo[tipo].forEach(l => {
+      let infoAdicional = "";
+      if (l.despacho) infoAdicional += `<strong>Despacho:</strong> ${l.despacho}<br>`;
+      if (l.observacao) infoAdicional += `<strong>Obs:</strong> ${l.observacao}`;
+      
+      html += `
+        <tr>
+          <td style="border: 1px solid #222; padding: 8px;"><strong>${l.nome}</strong><br><span style="color:#555; font-size:11px;">${l.matricula}</span></td>
+          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dataInicio}</td>
+          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-')}</td>
+          <td style="border: 1px solid #222; padding: 8px;">${infoAdicional || '-'}</td>
+        </tr>
+      `;
+    });
+
+    html += `
+          </tbody>
+        </table>
       </div>
- 
+    `;
+  }
+
+  html += `
     </div>
   `;
 

@@ -13,9 +13,7 @@ function obterRelatorioCompulsorias() {
   // Filtra apenas servidores Ativos que possuem 2 períodos vencidos
   return servidores.filter(s => 
     s.status !== "Inativo" && 
-    (s.infoFerias.toLowerCase().includes("2 período") || 
-     s.infoFerias.toLowerCase().includes("crítico") || 
-     s.infoFerias.toLowerCase().includes("2 p."))
+    s.feriasCompulsorias === true
   );
 }
 
