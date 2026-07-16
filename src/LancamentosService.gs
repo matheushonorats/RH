@@ -336,3 +336,77 @@ function formatarDataLancamento_(data) {
   }
   return String(data);
 }
+
+/**
+ * Resolve caminhos relativos de anexos (gerados pelo AppSheet) para URLs reais do Google Drive em lote
+ */
+function resolverUrlsAnexosLote(caminhos) {
+  obterDadosUsuarioLogado();
+  
+  if (!caminhos || !Array.isArray(caminhos)) return {};
+  
+  const ss = obterPlanilha_();
+  let pastaPai = null;
+  
+  try {
+    const arquivoPlanilha = DriveApp.getFileById(ss.getId());
+    const pastasPais = arquivoPlanilha.getParents();
+    if (pastasPais.hasNext()) {
+      pastaPai = pastasPais.next();
+    }
+  } catch (e) {
+    Logger.log("Erro ao obter pasta pai da planilha: " + e.toString());
+  }
+  
+  let mapaResultados = {};
+  
+  caminhos.forEach(caminho => {
+    let caminhoLimpo = String(caminho || "").trim();
+    if (!caminhoLimpo) {
+      mapaResultados[caminho] = "";
+      return;
+    }
+    
+    // Se já for uma URL completa, retorna ela mesma
+    if (caminhoLimpo.startsWith("http://") || caminhoLimpo.startsWith("https://")) {
+      mapaResultados[caminho] = caminhoLimpo;
+      return;
+    }
+    
+    // Tenta resolver o caminho relativo no Drive
+    if (pastaPai) {
+      try {
+        const partes = caminhoLimpo.split("/");
+        let cursorPasta = pastaPai;
+        let encontrado = true;
+        
+        for (let i = 0; i < partes.length - 1; i++) {
+          const nomeSubpasta = partes[i];
+          if (!nomeSubpasta) continue;
+          const subs = cursorPasta.getFoldersByName(nomeSubpasta);
+          if (subs.hasNext()) {
+            cursorPasta = subs.next();
+          } else {
+            encontrado = false;
+            break;
+          }
+        }
+        
+        if (encontrado) {
+          const nomeArquivo = partes[partes.length - 1];
+          const arquivos = cursorPasta.getFilesByName(nomeArquivo);
+          if (arquivos.hasNext()) {
+            mapaResultados[caminho] = arquivos.next().getUrl();
+            return;
+          }
+        }
+      } catch (e) {
+        Logger.log("Erro ao resolver anexo: " + caminhoLimpo + " - " + e.toString());
+      }
+    }
+    
+    mapaResultados[caminho] = ""; // Fallback se não encontrar
+  });
+  
+  return mapaResultados;
+}

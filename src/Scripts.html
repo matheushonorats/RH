@@ -984,11 +984,7 @@ function abrirModalLancamento(linhaPlanilha) {
       // Renderizar anexos existentes no topo
       if (l.anexo1 || l.anexo2 || l.anexo3) {
         const listaExistente = document.getElementById('lista-anexos-existentes');
-        let htmlAnexos = "";
-        if (l.anexo1) htmlAnexos += `<li><a href="${l.anexo1}" target="_blank">Documento Anexo 1</a></li>`;
-        if (l.anexo2) htmlAnexos += `<li><a href="${l.anexo2}" target="_blank">Documento Anexo 2</a></li>`;
-        if (l.anexo3) htmlAnexos += `<li><a href="${l.anexo3}" target="_blank">Documento Anexo 3</a></li>`;
-        listaExistente.innerHTML = htmlAnexos;
+        exibirAnexosNaLista(listaExistente, [l.anexo1, l.anexo2, l.anexo3], true);
         document.getElementById('anexos-existentes').style.display = "block";
       }
     }
@@ -1005,42 +1001,99 @@ function abrirModalLancamento(linhaPlanilha) {
 }
 
 /**
+ * Função utilitária para renderizar anexos e resolver caminhos relativos do AppSheet (Drive)
+ */
+function exibirAnexosNaLista(listaElemento, anexos, modoEdicao) {
+  listaElemento.innerHTML = "";
+  
+  const caminhosValidos = anexos.map(a => String(a || "").trim()).filter(a => a !== "" && a !== "undefined");
+  if (caminhosValidos.length === 0) {
+    if (!modoEdicao) {
+      listaElemento.innerHTML = '<li style="color: var(--text-muted); font-size: 13px;">Nenhum anexo válido encontrado.</li>';
+    }
+    return;
+  }
+  
+  let caminhosParaResolver = [];
+  let itensTemp = [];
+  
+  caminhosValidos.forEach((caminho, index) => {
+    const rotulo = `Documento Anexo ${index + 1}`;
+    const ehDriveUrl = (function() {
+      try {
+        const parsed = new URL(caminho);
+        return parsed.protocol === 'https:' && parsed.hostname === 'drive.google.com';
+      } catch (_) { return false; }
+    })();
+    
+    const li = document.createElement('li');
+    if (ehDriveUrl) {
+      const a = document.createElement('a');
+      a.href = caminho;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = modoEdicao ? '' : 'btn btn-secondary';
+      if (!modoEdicao) a.style.cssText = 'width: 100%; text-align: left;';
+      a.textContent = rotulo;
+      li.appendChild(a);
+      listaElemento.appendChild(li);
+    } else {
+      li.dataset.caminhoOriginal = caminho;
+      const span = document.createElement('span');
+      span.textContent = `${rotulo} (Buscando no Drive...)`;
+      span.style.color = 'var(--text-muted)';
+      span.style.fontSize = '12px';
+      li.appendChild(span);
+      listaElemento.appendChild(li);
+      
+      caminhosParaResolver.push(caminho);
+      itensTemp.push({ li, span, rotulo });
+    }
+  });
+  
+  if (caminhosParaResolver.length > 0) {
+    if (typeof google !== "undefined" && google.script) {
+      google.script.run
+        .withSuccessHandler(function(mapaUrls) {
+          itensTemp.forEach(item => {
+            const urlResolvida = mapaUrls[item.li.dataset.caminhoOriginal] || "";
+            if (urlResolvida) {
+              item.li.innerHTML = "";
+              const a = document.createElement('a');
+              a.href = urlResolvida;
+              a.target = '_blank';
+              a.rel = 'noopener noreferrer';
+              a.className = modoEdicao ? '' : 'btn btn-secondary';
+              if (!modoEdicao) a.style.cssText = 'width: 100%; text-align: left;';
+              a.textContent = item.rotulo;
+              item.li.appendChild(a);
+            } else {
+              item.span.textContent = `${item.rotulo} (Não encontrado no Drive)`;
+              item.span.style.color = 'var(--text-danger)';
+            }
+          });
+        })
+        .withFailureHandler(function(err) {
+          itensTemp.forEach(item => {
+            item.span.textContent = `${item.rotulo} (Erro ao buscar)`;
+            item.span.style.color = 'var(--text-danger)';
+          });
+        })
+        .resolverUrlsAnexosLote(caminhosParaResolver);
+    } else {
+      itensTemp.forEach(item => {
+        item.span.textContent = `${item.rotulo} (Sem conexão)`;
+      });
+    }
+  }
+}
+
+/**
  * Abre o modal visualizador de anexos cadastrados (com validação de URL)
  */
 function visualizarAnexos(anexo1, anexo2, anexo3) {
   const lista = document.getElementById('lista-links-anexos');
-  lista.innerHTML = "";
-
-  // Valida que a URL pertence ao Drive do Google antes de renderizar como link
-  function urlDriveValida(url) {
-    try {
-      if (!url || url === 'undefined' || url === '') return false;
-      const parsed = new URL(url);
-      return parsed.protocol === 'https:' && parsed.hostname === 'drive.google.com';
-    } catch (_) { return false; }
-  }
-
-  function criarItemAnexo(url, rotulo) {
-    const li = document.createElement('li');
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.className = 'btn btn-secondary';
-    a.style.cssText = 'width: 100%; text-align: left;';
-    a.textContent = rotulo;
-    li.appendChild(a);
-    return li;
-  }
-
-  if (urlDriveValida(anexo1)) lista.appendChild(criarItemAnexo(anexo1, 'Documento Anexo 1'));
-  if (urlDriveValida(anexo2)) lista.appendChild(criarItemAnexo(anexo2, 'Documento Anexo 2'));
-  if (urlDriveValida(anexo3)) lista.appendChild(criarItemAnexo(anexo3, 'Documento Anexo 3'));
-
-  if (lista.children.length === 0) {
-    lista.innerHTML = '<li style="color: var(--text-muted); font-size: 13px;">Nenhum anexo válido encontrado.</li>';
-  }
-
+  exibirAnexosNaLista(lista, [anexo1, anexo2, anexo3], false);
   abrirModal('modal-anexos');
   renderizarIcones();
 }
