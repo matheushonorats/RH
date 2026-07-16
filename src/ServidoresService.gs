@@ -257,24 +257,24 @@ function construirMapaStatusServidores_(ss) {
   for (let i = 1; i < dadosLanc.length; i++) {
     let linha = dadosLanc[i];
     let mat = String(linha[colIdxMat]).trim();
-    let tipoDoc = String(linha[colIdxTipo]).trim().toLowerCase();
+    let tipoDoc = normalizarCabecalho_(linha[colIdxTipo]);
     
     // Ignora anulados
-    if (tipoDoc.includes("não efetivado") || tipoDoc.includes("anulado")) continue;
+    if (tipoDoc.includes("NAO EFETIVADO") || tipoDoc.includes("ANULADO")) continue;
     
     let dataInicio = normalizarDataServidorObjeto_(linha[colIdxDataIni]);
     if (!dataInicio) continue;
     
     let dias = obterDiasLancamento_(linha, idxParaDias);
     let dataFim = new Date(dataInicio);
-    dataFim.setDate(dataInicio.getDate() + (dias - 1));
+    dataFim.setDate(dataInicio.getDate() + (dias > 0 ? dias - 1 : 0));
     dataFim.setHours(0, 0, 0, 0);
     
     // Verifica se a ausência está ocorrendo hoje
     if (hoje >= dataInicio && hoje <= dataFim) {
-      if (tipoDoc.includes("férias") || tipoDoc.includes("ferias")) {
+      if (tipoDoc.includes("FERIAS")) {
         mapa[mat] = "Férias";
-      } else if (tipoDoc.includes("abonada") || tipoDoc.includes("abono")) {
+      } else if (tipoDoc.includes("ABONADA") || tipoDoc.includes("ABONO")) {
         mapa[mat] = "Abono";
       }
     }
@@ -384,13 +384,12 @@ function construirMapaSaldosFerias_(ss) {
         for (let i = 1; i < dadosLanc.length; i++) {
           let linha = dadosLanc[i];
           let mat = String(linha[colIdxMatLanc]).trim();
-          let tipoDoc = String(linha[colIdxTipo]).trim().toLowerCase();
+          let tipoDoc = normalizarCabecalho_(linha[colIdxTipo]);
           
-          // Apenas deduz de férias ou penalidades que foram efetivadas
-          if (tipoDoc.includes("férias") || tipoDoc.includes("ferias") || tipoDoc.includes("penalidade") || tipoDoc.includes("ajuste")) {
-            if (!tipoDoc.includes("não efetivado") && !tipoDoc.includes("anulado")) {
+          if (tipoDoc.includes("FERIAS") || tipoDoc.includes("PENALIDADE") || tipoDoc.includes("AJUSTE")) {
+            if (!tipoDoc.includes("NAO EFETIVADO") && !tipoDoc.includes("ANULADO")) {
               let dias = obterDiasLancamento_(linha, idxParaDias);
-              if (mat) {
+              if (mat && dias > 0) {
                 mapaSaldos[mat] = (mapaSaldos[mat] || 0) - dias;
               }
             }

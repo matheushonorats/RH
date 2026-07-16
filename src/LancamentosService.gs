@@ -38,9 +38,9 @@ function obterIndicesColunasLancamentos_(cabecalho) {
  * Abonadas nao tem coluna de dias - sao sempre 1 dia.
  */
 function obterDiasLancamento_(linha, idx) {
-  if (idx.dias !== -1 && parseInt(linha[idx.dias]) > 0) return parseInt(linha[idx.dias]);
-  if (idx.diasFerias !== -1 && parseInt(linha[idx.diasFerias]) > 0) return parseInt(linha[idx.diasFerias]);
-  return 1;
+  const dias = idx.dias !== -1 ? Number(linha[idx.dias]) : 0;
+  const diasFerias = idx.diasFerias !== -1 ? Number(linha[idx.diasFerias]) : 0;
+  return dias > 0 ? dias : (diasFerias > 0 ? diasFerias : 0);
 }
 
 /**
