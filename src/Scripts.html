@@ -1218,9 +1218,11 @@ async function salvarDadosLancamento(event) {
         if (periodosAbertos.length > 0) {
           const periodoMaisAntigo = periodosAbertos[0];
           if (diasInput > periodoMaisAntigo.saldo) {
-            exibirLoader(false);
-            alert(`🛑 REGRA FIFO: Liquidação de Período Obrigatória!\n\nO período mais antigo em aberto (${periodoMaisAntigo.referencia}) possui apenas ${periodoMaisAntigo.saldo} dias de saldo residual.\n\nVocê não pode solicitar ${diasInput} dias direto. Lance os ${periodoMaisAntigo.saldo} dias primeiro para liquidar a pendência!`);
-            return;
+            const prosseguir = confirm(`Aviso: O servidor possui o período mais antigo (${periodoMaisAntigo.referencia}) com saldo residual de apenas ${periodoMaisAntigo.saldo} dias.\n\nO ideal seria liquidar esta pendência primeiro antes de agrupar mais dias.\n\nDeseja prosseguir com o lançamento mesmo assim?`);
+            if (!prosseguir) {
+              exibirLoader(false);
+              return;
+            }
           }
         }
       }
