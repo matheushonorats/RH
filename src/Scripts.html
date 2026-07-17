@@ -1,23 +1,205 @@
 <script>
 /**
  * Lógica do Cliente (Interface do Usuário)
- * RH Central de Documentos v2.0
+ * RH Central de Documentos v2.1 — Sync Otimista
  */
 
 const AppState = {
-  usuarioLogado: {
-    email: "",
-    nome: "",
-    papel: "Consulta"
-  },
+  usuarioLogado: { email: "", nome: "", papel: "Consulta" },
   servidores: [],
   lancamentos: [],
+  protocolos: [],
+  dashboard: {},
+  dadosCompletosCarregados: false,
+  cacheRestaurado: false,
   paginacao: {
     servidores: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
     lancamentos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
     protocolos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] }
   }
 };
+
+// ==========================================
+// SYNC QUEUE — Fila de operações pendentes
+// ==========================================
+const SyncQueue = {
+  fila: [],
+  processando: false,
+  MAX_RETRIES: 3,
+
+  enfileirar(tipo, funcaoNome, args, descricao) {
+    const item = {
+      id: Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+      tipo: tipo,
+      funcaoNome: funcaoNome,
+      args: args,
+      descricao: descricao || tipo,
+      tentativas: 0,
+      timestamp: new Date().toISOString()
+    };
+    this.fila.push(item);
+    this.persistir();
+    this.atualizarUI();
+    this.processar();
+    return item.id;
+  },
+
+  processar() {
+    if (this.processando || this.fila.length === 0) return;
+    if (!navigator.onLine) {
+      this.atualizarUI();
+      return;
+    }
+    if (typeof google === 'undefined' || !google.script) return;
+
+    this.processando = true;
+    const item = this.fila[0];
+    item.tentativas++;
+    this.atualizarUI();
+
+    const syncBtn = document.getElementById('btn-sync-icon');
+    if (syncBtn) syncBtn.classList.add('spinning');
+
+    const self = this;
+    google.script.run
+      .withSuccessHandler(function(resultado) {
+        self.fila.shift(); // Remove o primeiro (processado)
+        self.processando = false;
+        self.persistir();
+        self.atualizarUI();
+        if (syncBtn && self.fila.length === 0) syncBtn.classList.remove('spinning');
+        // Processa o próximo da fila
+        if (self.fila.length > 0) {
+          setTimeout(() => self.processar(), 500);
+        } else {
+          // Fila vazia: sincroniza dados frescos do servidor em background
+          sincronizarEmSegundoPlano();
+        }
+      })
+      .withFailureHandler(function(erro) {
+        self.processando = false;
+        if (item.tentativas >= self.MAX_RETRIES) {
+          const falhou = self.fila.shift();
+          mostrarToast(`Erro permanente: ${falhou.descricao}. ${mensagemErro(erro)}`, 'error');
+        } else {
+          const delay = item.tentativas * 5000; // 5s, 10s, 15s
+          mostrarToast(`Retry ${item.descricao} em ${delay/1000}s...`, 'warning');
+          setTimeout(() => self.processar(), delay);
+        }
+        self.persistir();
+        self.atualizarUI();
+        if (syncBtn) syncBtn.classList.remove('spinning');
+      })
+      [item.funcaoNome](...item.args);
+  },
+
+  persistir() {
+    try {
+      localStorage.setItem('rh_sync_queue', JSON.stringify(this.fila));
+    } catch(e) { console.warn('Erro ao persistir fila:', e); }
+  },
+
+  restaurar() {
+    try {
+      const raw = localStorage.getItem('rh_sync_queue');
+      if (raw) {
+        this.fila = JSON.parse(raw);
+        if (this.fila.length > 0) {
+          mostrarToast(`${this.fila.length} operação(ões) pendente(s) encontrada(s). Sincronizando...`, 'info');
+          setTimeout(() => this.processar(), 2000);
+        }
+      }
+    } catch(e) { this.fila = []; }
+  },
+
+  atualizarUI() {
+    const barra = document.getElementById('sync-status-bar');
+    if (!barra) return;
+    const online = navigator.onLine;
+    const pendentes = this.fila.length;
+
+    if (!online) {
+      barra.className = 'sync-bar sync-offline';
+      barra.innerHTML = '<span data-lucide="wifi-off" style="width:12px;height:12px;"></span> Offline — alterações serão salvas ao reconectar';
+      barra.style.display = 'flex';
+    } else if (this.processando) {
+      barra.className = 'sync-bar sync-busy';
+      barra.innerHTML = '<span class="sync-spinner"></span> Sincronizando ' + (pendentes) + ' operação(ões)...';
+      barra.style.display = 'flex';
+    } else if (pendentes > 0) {
+      barra.className = 'sync-bar sync-pending';
+      barra.innerHTML = '<span data-lucide="alert-circle" style="width:12px;height:12px;"></span> ' + pendentes + ' operação(ões) pendente(s)';
+      barra.style.display = 'flex';
+    } else {
+      barra.style.display = 'none';
+    }
+    renderizarIcones();
+  }
+};
+
+// ==========================================
+// CACHE LOCAL (localStorage)
+// ==========================================
+function salvarCacheLocal() {
+  try {
+    const cacheData = {
+      servidores: AppState.servidores,
+      lancamentos: AppState.lancamentos,
+      protocolos: AppState.protocolos,
+      dashboard: AppState.dashboard,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('rh_cache', JSON.stringify(cacheData));
+  } catch(e) { console.warn('Erro ao salvar cache:', e); }
+}
+
+function restaurarCacheLocal() {
+  try {
+    const raw = localStorage.getItem('rh_cache');
+    if (!raw) return false;
+    const cache = JSON.parse(raw);
+    if (!cache.servidores) return false;
+    AppState.servidores = cache.servidores || [];
+    AppState.lancamentos = cache.lancamentos || [];
+    AppState.protocolos = cache.protocolos || [];
+    AppState.dashboard = cache.dashboard || {};
+    AppState.cacheRestaurado = true;
+    return true;
+  } catch(e) { return false; }
+}
+
+// ==========================================
+// DETECÇÃO ONLINE / OFFLINE
+// ==========================================
+window.addEventListener('online', () => {
+  mostrarToast('Conexão restaurada. Sincronizando...', 'success');
+  SyncQueue.atualizarUI();
+  SyncQueue.processar();
+  sincronizarEmSegundoPlano();
+});
+
+window.addEventListener('offline', () => {
+  mostrarToast('Sem conexão com a internet. Você pode continuar trabalhando.', 'warning');
+  SyncQueue.atualizarUI();
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (SyncQueue.fila.length > 0) {
+    e.preventDefault();
+    e.returnValue = 'Há operações não sincronizadas. Tem certeza que deseja sair?';
+  }
+});
+
+// Polling silencioso a cada 5 minutos (somente se aba ativa)
+let pollingInterval;
+function iniciarPolling() {
+  if (pollingInterval) clearInterval(pollingInterval);
+  pollingInterval = setInterval(() => {
+    if (document.visibilityState === 'visible' && navigator.onLine && SyncQueue.fila.length === 0) {
+      sincronizarEmSegundoPlano();
+    }
+  }, 5 * 60 * 1000);
+}
 
 /**
  * Função utilitária global para prevenir injeções de HTML e XSS armazenado
@@ -114,11 +296,23 @@ function abrirConfirm(mensagem, titulo = 'Atenção') {
 // Executa automaticamente ao carregar a página
 window.addEventListener('DOMContentLoaded', () => {
   inicializarInterface();
-  // Inicializa os ícones do Lucide quando o CDN estiver disponível.
   renderizarIcones();
-  
-  // Busca informações do usuário logado no servidor Google
-  inicializarUsuario();
+
+  // 1. Restaurar cache local (renderiza dados antigos imediatamente)
+  const temCache = restaurarCacheLocal();
+  if (temCache) {
+    popularFiltroLotacoes();
+  }
+
+  // 2. Restaurar fila de sync pendente
+  SyncQueue.restaurar();
+  SyncQueue.atualizarUI();
+
+  // 3. Busca usuário e faz sync (background se tem cache, pesado se não tem)
+  inicializarUsuario(temCache);
+
+  // 4. Inicia polling periódico
+  iniciarPolling();
 });
 
 /**
@@ -161,38 +355,44 @@ function navegarPara(idView) {
 /**
  * Busca o usuário atual logado pelo Google Apps Script
  */
-function inicializarUsuario() {
-  exibirLoader(true);
-  
-  // Se estiver rodando fora do Apps Script (teste local no navegador, por exemplo)
+function inicializarUsuario(temCache) {
+  // Se não tem cache, mostra loader pesado (primeira vez)
+  if (!temCache) exibirLoader(true);
+
   if (typeof google === "undefined" || !google.script) {
     AppState.usuarioLogado = { email: "teste@saosebastiao.sp.gov.br", nome: "Usuário Teste Local", papel: "Administrador" };
     atualizarBarraUsuario();
     exibirLoader(false);
     return;
   }
-  
+
   google.script.run
     .withSuccessHandler(function(usuario) {
       AppState.usuarioLogado = usuario;
       atualizarBarraUsuario();
-      
-      // Se for Admin, mostra o menu administrativo
+
       if (usuario.papel === "Administrador" || usuario.papel === "Admin") {
         document.querySelectorAll('.admin-only').forEach(el => el.style.removeProperty('display'));
       }
-      
-      // Ao invés de carregar o dashboard isoladamente, baixa tudo do servidor de uma vez
-      sincronizarDados(true, 'dashboard');
+
+      if (temCache) {
+        // Tem cache: renderiza dashboard do cache e atualiza em background
+        carregarDadosDaView('dashboard');
+        exibirLoader(false);
+        sincronizarEmSegundoPlano('dashboard');
+      } else {
+        // Sem cache: sync pesado (primeiro acesso)
+        sincronizarDados(true, 'dashboard');
+      }
     })
     .withFailureHandler(function(erro) {
       console.error("Erro ao obter usuário:", erro);
       document.getElementById('current-user-name').innerText = "Acesso Negado";
       document.getElementById('current-user-role').innerText = "Não autorizado";
       exibirLoader(false);
-      mostrarToast("Erro ao validar credenciais do Google. Verifique se seu e-mail está cadastrado no sistema.", 'error');
+      mostrarToast("Erro ao validar credenciais. Verifique se seu e-mail está cadastrado.", 'error');
     })
-    .obterDadosUsuarioLogado(); // Essa função será criada no Auth.gs
+    .obterDadosUsuarioLogado();
 }
 
 /**
@@ -220,6 +420,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
+      salvarCacheLocal();
       exibirLoader(false);
       if (viewAlvo) {
         carregarDadosDaView(viewAlvo);
@@ -259,6 +460,7 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
       AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
+      salvarCacheLocal();
       if (viewAlvo) carregarDadosDaView(viewAlvo);
     })
     .withFailureHandler(function(erro) {
@@ -370,11 +572,12 @@ function obterSaudacao() {
  * Exibe ou oculta o spinner de carregamento geral
  */
 let loaderInterval;
+let loaderSafetyTimeout;
 function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
   const loader = document.getElementById('global-loader');
   const percText = document.getElementById('loader-percentage');
   const msgText = document.getElementById('loader-text');
-  
+
   if (loader) {
     if (mostrar) {
       loader.style.display = 'flex';
@@ -391,7 +594,14 @@ function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
           }
         }, 300);
       }
+      // Safety net: desliga loader após 30 segundos automaticamente
+      if (loaderSafetyTimeout) clearTimeout(loaderSafetyTimeout);
+      loaderSafetyTimeout = setTimeout(() => {
+        exibirLoader(false);
+        console.warn('Loader desligado por safety net (30s)');
+      }, 30000);
     } else {
+      if (loaderSafetyTimeout) clearTimeout(loaderSafetyTimeout);
       if (percText) percText.innerText = "100%";
       setTimeout(() => {
         loader.style.display = 'none';
@@ -727,18 +937,14 @@ function salvarDadosServidor(event) {
     return;
   }
   
-  google.script.run
-    .withSuccessHandler(function() {
-      exibirLoader(false);
-      fecharModal('modal-servidor');
-      mostrarToast("Cadastro de servidor salvo com sucesso!", 'success');
-      sincronizarEmSegundoPlano('servidores'); // atualiza cache em segundo plano
-    })
-    .withFailureHandler(function(erro) {
-      exibirLoader(false);
-      mostrarToast("Erro ao salvar servidor: " + erro.toString(), 'error');
-    })
-    .salvarServidor(dados);
+  // Otimista: fecha modal e atualiza UI imediatamente
+  exibirLoader(false);
+  fecharModal('modal-servidor');
+  mostrarToast("Servidor salvo! Sincronizando...", 'success');
+
+  // Enfileira operação para o servidor
+  SyncQueue.enfileirar('salvar_servidor', 'salvarServidor', [dados], 'Salvar servidor ' + dados.nome);
+  carregarListaServidores();
 }
 
 /**
@@ -899,27 +1105,22 @@ function abrirFichaServidor(matricula) {
     google.script.run
       .withSuccessHandler(function(historico) {
         historico = Array.isArray(historico) ? historico : [];
-        // 5.1 Calcular Totais de Ausências no Ano Atual
         let anoAtual = new Date().getFullYear();
         let contAbonadasNormais = 0;
         let contAbonadasNatalicias = 0;
 
-        // 5.2 Renderizar Tabela
         if (historico.length === 0) {
           tabelaHist.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Nenhum lançamento registrado no histórico.</td></tr>`;
         } else {
           let html = "";
           historico.forEach(l => {
-            // Garante que o lançamento exista no AppState.lancamentos para o Modal de Edição funcionar
             if (!AppState.lancamentos.some(lanc => lanc.linhaPlanilha === l.linhaPlanilha)) {
               AppState.lancamentos.push(l);
             }
-            
-            // Contagem de Abonadas (Ignora não efetivados e filtrados pelo ano)
+
             if (!l.tipo.toLowerCase().includes("não efetivado") && !l.tipo.toLowerCase().includes("anulado")) {
               if (l.dataInicio && l.dataInicio.includes(anoAtual)) {
                 if (l.tipo.toLowerCase().includes("abonada eleitoral")) {
-                  // Pode colocar lógica de eleitoral se quiser, mas pediu normal/natalícia
                 } else if (l.tipo.toLowerCase().includes("natalícia") || l.tipo.toLowerCase().includes("natalicia")) {
                   contAbonadasNatalicias += parseInt(l.dias) || 1;
                 } else if (l.tipo.toLowerCase().includes("abonada") || l.tipo.toLowerCase().includes("abono")) {
@@ -956,13 +1157,20 @@ function abrirFichaServidor(matricula) {
           tabelaHist.innerHTML = html;
         }
 
-        // 5.3 Atualiza as caixinhas de Abonadas
         let elNormais = document.getElementById('ficha-abonadas-normais');
         let elNatalicias = document.getElementById('ficha-abonadas-natalicias');
         if(elNormais) elNormais.innerText = contAbonadasNormais + " / 5";
         if(elNatalicias) elNatalicias.innerText = contAbonadasNatalicias + " / 1";
-        
+
         renderizarIcones();
+      })
+      .withFailureHandler(function(erro) {
+        console.error('Erro ao carregar histórico:', erro);
+        tabelaHist.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger);">Erro ao buscar histórico: ${mensagemErro(erro)}</td></tr>`;
+        let elNormais = document.getElementById('ficha-abonadas-normais');
+        let elNatalicias = document.getElementById('ficha-abonadas-natalicias');
+        if(elNormais) elNormais.innerText = '?';
+        if(elNatalicias) elNatalicias.innerText = '?';
       })
       .obterHistoricoServidor(matricula);
   } else {
@@ -1601,19 +1809,13 @@ async function salvarDadosLancamento(event) {
     return;
   }
   
-  google.script.run
-    .withSuccessHandler(function() {
-      exibirLoader(false);
-      fecharModal('modal-lancamento');
-      mostrarToast("Lançamento salvo! Sincronizando em segundo plano...", 'success');
-      sincronizarEmSegundoPlano('lancamentos'); // atualiza cache sem bloquear o usuário
-    })
-    .withFailureHandler(function(erro) {
-      exibirLoader(false);
-      arquivosCriados.forEach(id => google.script.run.removerArquivoDrive(id));
-      mostrarToast("Erro ao gravar lançamento: " + erro.toString(), 'error');
-    })
-    .salvarLancamento(dados);
+  // Otimista: fecha o modal imediatamente
+  exibirLoader(false);
+  fecharModal('modal-lancamento');
+  mostrarToast("Lançamento salvo! Sincronizando...", 'success');
+
+  // Enfileira a gravação do lançamento no servidor
+  SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
 }
 
 /**
@@ -1843,18 +2045,14 @@ function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
     novoStatus = "Aguardando Assinatura";
   }
   
-  const syncBtn = document.getElementById('btn-sync-icon');
-  if (syncBtn) syncBtn.classList.add('spinning');
-  google.script.run
-    .withSuccessHandler(function() {
-      mostrarToast(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`, 'success');
-      sincronizarEmSegundoPlano('protocolos');
-    })
-    .withFailureHandler(function(erro) {
-      if (syncBtn) syncBtn.classList.remove('spinning');
-      mostrarToast("Erro ao transicionar status: " + erro.toString(), 'error');
-    })
-    .atualizarStatusProtocolo(idProtocolo, novoStatus);
+  // Otimista: Atualiza localmente o status do protocolo e a view
+  const p = AppState.protocolos.find(item => item.idProtocolo === idProtocolo);
+  if (p) p.statusAssinatura = novoStatus;
+  carregarListaProtocolos();
+  mostrarToast(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`, 'success');
+
+  // Enfileira operação
+  SyncQueue.enfileirar('status_protocolo', 'atualizarStatusProtocolo', [idProtocolo, novoStatus], `Status do protocolo ${idProtocolo}`);
 }
 
 // --- RELATÓRIOS E EXPORTAÇÕES ---
@@ -2582,22 +2780,17 @@ function salvarQuick1Doc() {
   
   exibirLoader(true);
   
-  google.script.run
-    .withSuccessHandler(function() {
-      // Atualiza localmente
-      const l = AppState.lancamentos.find(item => item.linhaPlanilha === linhaPlanilha);
-      if (l) l.idoc = novo1Doc;
-      
-      fecharModal('modal-quick-1doc');
-      exibirLoader(false);
-      carregarListaLancamentos(); // Recarrega tela
-      mostrarToast("1Doc atualizado com sucesso!", "success");
-    })
-    .withFailureHandler(function(err) {
-      exibirLoader(false);
-      mostrarToast("Erro ao salvar 1Doc: " + mensagemErro(err), "error");
-    })
-    .atualizar1DocLote(linhaPlanilha, novo1Doc);
+  // Otimista: atualiza localmente e fecha modal
+  const l = AppState.lancamentos.find(item => item.linhaPlanilha === linhaPlanilha);
+  if (l) l.idoc = novo1Doc;
+
+  fecharModal('modal-quick-1doc');
+  exibirLoader(false);
+  carregarListaLancamentos();
+  mostrarToast("1Doc atualizado! Sincronizando...", 'success');
+
+  // Enfileira para o servidor
+  SyncQueue.enfileirar('atualizar_1doc', 'atualizar1DocLote', [linhaPlanilha, novo1Doc], 'Atualizar 1Doc linha ' + linhaPlanilha);
 }
 // ==========================================
 // FUNÇÕES DO MENU DE USUÁRIO E HEADER
