@@ -1242,29 +1242,67 @@ body.dark-mode .metric-amber { background: rgba(254, 180, 8, .12); color: #fbbf2
 .sync-bar.sync-pending { background: linear-gradient(90deg, #f59e0b20, #f59e0b10); color: #fbbf24; border-bottom: 1px solid #f59e0b30; }
 .sync-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
-/* Detailed Sync Status Box */
+/* Detailed Sync Status Box - CNN Ticker Style */
 .sync-detailed-status {
+  display: flex;
+  align-items: center;
+  width: 0px;
+  opacity: 0;
+  padding: 0;
+  border-width: 0;
+  overflow: hidden;
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  
   font-size: 11px;
   color: #a5f3fc;
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 4px 10px;
+  border: 0px solid rgba(255, 255, 255, 0.15);
+  height: 38px;
+  margin-right: 0;
   border-radius: 8px;
+  font-weight: 500;
+}
+
+.sync-detailed-status.show {
+  width: 260px;
+  opacity: 1;
+  padding: 0 10px;
+  border-width: 1px;
+  margin-right: 8px;
+}
+
+.sync-ticker-wrapper {
+  overflow: hidden;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  -webkit-mask-image: linear-gradient(to right, transparent, black 8px, black calc(100% - 8px), transparent);
+  mask-image: linear-gradient(to right, transparent, black 8px, black calc(100% - 8px), transparent);
+}
+
+.sync-ticker-content {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 250px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 500;
-  margin-right: 4px;
+  will-change: transform;
+  /* Animates from right to left constantly */
+  padding-left: 100%;
+  animation: ticker-slide 10s linear infinite;
 }
-.sync-detailed-status .sync-spinner {
+
+.sync-ticker-content .sync-spinner {
   width: 10px;
   height: 10px;
   border-width: 1.5px;
   border-top-color: transparent;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+@keyframes ticker-slide {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
 }
 </style>
 

@@ -69,7 +69,8 @@ const SyncQueue = {
         self.processando = false;
         self.persistir();
         self.atualizarUI();
-        if (syncBtn && self.fila.length === 0) syncBtn.classList.remove('spinning');
+        const currBtn = document.getElementById('btn-sync-icon');
+        if (currBtn && self.fila.length === 0) currBtn.classList.remove('spinning');
         
         atualizarTextoSync("Operação salva!", true, 'check');
         
@@ -96,7 +97,8 @@ const SyncQueue = {
         }
         self.persistir();
         self.atualizarUI();
-        if (syncBtn) syncBtn.classList.remove('spinning');
+        const currBtn = document.getElementById('btn-sync-icon');
+        if (currBtn) currBtn.classList.remove('spinning');
       })
       [item.funcaoNome](...item.args);
   },
@@ -153,23 +155,25 @@ const SyncQueue = {
  */
 function atualizarTextoSync(texto, exibir = true, icone = 'spinner') {
   const el = document.getElementById('sync-detailed-status');
-  if (!el) return;
+  const textEl = document.getElementById('sync-detailed-text');
+  if (!el || !textEl) return;
   if (exibir && texto) {
     let prefix = '';
     if (icone === 'spinner') {
       prefix = `<span class="sync-spinner"></span> `;
     } else if (icone === 'offline') {
-      prefix = `<span data-lucide="wifi-off" style="width: 12px; height: 12px; margin-right: 2px; color: #f87171;"></span> `;
+      prefix = `<span data-lucide="wifi-off" style="width: 12px; height: 12px; margin-right: 6px; color: #f87171;"></span> `;
     } else if (icone === 'check') {
-      prefix = `<span data-lucide="check" style="width: 12px; height: 12px; margin-right: 2px; color: #34d399;"></span> `;
+      prefix = `<span data-lucide="check" style="width: 12px; height: 12px; margin-right: 6px; color: #34d399;"></span> `;
     } else if (icone === 'warning') {
-      prefix = `<span data-lucide="alert-triangle" style="width: 12px; height: 12px; margin-right: 2px; color: #fbbf24;"></span> `;
+      prefix = `<span data-lucide="alert-triangle" style="width: 12px; height: 12px; margin-right: 6px; color: #fbbf24;"></span> `;
     }
-    el.innerHTML = prefix + texto;
-    el.style.display = 'inline-flex';
+    textEl.innerHTML = prefix + texto;
+    el.classList.add('show');
     renderizarIcones();
   } else {
-    el.style.display = 'none';
+    el.classList.remove('show');
+    setTimeout(() => { if (!el.classList.contains('show')) textEl.innerHTML = ''; }, 500);
   }
 }
 
@@ -451,7 +455,8 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
   
   google.script.run
     .withSuccessHandler(function(dados) {
-      if (syncBtn) syncBtn.classList.remove('spinning');
+      const currBtn = document.getElementById('btn-sync-icon');
+      if (currBtn) currBtn.classList.remove('spinning');
       atualizarTextoSync("Sincronizado!", true, 'check');
       setTimeout(() => {
         if (SyncQueue.fila.length === 0 && !SyncQueue.processando) {
@@ -478,7 +483,8 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     })
     .withFailureHandler(function(erro) {
       const syncBtn = document.getElementById('btn-sync-icon');
-      if (syncBtn) syncBtn.classList.remove('spinning');
+      const currBtn = document.getElementById('btn-sync-icon');
+      if (currBtn) currBtn.classList.remove('spinning');
       exibirLoader(false);
       atualizarTextoSync("Falha na rede", true, 'warning');
       setTimeout(() => atualizarTextoSync("", false), 5000);
@@ -502,7 +508,8 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
   
   google.script.run
     .withSuccessHandler(function(dados) {
-      if (syncBtn) syncBtn.classList.remove('spinning');
+      const currBtn = document.getElementById('btn-sync-icon');
+      if (currBtn) currBtn.classList.remove('spinning');
       atualizarTextoSync("Sincronizado!", true, 'check');
       setTimeout(() => {
         if (SyncQueue.fila.length === 0 && !SyncQueue.processando) {
@@ -519,7 +526,8 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
       if (viewAlvo) carregarDadosDaView(viewAlvo);
     })
     .withFailureHandler(function(erro) {
-      if (syncBtn) syncBtn.classList.remove('spinning');
+      const currBtn = document.getElementById('btn-sync-icon');
+      if (currBtn) currBtn.classList.remove('spinning');
       atualizarTextoSync("Falha na atualização", true, 'warning');
       setTimeout(() => atualizarTextoSync("", false), 5000);
       console.warn("Falha na sincronização em segundo plano:", erro);

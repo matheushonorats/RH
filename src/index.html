@@ -29,7 +29,11 @@
         </nav>
 
         <div class="header-actions">
-          <div id="sync-detailed-status" class="sync-detailed-status" style="display: none;"></div>
+          <div id="sync-detailed-status" class="sync-detailed-status">
+            <div class="sync-ticker-wrapper">
+              <div class="sync-ticker-content" id="sync-detailed-text"></div>
+            </div>
+          </div>
           <button class="header-icon-button" onclick="sincronizarDados(true)" title="Sincronizar dados" aria-label="Sincronizar dados"><span data-lucide="refresh-cw" id="btn-sync-icon"></span></button>
           <button class="header-icon-button" onclick="toggleDarkMode()" title="Alternar tema" aria-label="Alternar tema"><span data-lucide="moon" id="theme-icon"></span></button>
           <div class="user-info" style="cursor: pointer; position: relative;" onclick="toggleUserMenu(event)">
@@ -492,7 +496,7 @@
         </div>
         
         <footer style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; border-top: 1px solid var(--border-color); margin-top: auto;">
-          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.1.4</strong>
+          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.1.5</strong>
         </footer>
       </main>
       
