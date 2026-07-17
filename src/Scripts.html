@@ -3352,4 +3352,197 @@ function logoutUser(event) {
   localStorage.removeItem('rh_user');
   window.top.location.reload();
 }
+
+/* =========================================
+   LÓGICA IA ENTIDADE (VIGIA)
+   ========================================= */
+let entidadeChatAberto = false;
+let entidadeVigiaAtivo = false;
+
+function toggleChatEntidade() {
+  entidadeChatAberto = !entidadeChatAberto;
+  const chatWindow = document.getElementById('entidade-chat-window');
+  const badge = document.getElementById('entidade-badge');
+  
+  if (entidadeChatAberto) {
+    chatWindow.style.display = 'flex';
+    badge.style.display = 'none'; // limpa notificação
+    document.getElementById('entidade-input').focus();
+    
+    // Se a IA não fez o scan inicial, faz agora
+    if (!entidadeVigiaAtivo) {
+      entidadeVigiaAtivo = true;
+      iniciarVigia();
+    }
+  } else {
+    chatWindow.style.display = 'none';
+  }
+}
+
+function fecharChatEntidade() {
+  entidadeChatAberto = false;
+  document.getElementById('entidade-chat-window').style.display = 'none';
+}
+
+function tocarSomNotificacao() {
+  const audio = document.getElementById('entidade-audio');
+  if (audio) {
+    audio.volume = 0.5;
+    audio.play().catch(e => console.log('Audio autoplay prevented'));
+  }
+}
+
+function exibirBadgeNotificacao() {
+  if (!entidadeChatAberto) {
+    document.getElementById('entidade-badge').style.display = 'flex';
+    tocarSomNotificacao();
+  }
+}
+
+function addMensagemEntidade(texto, isUser = false, isError = false) {
+  const messagesDiv = document.getElementById('entidade-messages');
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'entidade-msg ' + (isError ? 'system-error' : (isUser ? 'user' : 'ia'));
+  
+  if (isUser || isError) {
+    msgDiv.innerText = texto;
+  } else {
+    // Basic Markdown render para IA
+    let html = texto
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+    msgDiv.innerHTML = html;
+  }
+  
+  messagesDiv.appendChild(msgDiv);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  
+  // Interceptar comandos especiais na resposta da IA
+  if (!isUser && !isError) {
+    if (texto.includes('[ABRIR_MODAL_LANCAMENTO]')) {
+      setTimeout(() => abrirModalLancamento(), 1500);
+    }
+    if (texto.includes('[ABRIR_MODAL_SERVIDOR]')) {
+      setTimeout(() => abrirModalServidor(), 1500);
+    }
+    if (texto.includes('[ABRIR_MODAL_PROTOCOLO]')) {
+      setTimeout(() => abrirModalCriarProtocolo(), 1500);
+    }
+  }
+}
+
+function setEntidadePensando(isThinking) {
+  const status = document.getElementById('entidade-status-text');
+  const btn = document.getElementById('entidade-send-btn');
+  const input = document.getElementById('entidade-input');
+  
+  if (isThinking) {
+    status.innerText = 'Pensando...';
+    status.classList.add('thinking');
+    btn.disabled = true;
+    input.disabled = true;
+  } else {
+    status.innerText = 'Online';
+    status.classList.remove('thinking');
+    btn.disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+function montarContextoEntidade() {
+  // Coleta dados resumidos para a IA analisar
+  return JSON.stringify({
+    viewAtual: currentView,
+    totalServidores: (AppState.dadosGerais.servidores || []).length,
+    totalLancamentos: (AppState.dadosGerais.lancamentos || []).length,
+    lancamentosPendentes1Doc: (AppState.dadosGerais.lancamentos || []).filter(l => l.idoc === "").length,
+    feriasCompulsoriasRisco: (AppState.dadosGerais.servidores || []).filter(s => {
+      if (!s.periodosFerias) return false;
+      const prox = s.periodosFerias.find(p => p.status === "Em aquisição");
+      if (!prox || !prox.dataLiberacao) return false;
+      const partes = prox.dataLiberacao.split('/');
+      if (partes.length !== 3) return false;
+      const dataVenc = new Date(partes[2], partes[1] - 1, partes[0]);
+      dataVenc.setDate(dataVenc.getDate() - 30);
+      return dataVenc < new Date();
+    }).length
+  });
+}
+
+function enviarMensagemEntidade(textoForcado = null) {
+  const input = document.getElementById('entidade-input');
+  const texto = textoForcado || input.value.trim();
+  
+  if (!texto) return;
+  
+  if (!textoForcado) input.value = '';
+  addMensagemEntidade(texto, true);
+  setEntidadePensando(true);
+  document.getElementById('entidade-chips').style.display = 'none';
+  
+  const contexto = montarContextoEntidade();
+  
+  google.script.run
+    .withSuccessHandler(function(res) {
+      setEntidadePensando(false);
+      if (res.erro) {
+        addMensagemEntidade(res.erro, false, true);
+      } else if (res.resposta) {
+        addMensagemEntidade(res.resposta);
+      }
+    })
+    .withFailureHandler(function(erro) {
+      setEntidadePensando(false);
+      addMensagemEntidade("Erro de conexão.", false, true);
+    })
+    .chamarEntidade(texto, contexto);
+}
+
+function entidadeKeyPress(e) {
+  if (e.key === 'Enter') {
+    enviarMensagemEntidade();
+  }
+}
+
+// Inicia uma varredura discreta quando a tela Dashboard carrega
+function iniciarVigia() {
+  setEntidadePensando(true);
+  const contexto = montarContextoEntidade();
+  
+  google.script.run
+    .withSuccessHandler(function(res) {
+      setEntidadePensando(false);
+      if (res.silencioso) {
+        // Tudo certo, não faz nada.
+        console.log("Vigia: Tudo em ordem.");
+      } else if (res.resposta) {
+        addMensagemEntidade(res.resposta);
+        exibirBadgeNotificacao();
+        
+        // Sugerir chips rápidos
+        const chipsDiv = document.getElementById('entidade-chips');
+        chipsDiv.innerHTML = `
+          <div class="entidade-chip" onclick="enviarMensagemEntidade('Quero resolver isso agora')">Resolver</div>
+          <div class="entidade-chip" onclick="enviarMensagemEntidade('Me lembre mais tarde')">Lembrar depois</div>
+          <div class="entidade-chip" onclick="enviarMensagemEntidade('Mostrar detalhes')">Detalhes</div>
+        `;
+        chipsDiv.style.display = 'flex';
+      }
+    })
+    .withFailureHandler(function(erro) {
+      setEntidadePensando(false);
+    })
+    .chamarEntidade(null, contexto);
+}
+
+// Quando a sync inicial termina, se o app carregou, a gente agenda o Vigia para não travar a UI inicial
+const orgRenderDashboardCards = renderDashboardCards;
+renderDashboardCards = function() {
+  orgRenderDashboardCards();
+  if (!entidadeVigiaAtivo && currentView === 'dashboard') {
+    entidadeVigiaAtivo = true;
+    setTimeout(iniciarVigia, 4000); // aguarda 4s depois de abrir a tela
+  }
+};
 </script>
