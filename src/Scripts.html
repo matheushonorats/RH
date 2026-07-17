@@ -2195,46 +2195,48 @@ function desenharTabelaRelatorio(tipo, dados) {
  */
 function exportarRelatorioExcel() {
   if (dadosUltimoRelatorio.length === 0) return;
+  const tipo = document.getElementById('rep-tipo').value;
   
   // Constrói cabeçalho CSV
   let csv = colunasUltimoRelatorio.join(";") + "\r\n";
   
   dadosUltimoRelatorio.forEach(item => {
     let linha = [];
-    if (colunasUltimoRelatorio.includes("Servidor")) {
-      linha.push(item.nome || "");
-      linha.push(item.matricula || "");
-    }
-    
-    if (colunasUltimoRelatorio.includes("Cargo")) linha.push(item.cargo || "");
-    if (colunasUltimoRelatorio.includes("Lotação")) linha.push(item.lotacao || "");
-    if (colunasUltimoRelatorio.includes("Saldo Férias")) linha.push(item.saldoHoje || "0");
-    if (colunasUltimoRelatorio.includes("Projetado")) linha.push(item.projetado || "0");
-    if (colunasUltimoRelatorio.includes("Info Períodos")) linha.push(item.infoFerias || "");
-    
-    if (colunasUltimoRelatorio.includes("Tipo de Ausência")) {
-      linha.push(item.tipo || "");
-      linha.push(item.inicio || "");
-      linha.push(item.fim || "");
-      linha.push(item.dias || "0");
-    }
-    
-    if (colunasUltimoRelatorio.includes("1Doc")) {
-      linha.push(item.idoc || "");
-      linha.push(item.dataSolicitacao || "");
-      linha.push(item.tipo || "");
-      linha.push(item.nome || "");
-      linha.push(item.matricula || "");
-      linha.push(item.dataInicio || "");
-      linha.push(item.dias > 0 ? item.dias : (item.qtdHoras || ""));
-      linha.push(item.status || "");
-    }
-    
-    if (colunasUltimoRelatorio.includes("Abonadas Usadas")) {
-      linha.push(item.lotacao || "");
-      linha.push(item.abonosUsados || "0");
-      linha.push(item.limiteAnual || "5");
-      linha.push(item.saldoRestante || "0");
+    switch (tipo) {
+      case 'compulsorias':
+      case 'situacao_ferias':
+        linha.push(item.nome || "");
+        linha.push(item.matricula || "");
+        linha.push(item.cargo || "");
+        linha.push(item.lotacao || "");
+        linha.push(item.saldoHoje != null ? item.saldoHoje : "0");
+        break;
+      case 'calendario_ausencias':
+        linha.push(item.nome || "");
+        linha.push(item.matricula || "");
+        linha.push(item.tipo || "");
+        linha.push(item.inicio || "");
+        linha.push(item.fim || "");
+        linha.push(item.dias != null ? item.dias : "0");
+        break;
+      case 'resumo_mensal':
+        linha.push(item.idoc || "");
+        linha.push(item.dataSolicitacao || "");
+        linha.push(item.tipo || "");
+        linha.push(item.nome || "");
+        linha.push(item.matricula || "");
+        linha.push(item.dataInicio || "");
+        linha.push(item.dias > 0 ? item.dias : (item.qtdHoras || ""));
+        linha.push(item.status || "");
+        break;
+      case 'abonos_anuais':
+        linha.push(item.nome || "");
+        linha.push(item.matricula || "");
+        linha.push(item.lotacao || "");
+        linha.push(item.abonosUsados != null ? item.abonosUsados : "0");
+        linha.push(item.limiteAnual != null ? item.limiteAnual : "5");
+        linha.push(item.saldoRestante != null ? item.saldoRestante : "0");
+        break;
     }
     
     // Escapa aspas
@@ -2262,65 +2264,78 @@ function exportarRelatorioExcel() {
  */
 function imprimirRelatorioLocal() {
   if (dadosUltimoRelatorio.length === 0) return;
-  
+  const tipo = document.getElementById('rep-tipo').value;
   const area = document.getElementById('print-area-relatorio');
   
-  let html = `     <div style="font-family: Arial, sans-serif; color: #000; line-height: 1.5;">              <!-- Cabeçalho Oficial SETUR -->       <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px;">         <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">Prefeitura Municipal de São Sebastião</h2>         <h3 style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #555; text-transform: uppercase;">Secretaria de Turismo - SETUR</h3>         <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold;">${tituloUltimoRelatorio}</p>         <p style="margin: 5px 0 0 0; font-size: 11px; color: #777;">Gerado em: ${new Date().toLocaleString('pt-BR')}</p>       </div>        <!-- Tabela -->       <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 40px;">         <thead>           <tr style="background-color: #f2f2f2;">   `;
+  let html = `
+    <div style="font-family: Arial, sans-serif; color: #000; line-height: 1.5;">
+      <!-- Cabeçalho Oficial SETUR -->
+      <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px;">
+        <h2 style="margin: 0; font-size: 18px; text-transform: uppercase;">Prefeitura Municipal de São Sebastião</h2>
+        <h3 style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500; color: #555; text-transform: uppercase;">Secretaria de Turismo - SETUR</h3>
+        <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold;">${tituloUltimoRelatorio}</p>
+        <p style="margin: 5px 0 0 0; font-size: 11px; color: #777;">Gerado em: ${new Date().toLocaleString('pt-BR')}</p>
+      </div>
+      <!-- Tabela -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 40px;">
+        <thead>
+          <tr style="background-color: #f2f2f2;">
+  `;
   
   // Cabeçalho da tabela
   colunasUltimoRelatorio.forEach(col => {
     html += `<th style="border: 1px solid #111; padding: 8px; text-align: left; font-weight: 700;">${col}</th>`;
   });
   
-  // Adiciona a coluna extra no cabeçalho se for férias compulsórias/situação para bater com Info Períodos
-  if (colunasUltimoRelatorio.includes("Status Férias")) {
-    html = html.replace("<th>Status Férias</th>", "<th>Saldo Hoje</th><th>Projetado</th><th>Info Períodos</th>");
-  }
-  
   html += `</tr></thead><tbody>`;
   
   // Linhas do corpo
   dadosUltimoRelatorio.forEach(item => {
     html += `<tr>`;
-    if (colunasUltimoRelatorio.includes("Servidor")) {
-      html += `<td style="border: 1px solid #111; padding: 8px;"><strong>${item.nome}</strong></td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.matricula}</td>`;
+    switch (tipo) {
+      case 'compulsorias':
+      case 'situacao_ferias':
+        html += `
+          <td style="border: 1px solid #111; padding: 8px;"><strong>${escapeHtml(item.nome)}</strong></td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.matricula)}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.cargo || '-')}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.lotacao || '-')}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.saldoHoje} d</td>
+        `;
+        break;
+      case 'calendario_ausencias':
+        html += `
+          <td style="border: 1px solid #111; padding: 8px;"><strong>${escapeHtml(item.nome)}</strong></td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.matricula)}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.tipo)}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${escapeHtml(item.inicio)}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${escapeHtml(item.fim)}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dias}</td>
+        `;
+        break;
+      case 'resumo_mensal':
+        html += `
+          <td style="border: 1px solid #111; padding: 8px;"><strong>${escapeHtml(item.idoc)}</strong></td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.dataSolicitacao)}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.tipo)}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.nome)}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.matricula)}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${escapeHtml(item.dataInicio)}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dias > 0 ? item.dias + ' d' : (escapeHtml(item.qtdHoras) || '-')}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.status)}</td>
+        `;
+        break;
+      case 'abonos_anuais':
+        html += `
+          <td style="border: 1px solid #111; padding: 8px;"><strong>${escapeHtml(item.nome)}</strong></td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.matricula)}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.lotacao || '-')}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.abonosUsados} / ${item.limiteAnual}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.limiteAnual}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center; font-weight: bold;">${item.saldoRestante} d</td>
+        `;
+        break;
     }
-    
-    if (colunasUltimoRelatorio.includes("Cargo")) html += `<td style="border: 1px solid #111; padding: 8px;">${item.cargo || '-'}</td>`;
-    if (colunasUltimoRelatorio.includes("Lotação")) html += `<td style="border: 1px solid #111; padding: 8px;">${item.lotacao || '-'}</td>`;
-    
-    if (colunasUltimoRelatorio.includes("Saldo Férias")) {
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.saldoHoje} d</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.projetado} d</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; font-size:11px;">${item.infoFerias}</td>`;
-    }
-    
-    if (colunasUltimoRelatorio.includes("Tipo de Ausência")) {
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.tipo}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.inicio}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.fim}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dias}</td>`;
-    }
-    
-    if (colunasUltimoRelatorio.includes("1Doc")) {
-      html += `<td style="border: 1px solid #111; padding: 8px;"><strong>${item.idoc}</strong></td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.dataSolicitacao}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.tipo}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.nome}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.matricula}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dataInicio}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dias > 0 ? item.dias + ' d' : (item.qtdHoras || '-')}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.status}</td>`;
-    }
-    
-    if (colunasUltimoRelatorio.includes("Abonadas Usadas")) {
-      html += `<td style="border: 1px solid #111; padding: 8px;">${item.lotacao || '-'}</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.abonosUsados} / 5</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;">5</td>`;
-      html += `<td style="border: 1px solid #111; padding: 8px; text-align:center;"><strong>${item.saldoRestante} d</strong></td>`;
-    }
-    
     html += `</tr>`;
   });
   
@@ -2816,6 +2831,39 @@ document.addEventListener('click', function(event) {
     }
   }
 });
+
+function abrirModalPerfil(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const menu = document.getElementById('user-dropdown-menu');
+  if (menu) menu.style.display = 'none';
+  
+  if (!AppState.usuarioLogado) {
+    mostrarToast("Dados de usuário não carregados", "warning");
+    return;
+  }
+  
+  document.getElementById('perfil-nome').innerText = AppState.usuarioLogado.nome || "Não identificado";
+  document.getElementById('perfil-papel').innerText = AppState.usuarioLogado.papel || "Sem papel";
+  document.getElementById('perfil-email').innerText = AppState.usuarioLogado.email || "Sem e-mail";
+  
+  const avatar = AppState.usuarioLogado.nome ? AppState.usuarioLogado.nome.charAt(0).toUpperCase() : "U";
+  document.getElementById('perfil-avatar').innerText = avatar;
+  
+  let desc = "";
+  if (AppState.usuarioLogado.papel === "Administrador") {
+    desc = "Acesso completo ao painel de configurações, gerenciamento de usuários, exclusão e alteração de quaisquer registros.";
+  } else if (AppState.usuarioLogado.papel === "Operador") {
+    desc = "Acesso de edição e cadastro de servidores e lançamentos de férias, abonos e licenças. Não pode gerenciar usuários admin.";
+  } else {
+    desc = "Acesso apenas de leitura para consultas de saldos, visualização de fichas de servidores e emissão de relatórios gerais.";
+  }
+  document.getElementById('perfil-permissoes').innerText = desc;
+  
+  abrirModal('modal-perfil');
+}
 
 function abrirModalUsuarioPerfil(event) {
   if(event) event.preventDefault();

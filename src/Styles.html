@@ -1170,18 +1170,21 @@ body.dark-mode .metric-amber { background: rgba(254, 180, 8, .12); color: #fbbf2
 
 /* Regras de Impressão */
 @media print {
-  body, .app-container, .main-content, .view-container {
+  body {
     background-color: #fff !important;
     color: #000 !important;
-    overflow: visible !important;
-    height: auto !important;
   }
   
-  .app-header, .mobile-drawer, .mobile-drawer-backdrop, .topbar, .filter-bar, .table-container, .modal-overlay, .btn, .modal-header {
+  .app-container {
     display: none !important;
   }
   
-  .modal-overlay#modal-folha-protocolo {
+  .modal-overlay {
+    display: none !important;
+  }
+  
+  .modal-overlay#modal-folha-protocolo,
+  .modal-overlay#modal-relatorio-impressao {
     display: block !important;
     position: absolute !important;
     top: 0 !important;
@@ -1194,20 +1197,28 @@ body.dark-mode .metric-amber { background: rgba(254, 180, 8, .12); color: #fbbf2
     padding: 0 !important;
   }
   
-  .modal-overlay#modal-folha-protocolo .modal-content {
+  .modal-overlay#modal-folha-protocolo .modal-content,
+  .modal-overlay#modal-relatorio-impressao .modal-content {
     border: none !important;
     box-shadow: none !important;
     max-width: 100% !important;
     width: 100% !important;
     height: auto !important;
     overflow: visible !important;
+    background-color: #fff !important;
+    color: #000 !important;
   }
   
-  .modal-overlay#modal-folha-protocolo .modal-body {
+  .modal-overlay#modal-folha-protocolo .modal-body,
+  .modal-overlay#modal-relatorio-impressao .modal-body {
     padding: 0 !important;
   }
   
-  #print-area-protocolo {
+  .modal-header, .btn, .modal-close {
+    display: none !important;
+  }
+  
+  #print-area-protocolo, #print-area-relatorio {
     border: none !important;
     padding: 0 !important;
   }
