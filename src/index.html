@@ -172,6 +172,10 @@
                   <div class="insight-header"><div><span class="page-eyebrow">VISÃO RÁPIDA</span><h3>Distribuição da equipe</h3></div><span data-lucide="pie-chart"></span></div>
                   <div class="donut-wrap"><div class="dashboard-donut" id="dashboard-donut"><div><strong id="donut-total">0</strong><span>servidores</span></div></div></div>
                   <div class="donut-legend"><span><i class="legend-dot active-dot"></i>Ativos <strong id="donut-ativos">0</strong></span><span><i class="legend-dot alert-dot"></i>Em atenção <strong id="donut-atencao">0</strong></span></div>
+                  <div class="insight-actions" style="display: flex; gap: 8px; margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px;" onclick="enviarMensagemEntidade('Quero ver a distribuição dos servidores por lotação e os números de cada uma.')"><span data-lucide="map-pin" style="width: 12px; height: 12px; margin-right: 4px;"></span> Lotação</button>
+                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px; color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.05);" onclick="enviarMensagemEntidade('Quais são os seus principais insights sobre a nossa equipe no momento?')"><span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 4px;"></span> Insights IA</button>
+                  </div>
                 </div>
                 <div class="quick-actions-card">
                   <div class="insight-header"><div><span class="page-eyebrow">ATALHOS</span><h3>Ações rápidas</h3></div></div>
@@ -531,7 +535,7 @@
         </div>
         
         <footer style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; border-top: 1px solid var(--border-color); margin-top: auto;">
-          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.2.8</strong>
+          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.2.9</strong>
         </footer>
       </main>
       
@@ -861,6 +865,7 @@
                 <label class="form-label">Informar No 1Doc / Protocolo (Opcional)</label>
                 <div style="display: flex; gap: 8px;">
                   <input type="text" id="lanc-idoc" class="form-control" placeholder="Ex: 14.129/2026">
+                  <button type="button" class="btn btn-secondary" style="flex-shrink: 0; padding: 0 12px; height: 36px;" title="Deixar sem número" onclick="document.getElementById('lanc-idoc').value = '-'">-</button>
                 </div>
                 <p class="form-help" style="font-size: 11px; margin-top: 4px; color: var(--text-muted);">Pode ser deixado em branco e preenchido depois pela ação Rápida na tabela.</p>
               </div>
@@ -1123,7 +1128,10 @@
           <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Servidor: <strong id="quick-1doc-servidor"></strong></p>
           <div class="form-group">
             <label class="form-label">Nº 1Doc (Protocolo)</label>
-            <input type="text" id="quick-idoc-input" class="form-control" placeholder="Ex: 14.129/2026">
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="quick-idoc-input" class="form-control" placeholder="Ex: 14.129/2026">
+              <button type="button" class="btn btn-secondary" style="flex-shrink: 0; padding: 0 12px; height: 36px;" title="Deixar sem número" onclick="document.getElementById('quick-idoc-input').value = '-'">-</button>
+            </div>
             <input type="hidden" id="quick-idoc-linha" value="">
           </div>
         </div>
