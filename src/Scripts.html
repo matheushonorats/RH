@@ -394,9 +394,15 @@ function navegarPara(idView) {
 
 /** LÓGICA DE LOGIN CUSTOMIZADO */
 
+let stepLogin = 1;
+
 function mostrarLogin() {
   document.getElementById('login-container').style.display = 'flex';
   document.getElementById('login-error').style.display = 'none';
+  document.getElementById('login-senha-container').style.display = 'none';
+  document.getElementById('btn-login-submit').innerText = 'Continuar';
+  document.getElementById('login-senha').required = false;
+  stepLogin = 1;
   exibirLoader(false);
 }
 
@@ -413,45 +419,76 @@ function showError(msg) {
 
 function processarLogin(e) {
   e.preventDefault();
-  const email = document.getElementById('login-email').value;
-  const senha = document.getElementById('login-senha').value;
+  const email = document.getElementById('login-email').value.trim();
+  const senhaInput = document.getElementById('login-senha');
+  const senha = senhaInput.value;
   const hintEl = document.getElementById('login-senha-hint');
   const labelEl = document.getElementById('label-login-senha');
-  const isPrimeiroAcesso = hintEl.style.display === 'block';
+  const btnSubmit = document.getElementById('btn-login-submit');
+  
+  if (!email) return;
   
   exibirLoader(true);
+  document.getElementById('login-error').style.display = 'none';
   
-  if (isPrimeiroAcesso) {
+  if (stepLogin === 1) {
+    // Passo 1: Verificar E-mail
     google.script.run
       .withSuccessHandler(function(res) {
-        localStorage.setItem('rh_token', res.token);
-        localStorage.setItem('rh_user', JSON.stringify(res.usuario));
-        esconderLogin();
-        inicializarUsuario(false); // Reload auth
-      })
-      .withFailureHandler(function(e) {
-        showError(e.message || "Erro ao definir senha.");
-      })
-      .definirSenhaPrimeiroAcesso(email, senha);
-  } else {
-    google.script.run
-      .withSuccessHandler(function(res) {
-        localStorage.setItem('rh_token', res.token);
-        localStorage.setItem('rh_user', JSON.stringify(res.usuario));
-        esconderLogin();
-        inicializarUsuario(false); // Reload auth
-      })
-      .withFailureHandler(function(e) {
-        if (e.message && e.message.includes("PRIMEIRO_ACESSO")) {
+        exibirLoader(false);
+        stepLogin = 2;
+        document.getElementById('login-senha-container').style.display = 'block';
+        senhaInput.required = true;
+        
+        if (res.temSenha) {
+          hintEl.style.display = 'none';
+          labelEl.innerText = "Senha de Acesso";
+          btnSubmit.innerText = "Entrar";
+          senhaInput.autocomplete = "current-password";
+        } else {
           hintEl.style.display = 'block';
           labelEl.innerText = "Crie uma Senha";
-          document.getElementById('login-senha').value = '';
-          showError("Este é seu primeiro acesso! Por favor, crie uma senha.");
-        } else {
-          showError(e.message || "Senha incorreta ou acesso negado.");
+          btnSubmit.innerText = "Criar Senha e Entrar";
+          senhaInput.autocomplete = "new-password";
         }
+        
+        // Foca no input de senha
+        setTimeout(() => senhaInput.focus(), 100);
       })
-      .fazerLogin(email, senha);
+      .withFailureHandler(function(e) {
+        showError(e.message || "Erro ao verificar e-mail.");
+      })
+      .verificarStatusEmail(email);
+      
+  } else if (stepLogin === 2) {
+    // Passo 2: Fazer Login ou Criar Senha
+    const isCriandoSenha = hintEl.style.display === 'block';
+    
+    if (isCriandoSenha) {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          localStorage.setItem('rh_token', res.token);
+          localStorage.setItem('rh_user', JSON.stringify(res.usuario));
+          esconderLogin();
+          inicializarUsuario(false);
+        })
+        .withFailureHandler(function(e) {
+          showError(e.message || "Erro ao criar senha.");
+        })
+        .definirSenhaPrimeiroAcesso(email, senha);
+    } else {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          localStorage.setItem('rh_token', res.token);
+          localStorage.setItem('rh_user', JSON.stringify(res.usuario));
+          esconderLogin();
+          inicializarUsuario(false);
+        })
+        .withFailureHandler(function(e) {
+          showError(e.message || "Senha incorreta.");
+        })
+        .fazerLogin(email, senha);
+    }
   }
 }
 

@@ -76,6 +76,38 @@ function executarApiBackend(token, funcName, args) {
 }
 
 /**
+ * Verifica o status de um e-mail para o fluxo de login em 2 etapas
+ */
+function verificarStatusEmail(email) {
+  const emailBusca = String(email).toLowerCase().trim();
+  if (!emailBusca) throw new Error("E-mail é obrigatório.");
+  
+  const ss = obterPlanilha_();
+  const abaUsuarios = ss.getSheetByName("Usuarios");
+  const dados = abaUsuarios.getDataRange().getValues();
+  
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][0]).toLowerCase().trim() === emailBusca) {
+      if (String(dados[i][3]).trim() !== "Sim") {
+        throw new Error("Sua conta de usuário está inativa no sistema.");
+      }
+      return { 
+        existe: true, 
+        temSenha: !!String(dados[i][4] || "").trim() 
+      };
+    }
+  }
+  
+  // Verifica se é o Admin Inicial
+  const emailAdminInicial = String(PropertiesService.getScriptProperties().getProperty("EMAIL_ADMIN_INICIAL_RH") || "").toLowerCase().trim();
+  if (emailAdminInicial && emailBusca === emailAdminInicial) {
+    return { existe: true, temSenha: false };
+  }
+  
+  throw new Error("E-mail não encontrado ou não autorizado.");
+}
+
+/**
  * Função de Login
  */
 function fazerLogin(email, senha) {
