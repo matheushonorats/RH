@@ -2301,6 +2301,16 @@ function gerarDadosRelatorio() {
   }
   
   let handlerSucesso = function(dados) {
+    if (tipo === 'compulsorias') {
+      dados = dados.map(s => {
+        s.limiteCalc = calcularLimiteCompulsoria(s);
+        return s;
+      }).sort((a, b) => {
+        const valA = a.limiteCalc.diasRestantes === null ? 999999 : a.limiteCalc.diasRestantes;
+        const valB = b.limiteCalc.diasRestantes === null ? 999999 : b.limiteCalc.diasRestantes;
+        return valA - valB;
+      });
+    }
     dadosUltimoRelatorio = dados;
     desenharTabelaRelatorio(tipo, dados);
     exibirLoader(false);
