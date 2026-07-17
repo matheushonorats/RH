@@ -2153,7 +2153,24 @@ function desenharTabelaRelatorio(tipo, dados) {
   let htmlHead = "<tr>";
   let htmlBody = "";
   
-  if (tipo === 'compulsorias' || tipo === 'situacao_ferias') {
+  if (tipo === 'compulsorias') {
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual", "Limite p/ Início", "Venc. 3º Período"];
+    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo Atual</th><th style='text-align:center;'>Limite p/ Início</th><th style='text-align:center;'>Venc. 3º Per.</th>";
+    
+    dados.forEach(s => {
+      const limite = calcularLimiteCompulsoria(s);
+      let limitHtml = limite.limiteInicio;
+      if (limite.diasRestantes !== null) {
+        if (limite.diasRestantes < 0) {
+          limitHtml = `<span style="color: var(--danger-color, #ef4444); font-weight: bold;" title="Prazo expirado há ${Math.abs(limite.diasRestantes)} dias">${limite.limiteInicio} (Atrasado)</span>`;
+        } else if (limite.diasRestantes <= 60) {
+          limitHtml = `<span style="color: var(--warning-color, #f59e0b); font-weight: bold;" title="Prazo próximo: faltam ${limite.diasRestantes} dias">${limite.limiteInicio} (${limite.diasRestantes}d)</span>`;
+        }
+      }
+      
+      htmlBody += `<tr>         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>         <td style='text-align:center;'>${limitHtml}</td>         <td style='text-align:center;'>${limite.vencimento3}</td>       </tr>`;
+    });
+  } else if (tipo === 'situacao_ferias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual"];
     htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo Atual</th>";
     
@@ -2204,6 +2221,15 @@ function exportarRelatorioExcel() {
     let linha = [];
     switch (tipo) {
       case 'compulsorias':
+        const limE = calcularLimiteCompulsoria(item);
+        linha.push(item.nome || "");
+        linha.push(item.matricula || "");
+        linha.push(item.cargo || "");
+        linha.push(item.lotacao || "");
+        linha.push(item.saldoHoje != null ? item.saldoHoje : "0");
+        linha.push(limE.limiteInicio);
+        linha.push(limE.vencimento3);
+        break;
       case 'situacao_ferias':
         linha.push(item.nome || "");
         linha.push(item.matricula || "");
@@ -2260,6 +2286,76 @@ function exportarRelatorioExcel() {
 }
 
 /**
+ * Calcula a data limite para o início das férias com base na liberação do próximo (3º) período.
+ */
+function calcularLimiteCompulsoria(servidor) {
+  const periodos = servidor.periodosFerias || [];
+  const proximo = periodos.find(p => p.status === "Em aquisição");
+  
+  if (proximo && proximo.dataLiberacao) {
+    const partes = proximo.dataLiberacao.split('/');
+    if (partes.length === 3) {
+      const dataVenc = new Date(partes[2], partes[1] - 1, partes[0]);
+      const dataLimit = new Date(dataVenc);
+      dataLimit.setDate(dataVenc.getDate() - 30);
+      
+      const hoje = new Date();
+      hoje.setHours(0,0,0,0);
+      const diffTime = dataLimit.getTime() - hoje.getTime();
+      const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return {
+        vencimento3: proximo.dataLiberacao,
+        limiteInicio: formatarDataDate_(dataLimit),
+        diasRestantes: diasRestantes
+      };
+    }
+  }
+  
+  if (servidor.admissao) {
+    const partes = servidor.admissao.split('/');
+    if (partes.length === 3) {
+      const diaAdm = parseInt(partes[0]);
+      const mesAdm = parseInt(partes[1]) - 1;
+      const hoje = new Date();
+      hoje.setHours(0,0,0,0);
+      
+      let anoVenc = hoje.getFullYear();
+      let dataVenc = new Date(anoVenc, mesAdm, diaAdm);
+      
+      if (dataVenc < hoje) {
+        anoVenc++;
+        dataVenc = new Date(anoVenc, mesAdm, diaAdm);
+      }
+      
+      const dataLimit = new Date(dataVenc);
+      dataLimit.setDate(dataVenc.getDate() - 30);
+      const diffTime = dataLimit.getTime() - hoje.getTime();
+      const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return {
+        vencimento3: formatarDataDate_(dataVenc),
+        limiteInicio: formatarDataDate_(dataLimit),
+        diasRestantes: diasRestantes
+      };
+    }
+  }
+  
+  return {
+    vencimento3: "-",
+    limiteInicio: "-",
+    diasRestantes: null
+  };
+}
+
+function formatarDataDate_(date) {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+/**
  * Renderiza relatório em HTML timbrado e abre o modal de impressão PDF
  */
 function imprimirRelatorioLocal() {
@@ -2294,6 +2390,17 @@ function imprimirRelatorioLocal() {
     html += `<tr>`;
     switch (tipo) {
       case 'compulsorias':
+        const limC = calcularLimiteCompulsoria(item);
+        html += `
+          <td style="border: 1px solid #111; padding: 8px;"><strong>${escapeHtml(item.nome)}</strong></td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.matricula)}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.cargo || '-')}</td>
+          <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.lotacao || '-')}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.saldoHoje} d</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${limC.limiteInicio}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${limC.vencimento3}</td>
+        `;
+        break;
       case 'situacao_ferias':
         html += `
           <td style="border: 1px solid #111; padding: 8px;"><strong>${escapeHtml(item.nome)}</strong></td>
