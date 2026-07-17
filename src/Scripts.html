@@ -123,9 +123,8 @@ function inicializarUsuario() {
         document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
       }
       
-      exibirLoader(false);
-      // Carrega o dashboard inicial
-      carregarDadosDaView('dashboard');
+      // Ao invés de carregar o dashboard isoladamente, baixa tudo do servidor de uma vez
+      sincronizarDados(true, 'dashboard');
     })
     .withFailureHandler(function(erro) {
       console.error("Erro ao obter usuário:", erro);
@@ -136,6 +135,50 @@ function inicializarUsuario() {
     })
     .obterDadosUsuarioLogado(); // Essa função será criada no Auth.gs
 }
+
+/**
+ * Função global para buscar todos os dados (Servidores, Lançamentos, Protocolos, Dashboard) de uma vez.
+ * Isso garante que trocar de abas será instantâneo (cache local em AppState).
+ */
+function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
+  if (typeof google === "undefined" || !google.script) return;
+  
+  if (!forcarUpdate && AppState.dadosCompletosCarregados) {
+    if (viewAlvo) carregarDadosDaView(viewAlvo);
+    return;
+  }
+  
+  exibirLoader(true);
+  google.script.run
+    .withSuccessHandler(function(dados) {
+      AppState.dashboard = dados.dashboard || {};
+      AppState.servidores = Array.isArray(dados.servidores) ? dados.servidores : [];
+      AppState.lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
+      AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
+      AppState.dadosCompletosCarregados = true;
+      
+      // Atualiza qualquer filtro de UI
+      popularFiltroLotacoes();
+      
+      exibirLoader(false);
+      
+      // Se tiver uma view pendente, navega pra ela. Senão, atualiza a view atual.
+      if (viewAlvo) {
+        carregarDadosDaView(viewAlvo);
+      } else {
+        const activeLink = document.querySelector('.menu-link.active');
+        if (activeLink) {
+          const match = activeLink.getAttribute('onclick').match(/'([^']+)'/);
+          if (match) carregarDadosDaView(match[1]);
+        }
+      }
+    })
+    .withFailureHandler(function(erro) {
+      console.error("Erro ao sincronizar dados:", erro);
+      exibirLoader(false);
+      alert("Falha ao sincronizar dados com o Google Sheets: " + mensagemErro(erro));
+    })
+    .obterDadosCompletos();
 
 /**
  * Atualiza os textos de identificação do usuário na barra superior
@@ -211,35 +254,25 @@ function carregarDadosDaView(idView) {
 function carregarDashboard() {
   if (typeof google === "undefined" || !google.script) return;
 
-  exibirLoader(true);
+  const resumo = AppState.dashboard || {};
   
-  google.script.run
-    .withSuccessHandler(function(resumo) {
-      document.getElementById('dash-servidores-ativos').innerText = resumo.ativos || 0;
-      document.getElementById('dash-ferias-compulsorias').innerText = resumo.compulsorias || 0;
-      document.getElementById('dash-ausentes-hoje').innerText = resumo.ausentesHoje || 0;
-      document.getElementById('dash-protocolos-pendentes').innerText = resumo.protocolosPendentes || 0;
-      
-      // Renderiza tabela de ausências de hoje
-      const tabela = document.getElementById('dash-tabela-ausencias');
-      if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
-        let html = "";
-        resumo.listaAusentes.forEach(a => {
-          html += `<tr>             <td>               <button class="btn-action" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">                 <span data-lucide="eye" style="width: 14px; height: 14px;"></span>               </button>             </td>             <td><strong>${escapeHtml(a.idoc || '-')}</strong></td>             <td><strong>${escapeHtml(a.nome)}</strong></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
-        });
-        tabela.innerHTML = html;
-      } else {
-        tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
-      }
-      renderizarIcones();
-      exibirLoader(false);
-    })
-    .withFailureHandler(function(erro) {
-      console.error("Erro ao carregar dashboard:", erro);
-      exibirLoader(false);
-      alert("Não foi possível carregar os dados da planilha: " + mensagemErro(erro));
-    })
-    .obterResumoDashboard();
+  document.getElementById('dash-servidores-ativos').innerText = resumo.ativos || 0;
+  document.getElementById('dash-ferias-compulsorias').innerText = resumo.compulsorias || 0;
+  document.getElementById('dash-ausentes-hoje').innerText = resumo.ausentesHoje || 0;
+  document.getElementById('dash-protocolos-pendentes').innerText = resumo.protocolosPendentes || 0;
+  
+  // Renderiza tabela de ausências de hoje
+  const tabela = document.getElementById('dash-tabela-ausencias');
+  if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
+    let html = "";
+    resumo.listaAusentes.forEach(a => {
+      html += `<tr>             <td>               <button class="btn-action" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">                 <span data-lucide="eye" style="width: 14px; height: 14px;"></span>               </button>             </td>             <td><strong>${escapeHtml(a.idoc || '-')}</strong></td>             <td><strong>${escapeHtml(a.nome)}</strong></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
+    });
+    tabela.innerHTML = html;
+  } else {
+    tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
+  }
+  renderizarIcones();
 }
 
 /**
@@ -282,33 +315,8 @@ function fecharModal(idModal) {
  * Carrega a lista completa de servidores do backend
  */
 function carregarListaServidores() {
-  exibirLoader(true);
-  
-  if (typeof google === "undefined" || !google.script) {
-    // Mock local para testes visuais
-    AppState.servidores = [
-      { nome: "ADIVANESSA PRATES DE ANDRADE", matricula: "86916", cargo: "SERVENTE", lotacao: "Rodoviária", admissao: "30/03/2024", situacao: "ESTATUTÁRIO", email: "vanessaprates@gmail.com", status: "Ativo", saldoHoje: 30, projetado: 30, infoFerias: "[AVISO] ATENÇÃO: 1 Período vencido." },
-      { nome: "ANDERSON AUGUSTO DOS SANTOS", matricula: "72882", cargo: "ASSESSOR", lotacao: "Turismo", admissao: "01/01/2023", situacao: "COMISSIONADO", email: "anderson@gmail.com", status: "Férias", saldoHoje: 0, projetado: 0, infoFerias: "Regular." }
-    ];
-    renderizarTabelaServidores();
-    popularFiltroLotacoes();
-    exibirLoader(false);
-    return;
-  }
-  
-  google.script.run
-    .withSuccessHandler(function(servidores) {
-      AppState.servidores = Array.isArray(servidores) ? servidores : [];
-      renderizarTabelaServidores();
-      popularFiltroLotacoes();
-      exibirLoader(false);
-    })
-    .withFailureHandler(function(erro) {
-      console.error("Erro ao buscar servidores:", erro);
-      exibirLoader(false);
-      alert("Erro ao buscar servidores da planilha: " + erro.toString());
-    })
-    .obterListaServidores();
+  // Usa os dados já cacheados no AppState
+  renderizarTabelaServidores();
 }
 
 /**
@@ -503,7 +511,7 @@ function salvarDadosServidor(event) {
   google.script.run
     .withSuccessHandler(function() {
       fecharModal('modal-servidor');
-      carregarListaServidores(); // recarrega a tabela
+      sincronizarDados(true, 'servidores'); // recarrega a tabela
       alert("Cadastro de servidor salvo com sucesso!");
     })
     .withFailureHandler(function(erro) {
@@ -528,7 +536,7 @@ function confirmarDesativacaoServidor(matricula, nome) {
     
     google.script.run
       .withSuccessHandler(function() {
-        carregarListaServidores();
+        sincronizarDados(true, 'servidores');
         alert("Cadastro de servidor desativado com sucesso!");
       })
       .withFailureHandler(function(erro) {
@@ -731,31 +739,8 @@ function abrirFichaServidor(matricula) {
  * Carrega o histórico geral de lançamentos de RH
  */
 function carregarListaLancamentos() {
-  exibirLoader(true);
-  
-  if (typeof google === "undefined" || !google.script) {
-    // Mock local para testes visuais
-    AppState.lancamentos = [
-      { idoc: "14.129/2026", dataSolicitacao: "03/07/2026", tipo: "Férias", nome: "CLEUSA ROSA DE OLIVEIRA", matricula: "75280", dataInicio: "03/08/2026", dias: 10, status: "Ativo", anexo1: "", anexo2: "", anexo3: "" },
-      { idoc: "14.097/2026", dataSolicitacao: "02/07/2026", tipo: "Abonada", nome: "EDILEA BARBOSA DO NASCIMENTO", matricula: "74454", dataInicio: "08/07/2026", dias: 1, status: "Ativo", anexo1: "", anexo2: "", anexo3: "" }
-    ];
-    renderizarTabelaLancamentos();
-    exibirLoader(false);
-    return;
-  }
-  
-  google.script.run
-    .withSuccessHandler(function(lancamentos) {
-      AppState.lancamentos = Array.isArray(lancamentos) ? lancamentos : [];
-      renderizarTabelaLancamentos();
-      exibirLoader(false);
-    })
-    .withFailureHandler(function(erro) {
-      console.error("Erro ao carregar lançamentos:", erro);
-      exibirLoader(false);
-      alert("Erro ao buscar histórico de lançamentos: " + erro.toString());
-    })
-    .obterListaLancamentos();
+  // Usa os dados já cacheados no AppState
+  renderizarTabelaLancamentos();
 }
 
 /**
@@ -905,14 +890,14 @@ function sugerirDespacho() {
     const diasInput = parseInt(document.getElementById('lanc-dias').value) || 0;
     const saldo = parseInt(servidor.saldoHoje) || 0;
     const restante = Math.max(0, saldo - diasInput);
-    texto = `${diasInput} / ${saldo} Disp Restam ${restante}`;
+    texto = `Possuía ${saldo} dias disponíveis. Solicitou ${diasInput} dias. Restam ${restante} dias.`;
     
   } else if ((tipo.toLowerCase().includes("abonada") || tipo.toLowerCase().includes("abono")) && !tipo.toLowerCase().includes("natal") && !tipo.toLowerCase().includes("eleitor")) {
     const usados = parseInt(servidor.abonosUsados) || 0;
     const novoUsado = usados + 1;
     const limite = 5; // Padrão
     const restante = Math.max(0, limite - novoUsado);
-    texto = `${novoUsado} / ${limite}, restando ${restante}`;
+    texto = `Possuía direito a ${limite} abonadas. Solicitou a ${novoUsado}ª abonada. Restam ${restante}.`;
   }
   
   if (texto) {
@@ -1217,6 +1202,19 @@ async function salvarDadosLancamento(event) {
     return;
   }
   
+  const idocInput = document.getElementById('lanc-idoc').value.trim();
+  const linhaAtual = parseInt(document.getElementById('lanc-linha').value) || -1;
+  
+  if (idocInput && AppState.lancamentos) {
+    const lExistente = AppState.lancamentos.find(l => l.idoc === idocInput && l.linhaPlanilha !== linhaAtual);
+    if (lExistente) {
+      if (!confirm(`Aviso: O protocolo ${idocInput} já está registrado no sistema para o servidor(a) ${lExistente.nome}.\n\nDeseja prosseguir com o lançamento mesmo assim?`)) {
+        exibirLoader(false);
+        return;
+      }
+    }
+  }
+  
   const tipoDoc = document.getElementById('lanc-tipo').value;
   let dataInicioInput = "";
   let diasInput = 0;
@@ -1309,8 +1307,7 @@ async function salvarDadosLancamento(event) {
   google.script.run
     .withSuccessHandler(function() {
       fecharModal('modal-lancamento');
-      carregarListaLancamentos();
-      carregarListaServidores(); // recarrega servidores para atualizar saldos alterados
+      sincronizarDados(true, 'lancamentos'); // recarrega toda a base para atualizar saldos alterados
       alert("Lançamento de documento salvo com sucesso!");
     })
     .withFailureHandler(function(erro) {
@@ -1356,30 +1353,7 @@ AppState.protocolos = [];
  * Carrega a lista completa de protocolos do backend
  */
 function carregarListaProtocolos() {
-  exibirLoader(true);
-  
-  if (typeof google === "undefined" || !google.script) {
-    // Mock local para testes
-    AppState.protocolos = [
-      { id: "b3d77b03", dataGeracao: "15/07/2026 12:31:13", status: "Aguardando Assinatura", criadoPor: "teste@saosebastiao.sp.gov.br", qtdDocumentos: 3 }
-    ];
-    renderizarTabelaProtocolos();
-    exibirLoader(false);
-    return;
-  }
-  
-  google.script.run
-    .withSuccessHandler(function(protocolos) {
-      AppState.protocolos = protocolos;
-      renderizarTabelaProtocolos();
-      exibirLoader(false);
-    })
-    .withFailureHandler(function(erro) {
-      console.error("Erro ao carregar protocolos:", erro);
-      exibirLoader(false);
-      alert("Erro ao buscar histórico de protocolos: " + erro.toString());
-    })
-    .obterListaProtocolos();
+  renderizarTabelaProtocolos();
 }
 
 /**
@@ -1508,8 +1482,7 @@ function confirmarGeracaoProtocolo() {
   google.script.run
     .withSuccessHandler(function(idProtocolo) {
       fecharModal('modal-criar-protocolo');
-      carregarListaProtocolos();
-      carregarListaLancamentos(); // recarrega lançamentos para atualizar o vínculo nas observações
+      sincronizarDados(true, 'protocolos');
       
       exibirLoader(false);
       // Abre automaticamente o preview de impressão do protocolo recém-criado
@@ -1552,18 +1525,17 @@ function imprimirFolhaProtocoloLocal() {
  * Transiciona o status físico de tramitação do protocolo
  */
 function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
-  let novoStatus = "Entregue ao Chefe";
+  let novoStatus = "Entregue";
   
   // Se já estiver como Entregue, podemos permitir retornar para Aguardando Assinatura
-  if (statusAtual === "Entregue ao Chefe" || statusAtual === "Entregue") {
+  if (statusAtual === "Entregue") {
     novoStatus = "Aguardando Assinatura";
   }
   
   exibirLoader(true);
-  
-  google.script.run
-    .withSuccessHandler(function() {
-      carregarListaProtocolos();
+    google.script.run
+      .withSuccessHandler(function() {
+        sincronizarDados(true, 'protocolos');
       alert(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`);
     })
     .withFailureHandler(function(erro) {

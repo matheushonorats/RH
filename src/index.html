@@ -67,6 +67,9 @@
           </div>
           
           <div class="user-info">
+            <button class="btn-action" onclick="sincronizarDados(true)" title="Forçar Sincronização com a Planilha" style="margin-right: 16px;">
+              <span data-lucide="refresh-cw"></span>
+            </button>
             <button class="btn-action" onclick="toggleDarkMode()" title="Alternar Tema" style="margin-right: 16px;">
               <span data-lucide="moon" id="theme-icon"></span>
             </button>
@@ -255,7 +258,7 @@
               <select id="filtro-status-protocolo" class="form-control filter-select" onchange="filtrarTabelaProtocolos()">
                 <option value="">Todos Status</option>
                 <option value="Aguardando Assinatura">Aguardando Assinatura</option>
-                <option value="Entregue ao Chefe">Entregue ao Chefe</option>
+                <option value="Entregue">Entregue</option>
                 <option value="Retornado pelo Chefe">Retornado pelo Chefe</option>
                 <option value="Enviado ao DGP">Enviado ao DGP</option>
               </select>

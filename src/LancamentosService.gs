@@ -15,7 +15,7 @@ function obterIndicesColunasLancamentos_(cabecalho) {
     nome:            indiceCabecalho_(cabecalho, ["NOME", "SERVIDOR"]),
     matricula:       indiceCabecalho_(cabecalho, ["MATRICULA"]),
     dataInicio:      indiceCabecalho_(cabecalho, ["DATA INICIO", "DATA DE INICIO", "DATA DE SAIDA FALTA"]),
-    diasFerias:      indiceCabecalho_(cabecalho, ["QUANTIDADE FERIAS", "QTD FERIAS"]),
+    diasFerias:      indiceCabecalho_(cabecalho, ["QUANTIDADE DIAS FERIAS", "QUANTIDADE DIAS", "QUANTIDADE FERIAS", "QTD FERIAS"]),
     dias:            indiceCabecalho_(cabecalho, ["DIAS", "QTD DIAS"]),
     mes:             indiceCabecalho_(cabecalho, ["MES HE", "MES"]),
     ano:             indiceCabecalho_(cabecalho, ["ANO HE", "ANO"]),
@@ -182,6 +182,7 @@ function salvarLancamento(dadosLanc) {
     }
     
     // Preenche os índices dinamicamente
+    if (idx.id !== -1 && linhaEdit === -1) valoresLinha[idx.id] = Utilities.getUuid().substring(0, 8);
     if (idx.idoc !== -1) valoresLinha[idx.idoc] = dadosLanc.idoc || "";
     if (idx.dataSolicitacao !== -1) valoresLinha[idx.dataSolicitacao] = dataSolicitacao;
     if (idx.tipo !== -1) valoresLinha[idx.tipo] = tipoDoc;

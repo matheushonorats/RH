@@ -162,3 +162,15 @@ function normalizarDataDashboard(valor) {
 function formatarDataDashboard(data) {
   return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy");
 }
+
+/**
+ * Baixa todos os dados de uma única vez para otimização de performance no front-end
+ */
+function obterDadosCompletos() {
+  return {
+    dashboard: obterResumoDashboard(),
+    servidores: obterListaServidores(),
+    lancamentos: obterListaLancamentos(),
+    protocolos: obterListaProtocolos()
+  };
+}
