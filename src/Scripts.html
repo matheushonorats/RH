@@ -3408,6 +3408,15 @@ function exibirBadgeNotificacao() {
   }
 }
 
+function piscarRobozinho() {
+  const fab = document.querySelector('.entidade-fab');
+  if (fab) {
+    fab.classList.remove('wink');
+    void fab.offsetWidth; // trigger reflow
+    fab.classList.add('wink');
+  }
+}
+
 function addMensagemEntidade(texto, isUser = false, isError = false) {
   const messagesDiv = document.getElementById('entidade-messages');
   const msgDiv = document.createElement('div');
@@ -3425,6 +3434,9 @@ function addMensagemEntidade(texto, isUser = false, isError = false) {
   
   messagesDiv.appendChild(msgDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  
+  // Piscar o robozinho para dar feedback de interação
+  piscarRobozinho();
   
   // Interceptar comandos especiais na resposta da IA
   if (!isUser && !isError) {
@@ -3529,6 +3541,9 @@ function iniciarVigia() {
         addMensagemEntidade(res.resposta);
         exibirBadgeNotificacao();
         
+        // Exibe o insight da Entidade na barra de status superior (passa apenas uma vez)
+        exibirInsightStatus(res.resposta);
+        
         // Sugerir chips rápidos
         const chipsDiv = document.getElementById('entidade-chips');
         chipsDiv.innerHTML = `
@@ -3544,5 +3559,39 @@ function iniciarVigia() {
       addMensagemEntidade("Erro ao conectar à API.", false, true);
     })
     .chamarEntidade(null, contexto);
+}
+
+function exibirInsightStatus(texto) {
+  const el = document.getElementById('sync-detailed-status');
+  const textEl = document.getElementById('sync-detailed-text');
+  if (!el || !textEl) return;
+  
+  // Remove markdown simples (ex: asteriscos de negrito, comandos especiais)
+  let textoLimpo = texto.replace(/\*\*/g, '').replace(/\[.*?\]/g, '').trim();
+  if (textoLimpo.length > 90) {
+    textoLimpo = textoLimpo.substring(0, 87) + '...';
+  }
+  
+  // Adiciona a classe visual específica da Entidade e define clique para abrir o chat
+  el.classList.add('entidade-insight');
+  el.onclick = function(e) {
+    e.preventDefault();
+    toggleChatEntidade();
+    el.classList.remove('show');
+  };
+  
+  let prefix = `<span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 6px; color: #a5b4fc; flex-shrink: 0;"></span> `;
+  textEl.innerHTML = prefix + textoLimpo;
+  el.classList.add('show');
+  renderizarIcones();
+  
+  // Esconde o status após 12 segundos (tempo da animação passar uma vez)
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => {
+      el.classList.remove('entidade-insight');
+      el.onclick = null;
+    }, 500);
+  }, 12000);
 }
 </script>
