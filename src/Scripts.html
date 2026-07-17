@@ -3075,7 +3075,7 @@ function abrirViewLancamento(linhaPlanilha) {
   if (validAnexos.length > 0) {
     if (containerAnexos) containerAnexos.style.display = 'block';
     if (divAnexos) {
-      divAnexos.innerHTML = validAnexos.map((u, i) => `<a href="${u}" target="_blank" style="color: var(--brand-primary); text-decoration: none; display: inline-block; margin-right: 12px; background: rgba(0,200,83,0.1); padding: 4px 8px; border-radius: 4px;"><span data-lucide="paperclip" style="width:14px; height:14px; vertical-align:middle; margin-right:4px;"></span>Anexo ${i+1}</a>`).join('');
+      divAnexos.innerHTML = validAnexos.map((u, i) => `<a href="javascript:void(0)" onclick="baixarAnexoSeguro('${escapeHtml(u)}', 'Anexo ${i+1}')" style="color: var(--brand-primary); text-decoration: none; display: inline-block; margin-right: 12px; background: rgba(0,200,83,0.1); padding: 4px 8px; border-radius: 4px;"><span data-lucide="paperclip" style="width:14px; height:14px; vertical-align:middle; margin-right:4px;"></span>Anexo ${i+1}</a>`).join('');
       if(typeof lucide !== 'undefined') lucide.createIcons({root: divAnexos});
     }
   } else {
