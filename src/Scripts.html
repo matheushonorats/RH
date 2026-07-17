@@ -346,10 +346,35 @@ function obterSaudacao() {
 /**
  * Exibe ou oculta o spinner de carregamento geral
  */
-function exibirLoader(mostrar) {
+let loaderInterval;
+function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
   const loader = document.getElementById('global-loader');
+  const percText = document.getElementById('loader-percentage');
+  const msgText = document.getElementById('loader-text');
+  
   if (loader) {
-    loader.style.display = mostrar ? 'flex' : 'none';
+    if (mostrar) {
+      loader.style.display = 'flex';
+      if (msgText) msgText.innerText = texto;
+      if (percText) {
+        percText.innerText = "0%";
+        let perc = 0;
+        if (loaderInterval) clearInterval(loaderInterval);
+        loaderInterval = setInterval(() => {
+          if (perc < 92) {
+            let inc = Math.max(1, Math.floor(Math.random() * (95 - perc) / 5));
+            perc += inc;
+            percText.innerText = perc + "%";
+          }
+        }, 300);
+      }
+    } else {
+      if (percText) percText.innerText = "100%";
+      setTimeout(() => {
+        loader.style.display = 'none';
+        if (loaderInterval) clearInterval(loaderInterval);
+      }, 350);
+    }
   }
 }
 
@@ -891,7 +916,7 @@ function abrirFichaServidor(matricula) {
                   <button class="btn-action" onclick="abrirViewLancamento(${l.linhaPlanilha}); fecharModal('modal-ficha-servidor'); return false;" title="Visualizar Lançamento">
                     <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
                   </button>
-                  <button class="btn-action" onclick="abrirModalQuick1Doc(${l.linhaPlanilha}, '${escapeHtml(servidor.nome)}', '${escapeHtml(l.idoc || '')}'); fecharModal('modal-ficha-servidor'); return false;" title="Preencher 1Doc Rápido" style="color: var(--brand-primary);">
+                  <button class="btn-action" onclick="abrirModalQuick1Doc(${l.linhaPlanilha}, '${escapeHtml(s.nome)}', '${escapeHtml(l.idoc || '')}'); fecharModal('modal-ficha-servidor'); return false;" title="Preencher 1Doc Rápido" style="color: var(--brand-primary);">
                     <span data-lucide="file-signature" style="width: 14px; height: 14px;"></span>
                   </button>
                 </div>

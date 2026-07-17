@@ -78,7 +78,11 @@
         <div class="view-container">
           <!-- Spinner de Carregamento Geral -->
           <div class="loader-overlay" id="global-loader">
-            <div class="loader"></div>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+              <div class="loader"></div>
+              <div id="loader-percentage" style="color: var(--brand-primary); font-weight: 600; font-size: 16px;">0%</div>
+              <div id="loader-text" style="color: var(--text-secondary); font-size: 13px;">Sincronizando base de dados...</div>
+            </div>
           </div>
           
           <!-- View 1: Dashboard -->
@@ -481,6 +485,10 @@
           </section>
           
         </div>
+        
+        <footer style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; border-top: 1px solid var(--border-color); margin-top: auto;">
+          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.0.0</strong>
+        </footer>
       </main>
       
     </div>
