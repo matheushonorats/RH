@@ -116,3 +116,11 @@ function obterConfigValorInterno_(chave) {
   }
   return "";
 }
+
+/**
+ * Função utilitária para rodar manualmente pelo Editor do Apps Script e forçar a janela de autorização do Google.
+ */
+function testarPermissao() {
+  const res = UrlFetchApp.fetch("https://openrouter.ai/api/v1/models");
+  Logger.log("Permissão concedida com sucesso! Resposta: " + res.getResponseCode());
+}
