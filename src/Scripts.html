@@ -2543,6 +2543,14 @@ function exportarRelatorioExcel() {
     csv += linhaEscapada.join(";") + "\r\n";
   });
   
+  if (tipo === 'calendario_ausencias') {
+    let counts = {};
+    dadosUltimoRelatorio.forEach(a => counts[a.tipo] = (counts[a.tipo] || 0) + 1);
+    let sumText = `TOTAL: ${dadosUltimoRelatorio.length} ausências.`;
+    for (let k in counts) sumText += ` | ${k}: ${counts[k]}`;
+    csv += `"${sumText}";;;;;\r\n`;
+  }
+  
   // Força download
   const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -2715,6 +2723,14 @@ function imprimirRelatorioLocal() {
     }
     html += `</tr>`;
   });
+  
+  if (tipo === 'calendario_ausencias') {
+    let counts = {};
+    dadosUltimoRelatorio.forEach(a => counts[a.tipo] = (counts[a.tipo] || 0) + 1);
+    let sumText = `TOTAL: ${dadosUltimoRelatorio.length} ausências.`;
+    for (let k in counts) sumText += ` | ${k}: ${counts[k]}`;
+    html += `<tr><td colspan="6" style="border: 1px solid #111; padding: 12px; font-weight: bold; text-align: center; background-color: #f9f9f9;">${sumText}</td></tr>`;
+  }
   
   html += `</tbody></table></div>`;
   
