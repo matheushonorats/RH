@@ -1028,10 +1028,13 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
 
   tbody.innerHTML = html;
   tbody.querySelectorAll('button[data-action]').forEach(btn => {
-    btn.addEventListener('click', function() {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
       const action = this.dataset.action;
       if (action === 'ver-anexos') visualizarAnexos(this.dataset.a1, this.dataset.a2, this.dataset.a3);
       else if (action === 'editar-lanc') abrirModalLancamento(parseInt(this.dataset.linha));
+      else if (action === 'view-lanc') abrirViewLancamento(parseInt(this.dataset.linha));
+      else if (action === 'quick-1doc') abrirModalQuick1Doc(parseInt(this.dataset.linha), this.dataset.nome, this.dataset.idoc);
     });
   });
   renderizarIcones();
@@ -2503,6 +2506,21 @@ function abrirViewLancamento(linhaPlanilha) {
   document.getElementById('view-status').innerText = l.status || "Ativo";
   document.getElementById('view-despacho').innerText = l.despacho || "Sem despacho";
   document.getElementById('view-obs').innerText = l.observacao || "Sem observações";
+  
+  const containerAnexos = document.getElementById('view-anexos-container');
+  const divAnexos = document.getElementById('view-anexos');
+  const validAnexos = [l.anexo1, l.anexo2, l.anexo3].filter(a => a && a.trim() !== "" && a.trim() !== "undefined");
+  
+  if (validAnexos.length > 0) {
+    if (containerAnexos) containerAnexos.style.display = 'block';
+    if (divAnexos) {
+      divAnexos.innerHTML = validAnexos.map((u, i) => `<a href="${u}" target="_blank" style="color: var(--brand-primary); text-decoration: none; display: inline-block; margin-right: 12px; background: rgba(0,200,83,0.1); padding: 4px 8px; border-radius: 4px;"><span data-lucide="paperclip" style="width:14px; height:14px; vertical-align:middle; margin-right:4px;"></span>Anexo ${i+1}</a>`).join('');
+      if(typeof lucide !== 'undefined') lucide.createIcons({root: divAnexos});
+    }
+  } else {
+    if (containerAnexos) containerAnexos.style.display = 'none';
+    if (divAnexos) divAnexos.innerHTML = '';
+  }
   
   // Configura botão de Editar Tudo
   document.getElementById('btn-view-editar').onclick = function() {
