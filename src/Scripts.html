@@ -1808,90 +1808,66 @@ function exibirAnexosNaLista(listaElemento, anexos, modoEdicao) {
     return;
   }
   
-  let caminhosParaResolver = [];
-  let itensTemp = [];
-  
   caminhosValidos.forEach((caminho, index) => {
     const rotulo = `Documento Anexo ${index + 1}`;
-    const ehDriveUrl = (function() {
-      try {
-        const parsed = new URL(caminho);
-        return parsed.protocol === 'https:' && parsed.hostname === 'drive.google.com';
-      } catch (_) { return false; }
-    })();
-    
     const li = document.createElement('li');
-    if (ehDriveUrl) {
-      const a = document.createElement('a');
-      a.href = caminho;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      if (modoEdicao) {
-        a.style.color = 'var(--primary-color)';
-        a.style.textDecoration = 'none';
-        a.style.fontWeight = '500';
-      } else {
-        a.className = 'btn btn-secondary';
-        a.style.cssText = 'width: 100%; text-align: left;';
-      }
-      a.textContent = rotulo;
-      li.appendChild(a);
-      listaElemento.appendChild(li);
+    li.style.marginBottom = "8px";
+    
+    const a = document.createElement('a');
+    a.href = "javascript:void(0)";
+    a.onclick = () => baixarAnexoSeguro(caminho, rotulo);
+    
+    if (modoEdicao) {
+      a.style.color = 'var(--primary-color)';
+      a.style.textDecoration = 'none';
+      a.style.fontWeight = '500';
+      a.innerHTML = `<span data-lucide="download" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></span>${rotulo}`;
     } else {
-      li.dataset.caminhoOriginal = caminho;
-      const span = document.createElement('span');
-      span.textContent = `${rotulo} (Buscando no Drive...)`;
-      span.style.color = 'var(--text-muted)';
-      span.style.fontSize = '12px';
-      li.appendChild(span);
-      listaElemento.appendChild(li);
-      
-      caminhosParaResolver.push(caminho);
-      itensTemp.push({ li, span, rotulo });
+      a.className = 'btn btn-secondary';
+      a.style.cssText = 'width: 100%; text-align: left; display:flex; align-items:center; gap:8px;';
+      a.innerHTML = `<span data-lucide="download" style="width:16px;height:16px;"></span>${rotulo}`;
     }
+    
+    li.appendChild(a);
+    listaElemento.appendChild(li);
   });
+}
+
+function baixarAnexoSeguro(caminho, rotulo) {
+  exibirLoader(true);
+  mostrarToast(`Baixando ${rotulo}...`, "info");
   
-  if (caminhosParaResolver.length > 0) {
-    if (typeof google !== "undefined" && google.script) {
-      backendApi()
-        .withSuccessHandler(function(mapaUrls) {
-          itensTemp.forEach(item => {
-            const urlResolvida = mapaUrls[item.li.dataset.caminhoOriginal] || "";
-            if (urlResolvida) {
-              item.li.innerHTML = "";
-              const a = document.createElement('a');
-              a.href = urlResolvida;
-              a.target = '_blank';
-              a.rel = 'noopener noreferrer';
-              if (modoEdicao) {
-                a.style.color = 'var(--primary-color)';
-                a.style.textDecoration = 'none';
-                a.style.fontWeight = '500';
-              } else {
-                a.className = 'btn btn-secondary';
-                a.style.cssText = 'width: 100%; text-align: left;';
-              }
-              a.textContent = item.rotulo;
-              item.li.appendChild(a);
-            } else {
-              item.span.textContent = `${item.rotulo} (Não encontrado no Drive)`;
-              item.span.style.color = 'var(--text-danger)';
-            }
-          });
-        })
-        .withFailureHandler(function(err) {
-          itensTemp.forEach(item => {
-            item.span.textContent = `${item.rotulo} (Erro ao buscar)`;
-            item.span.style.color = 'var(--text-danger)';
-          });
-        })
-        .resolverUrlsAnexosLote(caminhosParaResolver);
-    } else {
-      itensTemp.forEach(item => {
-        item.span.textContent = `${item.rotulo} (Sem conexão)`;
-      });
-    }
-  }
+  backendApi()
+    .withSuccessHandler(function(res) {
+      exibirLoader(false);
+      try {
+        const byteCharacters = atob(res.b64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], {type: res.mimeType});
+        const url = window.URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = res.nome;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        mostrarToast("Download concluído com sucesso!", "success");
+      } catch (err) {
+        mostrarToast("Erro ao processar o arquivo baixado.", "error");
+      }
+    })
+    .withFailureHandler(function(e) {
+      exibirLoader(false);
+      mostrarToast(e.message || "Erro ao baixar o anexo.", "error");
+    })
+    .obterAnexoBase64(caminho);
 }
 
 /**
