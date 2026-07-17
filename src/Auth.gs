@@ -1,87 +1,47 @@
 /**
  * RH Central de Documentos v2.0
- * Módulo de Autenticação e Controle de Acesso (Auth)
+ * Módulo de Autenticação Customizada e Sessão
  */
 
-/**
- * Retorna as informações do usuário atualmente logado no Google.
- * Esta função é chamada pela interface do cliente ao iniciar.
- * 
- * Se o usuário for o proprietário do script/planilha e a tabela Usuarios estiver vazia
- * ou ele não estiver nela, ele será automaticamente inserido como Administrador.
- */
-function obterDadosUsuarioLogado() {
-  const emailAtivo = Session.getActiveUser().getEmail().toLowerCase().trim();
-  const emailAdminInicial = String(
-    PropertiesService.getScriptProperties().getProperty(CHAVE_ADMIN_INICIAL) || ""
-  ).toLowerCase().trim();
-  
-  if (!emailAtivo) {
-    throw new Error("Não foi possível identificar seu e-mail do Google. Certifique-se de estar logado.");
-  }
-  
-  const ss = obterPlanilha_();
-  const abaUsuarios = ss.getSheetByName("Usuarios");
-  
-  if (!abaUsuarios) {
-    throw new Error("Aba 'Usuarios' de controle de acesso não encontrada.");
-  }
-  
-  const dados = abaUsuarios.getDataRange().getValues();
-  let usuarioEncontrado = null;
-  
-  // Procura o e-mail na aba de Usuários (ignora cabeçalho na linha 1)
-  for (let i = 1; i < dados.length; i++) {
-    let emailCadastrado = String(dados[i][0]).toLowerCase().trim();
-    let ativo = String(dados[i][3]).trim();
-    
-    if (emailCadastrado === emailAtivo) {
-      if (ativo === "Sim") {
-        usuarioEncontrado = {
-          email: emailAtivo,
-          nome: String(dados[i][1]).trim(),
-          papel: String(dados[i][2]).trim(),
-          ativo: true
-        };
-      } else {
-        throw new Error("Sua conta de usuário está inativa no sistema.");
-      }
-      break;
-    }
-  }
-  
-  // BOOTSTRAP AUTO-ADMIN: Se o usuário logado for o dono da planilha
-  // e não estiver cadastrado, cadastra-o automaticamente como Administrador.
-  if (!usuarioEncontrado && emailAdminInicial && emailAtivo === emailAdminInicial) {
-    const nomePadrao = emailAtivo.split("@")[0].toUpperCase();
-    abaUsuarios.appendRow([
-      emailAtivo,
-      nomePadrao,
-      "Administrador",
-      "Sim"
-    ]);
-    
-    // Registra no Log
-    lancarLog("BOOTSTRAP_ADMIN", "Usuarios", "Administrador inicial criado via autenticação automática do proprietário.", "", "", "", emailAtivo);
-    
-    return {
-      email: emailAtivo,
-      nome: nomePadrao,
-      papel: "Administrador",
-      ativo: true
-    };
-  }
-  
-  if (!usuarioEncontrado) {
-    throw new Error("Seu e-mail (" + emailAtivo + ") não está autorizado a acessar este sistema.");
-  }
-  
-  return usuarioEncontrado;
+let _usuarioSessaoAtual = null;
+
+function gerarHashSenha(senha) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, senha, Utilities.Charset.UTF_8);
+  return bytes.map(function(byte) {
+    const v = (byte < 0) ? 256 + byte : byte;
+    return ("0" + v.toString(16)).slice(-2);
+  }).join("");
 }
 
-/**
- * Verifica se o usuário ativo possui perfil de Administrador
- */
+function gerarTokenAleatorio() {
+  return Utilities.getUuid();
+}
+
+function verificarSessao(token) {
+  if (!token) throw new Error("Acesso negado: Token de sessão não fornecido.");
+  const cache = CacheService.getScriptCache();
+  const dadosString = cache.get("rh_sessao_" + token);
+  if (!dadosString) {
+    throw new Error("Sua sessão expirou ou é inválida. Faça login novamente.");
+  }
+  
+  const usuario = JSON.parse(dadosString);
+  if (!usuario || !usuario.email || !usuario.ativo) {
+    throw new Error("Sua conta de usuário está inativa no sistema.");
+  }
+  
+  _usuarioSessaoAtual = usuario;
+  return usuario;
+}
+
+function obterDadosUsuarioLogado() {
+  if (_usuarioSessaoAtual) return _usuarioSessaoAtual;
+  
+  const emailAtivo = Session.getEffectiveUser().getEmail();
+  const ss = obterPlanilha_();
+  throw new Error("Usuário não autenticado na sessão atual.");
+}
+
 function verificarSeEhAdmin() {
   try {
     const usuario = obterDadosUsuarioLogado();
@@ -91,14 +51,147 @@ function verificarSeEhAdmin() {
   }
 }
 
-/**
- * Verifica se o usuário ativo possui perfil de Operador ou superior
- */
 function verificarSeEhOperador() {
   try {
     const usuario = obterDadosUsuarioLogado();
     return usuario.papel === "Administrador" || usuario.papel === "Admin" || usuario.papel === "Operador";
   } catch (e) {
     return false;
+  }
+}
+
+/** 
+ * Wrapper para TODAS as chamadas do frontend
+ */
+function executarApiBackend(token, funcName, args) {
+  // Validate token BEFORE calling the function
+  verificarSessao(token);
+  
+  const func = globalThis[funcName] || this[funcName];
+  if (typeof func !== 'function') {
+    throw new Error("Função não encontrada no servidor: " + funcName);
+  }
+  
+  return func.apply(this, args);
+}
+
+/**
+ * Função de Login
+ */
+function fazerLogin(email, senha) {
+  const emailBusca = String(email).toLowerCase().trim();
+  if (!emailBusca || !senha) throw new Error("E-mail e senha são obrigatórios.");
+  
+  const ss = obterPlanilha_();
+  const abaUsuarios = ss.getSheetByName("Usuarios");
+  if (!abaUsuarios) throw new Error("Aba 'Usuarios' de controle de acesso não encontrada.");
+  
+  const dados = abaUsuarios.getDataRange().getValues();
+  let usuarioValido = null;
+  let linhaEdit = -1;
+  let hashSalvo = "";
+  
+  for (let i = 1; i < dados.length; i++) {
+    let emailCadastrado = String(dados[i][0]).toLowerCase().trim();
+    if (emailCadastrado === emailBusca) {
+      if (String(dados[i][3]).trim() !== "Sim") {
+        throw new Error("Sua conta de usuário está inativa no sistema.");
+      }
+      usuarioValido = {
+        email: emailBusca,
+        nome: String(dados[i][1]).trim(),
+        papel: String(dados[i][2]).trim(),
+        ativo: true
+      };
+      hashSalvo = String(dados[i][4] || "").trim(); // Coluna 5: SenhaHash
+      linhaEdit = i + 1;
+      break;
+    }
+  }
+  
+  // O Email do Admin Principal configurado no Properties pode ser criado dinamicamente se não existir
+  if (!usuarioValido) {
+    const emailAdminInicial = String(PropertiesService.getScriptProperties().getProperty("EMAIL_ADMIN_INICIAL_RH") || "").toLowerCase().trim();
+    if (emailAdminInicial && emailBusca === emailAdminInicial) {
+      const nomePadrao = emailBusca.split("@")[0].toUpperCase();
+      abaUsuarios.appendRow([
+        emailBusca,
+        nomePadrao,
+        "Administrador",
+        "Sim",
+        "" // Senha vazia, será pedido no primeiro login
+      ]);
+      throw new Error("PRIMEIRO_ACESSO");
+    }
+    throw new Error("E-mail não autorizado a acessar este sistema.");
+  }
+  
+  if (!hashSalvo) {
+    throw new Error("PRIMEIRO_ACESSO");
+  }
+  
+  const hashTentativa = gerarHashSenha(senha);
+  if (hashTentativa !== hashSalvo) {
+    throw new Error("Senha incorreta.");
+  }
+  
+  // Sucesso no login, gerar token válido por 24h
+  const token = gerarTokenAleatorio();
+  CacheService.getScriptCache().put("rh_sessao_" + token, JSON.stringify(usuarioValido), 86400);
+  
+  return {
+    token: token,
+    usuario: usuarioValido
+  };
+}
+
+function definirSenhaPrimeiroAcesso(email, novaSenha) {
+  const emailBusca = String(email).toLowerCase().trim();
+  if (!emailBusca || !novaSenha) throw new Error("E-mail e senha são obrigatórios.");
+  if (novaSenha.length < 6) throw new Error("A senha deve ter pelo menos 6 caracteres.");
+  
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    const ss = obterPlanilha_();
+    const abaUsuarios = ss.getSheetByName("Usuarios");
+    const dados = abaUsuarios.getDataRange().getValues();
+    
+    let usuarioValido = null;
+    let linhaEdit = -1;
+    let hashSalvo = "";
+    
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0]).toLowerCase().trim() === emailBusca) {
+        if (String(dados[i][3]).trim() !== "Sim") throw new Error("Sua conta está inativa.");
+        usuarioValido = {
+          email: emailBusca,
+          nome: String(dados[i][1]).trim(),
+          papel: String(dados[i][2]).trim(),
+          ativo: true
+        };
+        hashSalvo = String(dados[i][4] || "").trim();
+        linhaEdit = i + 1;
+        break;
+      }
+    }
+    
+    if (!usuarioValido) throw new Error("E-mail não encontrado no sistema.");
+    if (hashSalvo) throw new Error("A senha já foi definida para este usuário. Use a tela de login normal.");
+    
+    const hashGerado = gerarHashSenha(novaSenha);
+    abaUsuarios.getRange(linhaEdit, 5).setValue(hashGerado);
+    
+    const token = gerarTokenAleatorio();
+    CacheService.getScriptCache().put("rh_sessao_" + token, JSON.stringify(usuarioValido), 86400);
+    
+    lancarLogSemLock_("PRIMEIRO_ACESSO", "Usuarios", "Usuário definiu a senha de primeiro acesso.", "", "", "", emailBusca);
+    
+    return {
+      token: token,
+      usuario: usuarioValido
+    };
+  } finally {
+    lock.releaseLock();
   }
 }

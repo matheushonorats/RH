@@ -8,6 +8,40 @@
   </head>
   <body class="dark-mode">
     
+    <!-- TELA DE LOGIN CUSTOMIZADO -->
+    <div id="login-container" class="login-overlay" style="display: none;">
+      <div class="login-box">
+        <div class="login-header">
+          <img src="https://i.ibb.co/v8brz40/manualmarca-pmss25-28-TURISMO-BRANCO.png" alt="SETUR Logo" style="height: 40px; margin-bottom: 16px;">
+          <h2>Gestão de Pessoas</h2>
+          <p>Central de Documentos</p>
+        </div>
+        
+        <!-- Formulário Padrão para gerenciadores de senha -->
+        <form id="login-form" onsubmit="processarLogin(event)">
+          <div class="form-group">
+            <label class="form-label" for="login-email">E-mail Corporativo</label>
+            <input type="email" id="login-email" name="email" class="form-control" placeholder="seu.email@saosebastiao.sp.gov.br" required autocomplete="username">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label" for="login-senha" id="label-login-senha">Senha de Acesso</label>
+            <input type="password" id="login-senha" name="password" class="form-control" placeholder="••••••••" required autocomplete="current-password">
+            <div id="login-senha-hint" style="display: none; font-size: 11px; color: var(--text-secondary); margin-top: 6px;">Este é seu primeiro acesso. Digite a senha que deseja cadastrar (mínimo 6 caracteres).</div>
+          </div>
+          
+          <div id="login-error" class="login-error" style="display: none; color: #ef4444; background: #fef2f2; padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; border: 1px solid #fecaca; text-align: center;"></div>
+          
+          <button type="submit" class="btn btn-primary" id="btn-login-submit" style="width: 100%; justify-content: center; margin-top: 10px; padding: 12px;">
+            Acessar Sistema
+          </button>
+        </form>
+        
+        <div class="login-footer" style="margin-top: 24px; text-align: center; font-size: 11px; color: var(--text-muted);">
+          <p>Secretaria Municipal de Turismo de São Sebastião/SP<br>O login é válido por 24 horas.</p>
+        </div>
+      </div>
+    </div>
     <div class="app-container">
       <header class="app-header">
         <div class="brand-block">

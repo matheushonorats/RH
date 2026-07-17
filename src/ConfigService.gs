@@ -217,3 +217,32 @@ function salvarConfiguracao(config) {
     lock.releaseLock();
   }
 }
+
+/**
+ * Reseta a senha de um usuário, exigindo novo cadastro no próximo login
+ */
+function resetarSenhaUsuario(email) {
+  if (!verificarSeEhAdmin()) {
+    throw new Error("Você não possui permissão para gerenciar usuários.");
+  }
+  
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    const ss = obterPlanilha_();
+    const aba = ss.getSheetByName("Usuarios");
+    const dados = aba.getDataRange().getValues();
+    const emailBusca = String(email).toLowerCase().trim();
+    
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0]).toLowerCase().trim() === emailBusca) {
+        aba.getRange(i + 1, 5).setValue(""); // Limpa a coluna SenhaHash (coluna E)
+        lancarLogSemLock_("RESET_SENHA", "Usuarios", "A senha do usuário foi resetada pelo Administrador.", "", "", "", emailBusca);
+        return true;
+      }
+    }
+    throw new Error("Usuário não encontrado.");
+  } finally {
+    lock.releaseLock();
+  }
+}

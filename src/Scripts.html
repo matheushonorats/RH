@@ -63,7 +63,7 @@ const SyncQueue = {
     atualizarTextoSync(`Gravando: ${item.descricao || item.funcaoNome}...`);
 
     const self = this;
-    google.script.run
+    backendApi()
       .withSuccessHandler(function(resultado) {
         self.fila.shift(); // Remove o primeiro (processado)
         self.processando = false;
@@ -392,47 +392,157 @@ function navegarPara(idView) {
   carregarDadosDaView(idView);
 }
 
+/** LÓGICA DE LOGIN CUSTOMIZADO */
+
+function mostrarLogin() {
+  document.getElementById('login-container').style.display = 'flex';
+  document.getElementById('login-error').style.display = 'none';
+  exibirLoader(false);
+}
+
+function esconderLogin() {
+  document.getElementById('login-container').style.display = 'none';
+}
+
+function showError(msg) {
+  const el = document.getElementById('login-error');
+  el.innerText = msg;
+  el.style.display = 'block';
+  exibirLoader(false);
+}
+
+function processarLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const senha = document.getElementById('login-senha').value;
+  const hintEl = document.getElementById('login-senha-hint');
+  const labelEl = document.getElementById('label-login-senha');
+  const isPrimeiroAcesso = hintEl.style.display === 'block';
+  
+  exibirLoader(true);
+  
+  if (isPrimeiroAcesso) {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        localStorage.setItem('rh_token', res.token);
+        localStorage.setItem('rh_user', JSON.stringify(res.usuario));
+        esconderLogin();
+        inicializarUsuario(false); // Reload auth
+      })
+      .withFailureHandler(function(e) {
+        showError(e.message || "Erro ao definir senha.");
+      })
+      .definirSenhaPrimeiroAcesso(email, senha);
+  } else {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        localStorage.setItem('rh_token', res.token);
+        localStorage.setItem('rh_user', JSON.stringify(res.usuario));
+        esconderLogin();
+        inicializarUsuario(false); // Reload auth
+      })
+      .withFailureHandler(function(e) {
+        if (e.message && e.message.includes("PRIMEIRO_ACESSO")) {
+          hintEl.style.display = 'block';
+          labelEl.innerText = "Crie uma Senha";
+          document.getElementById('login-senha').value = '';
+          showError("Este é seu primeiro acesso! Por favor, crie uma senha.");
+        } else {
+          showError(e.message || "Senha incorreta ou acesso negado.");
+        }
+      })
+      .fazerLogin(email, senha);
+  }
+}
+
+/** 
+ * Wrapper para todas as chamadas de backend que necessitam autenticação.
+ */
+function backendApi() {
+  const token = localStorage.getItem('rh_token');
+  let sHandler = function(){};
+  let fHandler = function(e){ console.error(e); };
+  
+  const proxy = new Proxy({}, {
+    get: function(target, prop) {
+      if (prop === 'withSuccessHandler') {
+        return function(fn) { sHandler = fn; return proxy; };
+      }
+      if (prop === 'withFailureHandler') {
+        return function(fn) { fHandler = fn; return proxy; };
+      }
+      return function(...args) {
+        if (!token) {
+          fHandler(new Error("Sessão inválida. Faça login."));
+          mostrarLogin();
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(sHandler)
+          .withFailureHandler(function(e) {
+            if (e.message && (e.message.includes("Sua sessão expirou") || e.message.includes("Token de sessão não fornecido"))) {
+              localStorage.removeItem('rh_token');
+              localStorage.removeItem('rh_user');
+              mostrarLogin();
+            }
+            fHandler(e);
+          })
+          .executarApiBackend(token, prop, args);
+      };
+    }
+  });
+  return proxy;
+}
+
 /**
- * Busca o usuário atual logado pelo Google Apps Script
+ * Busca o usuário atual logado e valida sessão
  */
 function inicializarUsuario(temCache) {
-  // Se não tem cache, mostra loader pesado (primeira vez)
-  if (!temCache) exibirLoader(true);
-
-  if (typeof google === "undefined" || !google.script) {
-    AppState.usuarioLogado = { email: "teste@saosebastiao.sp.gov.br", nome: "Usuário Teste Local", papel: "Administrador" };
-    atualizarBarraUsuario();
-    exibirLoader(false);
+  const token = localStorage.getItem('rh_token');
+  const userJson = localStorage.getItem('rh_user');
+  
+  if (!token || !userJson) {
+    mostrarLogin();
     return;
   }
+  
+  try {
+    AppState.usuarioLogado = JSON.parse(userJson);
+  } catch(e) {
+    mostrarLogin();
+    return;
+  }
+  
+  atualizarBarraUsuario();
+  if (AppState.usuarioLogado.papel === "Administrador" || AppState.usuarioLogado.papel === "Admin") {
+    document.querySelectorAll('.admin-only').forEach(el => el.style.removeProperty('display'));
+  }
 
-  google.script.run
+  // Verifica se o token ainda é válido no servidor
+  if (!temCache) exibirLoader(true);
+  
+  backendApi()
     .withSuccessHandler(function(usuario) {
       AppState.usuarioLogado = usuario;
+      localStorage.setItem('rh_user', JSON.stringify(usuario));
       atualizarBarraUsuario();
-
-      if (usuario.papel === "Administrador" || usuario.papel === "Admin") {
-        document.querySelectorAll('.admin-only').forEach(el => el.style.removeProperty('display'));
-      }
-
+      
       if (temCache) {
-        // Tem cache: renderiza dashboard do cache e atualiza em background
         carregarDadosDaView('dashboard');
         exibirLoader(false);
         sincronizarEmSegundoPlano('dashboard');
       } else {
-        // Sem cache: sync pesado (primeiro acesso)
         sincronizarDados(true, 'dashboard');
       }
     })
     .withFailureHandler(function(erro) {
-      console.error("Erro ao obter usuário:", erro);
-      document.getElementById('current-user-name').innerText = "Acesso Negado";
-      document.getElementById('current-user-role').innerText = "Não autorizado";
+      console.error("Sessão inválida:", erro);
+      localStorage.removeItem('rh_token');
+      localStorage.removeItem('rh_user');
+      mostrarLogin();
       exibirLoader(false);
-      mostrarToast("Erro ao validar credenciais. Verifique se seu e-mail está cadastrado.", 'error');
     })
-    .obterDadosUsuarioLogado();
+    .verificarSessao(token);
 }
 
 /**
@@ -453,7 +563,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
   
   atualizarTextoSync("Baixando dados...");
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(dados) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
@@ -506,7 +616,7 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
   
   atualizarTextoSync("Atualizando dados...");
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(dados) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
@@ -1025,7 +1135,7 @@ async function confirmarDesativacaoServidor(matricula, nome) {
       return;
     }
     
-    google.script.run
+    backendApi()
       .withSuccessHandler(function() {
         exibirLoader(false);
         mostrarToast("Cadastro de servidor desativado com sucesso!", 'success');
@@ -1167,7 +1277,7 @@ function abrirFichaServidor(matricula) {
   if (elNataliciasInit) elNataliciasInit.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="font-size: 16px; color: var(--text-muted);"></i>';
   
   if (typeof google !== "undefined" && google.script) {
-    google.script.run
+    backendApi()
       .withSuccessHandler(function(historico) {
         historico = Array.isArray(historico) ? historico : [];
         let anoAtual = new Date().getFullYear();
@@ -1541,7 +1651,7 @@ function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo, 
 function abrirModalLancamento(linhaPlanilha) {
   if (typeof google !== "undefined" && google.script && (!AppState.servidores || AppState.servidores.length === 0)) {
     exibirLoader(true);
-    google.script.run
+    backendApi()
       .withSuccessHandler(function(servidores) {
         AppState.servidores = Array.isArray(servidores) ? servidores : [];
         exibirLoader(false);
@@ -1582,7 +1692,7 @@ function abrirModalLancamento(linhaPlanilha) {
     if (!l) {
       if (typeof google !== "undefined" && google.script) {
         exibirLoader(true);
-        google.script.run
+        backendApi()
           .withSuccessHandler(function(lancamentos) {
             AppState.lancamentos = Array.isArray(lancamentos) ? lancamentos : [];
             exibirLoader(false);
@@ -1706,7 +1816,7 @@ function exibirAnexosNaLista(listaElemento, anexos, modoEdicao) {
   
   if (caminhosParaResolver.length > 0) {
     if (typeof google !== "undefined" && google.script) {
-      google.script.run
+      backendApi()
         .withSuccessHandler(function(mapaUrls) {
           itensTemp.forEach(item => {
             const urlResolvida = mapaUrls[item.li.dataset.caminhoOriginal] || "";
@@ -1862,7 +1972,7 @@ async function salvarDadosLancamento(event) {
   } catch (erroUpload) {
     exibirLoader(false);
     // Remove uploads criados de forma imediata em caso de erro na transferência
-    arquivosCriados.forEach(id => google.script.run.removerArquivoDrive(id));
+    arquivosCriados.forEach(id => backendApi().removerArquivoDrive(id));
     mostrarToast("Falha no upload dos anexos: " + erroUpload.toString(), 'error');
     return;
   }
@@ -1892,7 +2002,7 @@ function uploadArquivoPromessa(arquivo) {
     leitor.onload = function(evento) {
       const base64 = evento.target.result;
       
-      google.script.run
+      backendApi()
         .withSuccessHandler(function(resultadoDrive) {
           resolver(resultadoDrive);
         })
@@ -2000,7 +2110,7 @@ function abrirModalCriarProtocolo() {
     return;
   }
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(pendentes) {
       const tbody = document.getElementById('tabela-pendentes-protocolo-body');
       
@@ -2059,7 +2169,7 @@ function confirmarGeracaoProtocolo() {
   
   exibirLoader(true);
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(idProtocolo) {
       exibirLoader(false);
       fecharModal('modal-criar-protocolo');
@@ -2079,7 +2189,7 @@ function confirmarGeracaoProtocolo() {
 function abrirFolhaProtocolo(idProtocolo) {
   exibirLoader(true);
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(htmlTimbrado) {
       document.getElementById('print-area-protocolo').innerHTML = htmlTimbrado;
       exibirLoader(false);
@@ -2179,23 +2289,23 @@ function gerarDadosRelatorio() {
   
   if (tipo === 'compulsorias') {
     tituloUltimoRelatorio = "Relatório de Férias Compulsórias (Acúmulo de 2 Períodos)";
-    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioCompulsorias();
+    backendApi().withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioCompulsorias();
   } else if (tipo === 'situacao_ferias') {
     tituloUltimoRelatorio = "Relatório de Situação Geral de Férias";
-    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioSituacaoFerias();
+    backendApi().withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioSituacaoFerias();
   } else if (tipo === 'calendario_ausencias') {
     tituloUltimoRelatorio = "Calendário / Escala de Ausências Programadas";
     const ini = document.getElementById('rep-data-inicio').value;
     const fim = document.getElementById('rep-data-fim').value;
-    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioAusenciasCalendario(ini, fim);
+    backendApi().withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioAusenciasCalendario(ini, fim);
   } else if (tipo === 'resumo_mensal') {
     const mes = document.getElementById('rep-mes').value;
     const ano = document.getElementById('rep-ano').value;
     tituloUltimoRelatorio = `Resumo Mensal de Lançamentos - ${mes}/${ano}`;
-    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioResumoMensal(mes, ano);
+    backendApi().withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioResumoMensal(mes, ano);
   } else if (tipo === 'abonos_anuais') {
     tituloUltimoRelatorio = "Relatório de Cotas de Abonadas do Ano Corrente";
-    google.script.run.withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioAbonosAnuais();
+    backendApi().withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioAbonosAnuais();
   }
 }
 
@@ -2562,7 +2672,7 @@ function carregarListaUsuarios() {
     return;
   }
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(usuarios) {
       AppState.usuarios = usuarios;
       renderizarTabelaUsuarios();
@@ -2582,10 +2692,22 @@ function renderizarTabelaUsuarios() {
   AppState.usuarios.forEach(u => {
     let badgeClass = u.ativo === "Sim" ? "badge-ativo" : "badge-inativo";
     
-    html += `<tr>       <td><strong>${escapeHtml(u.email)}</strong></td>       <td>${escapeHtml(u.nome)}</td>       <td>${escapeHtml(u.papel)}</td>       <td><span class="badge ${badgeClass}">${u.ativo === "Sim" ? "Ativo" : "Bloqueado"}</span></td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="editar-usr" data-email="${escapeHtml(u.email)}" title="Editar Usuário">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action btn-delete" data-action="desativar-usr" data-email="${escapeHtml(u.email)}" title="Desativar Usuário">             <span data-lucide="shield-alert" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(u.email)}</strong></td>       <td>${escapeHtml(u.nome)}</td>       <td>${escapeHtml(u.papel)}</td>       <td><span class="badge ${badgeClass}">${u.ativo === "Sim" ? "Ativo" : "Bloqueado"}</span></td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="editar-usr" data-email="${escapeHtml(u.email)}" title="Editar Usuário">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="resetar-senha-usr" data-email="${escapeHtml(u.email)}" title="Resetar Senha" style="color: var(--brand-primary);">             <span data-lucide="key-round" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action btn-delete" data-action="desativar-usr" data-email="${escapeHtml(u.email)}" title="Desativar Usuário">             <span data-lucide="shield-alert" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
   });
   
   tbody.innerHTML = html || `<tr><td colspan="5" style="text-align:center;">Nenhum usuário cadastrado.</td></tr>`;
+  
+  tbody.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      const action = e.currentTarget.getAttribute('data-action');
+      const email = e.currentTarget.getAttribute('data-email');
+      
+      if (action === 'editar-usr') abrirModalUsuario(email);
+      if (action === 'resetar-senha-usr') confirmarResetSenhaUsuario(email);
+      if (action === 'desativar-usr') confirmarDesativacaoUsuario(email);
+    });
+  });
+  
   renderizarIcones();
 }
 
@@ -2627,7 +2749,7 @@ function salvarDadosUsuario(event) {
     ativo: document.getElementById('usr-ativo').value
   };
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function() {
       fecharModal('modal-usuario');
       carregarListaUsuarios();
@@ -2640,11 +2762,28 @@ function salvarDadosUsuario(event) {
     .salvarUsuario(dados);
 }
 
+async function confirmarResetSenhaUsuario(email) {
+  if (await abrirConfirm(`Deseja resetar a senha do e-mail ${email}?\n\nNo próximo login, ele será obrigado a cadastrar uma nova senha.`)) {
+    exibirLoader(true);
+    
+    backendApi()
+      .withSuccessHandler(function() {
+        exibirLoader(false);
+        mostrarToast("Senha resetada com sucesso!", 'success');
+      })
+      .withFailureHandler(function(e) {
+        exibirLoader(false);
+        mostrarToast("Erro ao resetar senha: " + e.toString(), 'error');
+      })
+      .resetarSenhaUsuario(email);
+  }
+}
+
 async function confirmarDesativacaoUsuario(email) {
   if (await abrirConfirm(`Deseja mesmo BLOQUEAR e desativar o acesso do e-mail ${email}?\n\nEle não conseguirá mais entrar no sistema.`)) {
     exibirLoader(true);
     
-    google.script.run
+    backendApi()
       .withSuccessHandler(function() {
         carregarListaUsuarios();
         mostrarToast("Acesso desativado com sucesso!", 'success');
@@ -2663,7 +2802,7 @@ async function confirmarDesativacaoUsuario(email) {
 function carregarListaConfiguracoes() {
   exibirLoader(true);
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(configs) {
       AppState.configs = configs;
       renderizarTabelaConfiguracoes();
@@ -2698,7 +2837,7 @@ function editarValorConfiguracao(linha, chave) {
   
   exibirLoader(true);
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function() {
       mostrarToast(`Parâmetro ${chave} atualizado com sucesso!`, 'success');
       carregarListaConfiguracoes();
@@ -2720,7 +2859,7 @@ function editarValorConfiguracao(linha, chave) {
 function carregarLogsAuditoria() {
   exibirLoader(true);
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(logs) {
       AppState.logs = logs;
       renderizarTabelaLogs();
@@ -3064,8 +3203,8 @@ function sincronizarDadosLimpos(event) {
 
 function logoutUser(event) {
   if(event) event.preventDefault();
-  // Simplesmente descarrega a interface e exibe loader infinito ou mensagem
-  document.body.innerHTML = '<div style="display: flex; height: 100vh; align-items: center; justify-content: center; font-family: sans-serif; flex-direction: column;"><span data-lucide="log-out" style="width: 48px; height: 48px; margin-bottom: 20px; color: var(--text-secondary);"></span><h2>Sessão Encerrada</h2><p style="color: var(--text-secondary);">Você saiu do sistema de RH.</p><button onclick="window.top.location.reload()" class="btn btn-primary" style="margin-top: 20px;">Fazer Login Novamente</button></div>';
-  if(typeof lucide !== 'undefined') lucide.createIcons();
+  localStorage.removeItem('rh_token');
+  localStorage.removeItem('rh_user');
+  window.top.location.reload();
 }
 </script>
