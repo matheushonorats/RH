@@ -196,8 +196,8 @@ function inicializarUsuario() {
 }
 
 /**
- * Função global para buscar todos os dados (Servidores, Lançamentos, Protocolos, Dashboard) de uma vez.
- * Isso garante que trocar de abas será instantâneo (cache local em AppState).
+ * Sincronização INICIAL ou forçada (com loader pesado).
+ * Só deve ser chamada no boot da aplicação ou ao limpar cache explicitamente.
  */
 function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
   if (typeof google === "undefined" || !google.script) return;
@@ -209,8 +209,8 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
   
   const syncBtn = document.getElementById('btn-sync-icon');
   if (syncBtn) syncBtn.classList.add('spinning');
-  
   exibirLoader(true);
+  
   google.script.run
     .withSuccessHandler(function(dados) {
       if (syncBtn) syncBtn.classList.remove('spinning');
@@ -219,13 +219,8 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
       AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
       AppState.dadosCompletosCarregados = true;
-      
-      // Atualiza qualquer filtro de UI
       popularFiltroLotacoes();
-      
       exibirLoader(false);
-      
-      // Se tiver uma view pendente, navega pra ela. Senão, atualiza a view atual.
       if (viewAlvo) {
         carregarDadosDaView(viewAlvo);
       } else {
@@ -239,9 +234,37 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     .withFailureHandler(function(erro) {
       const syncBtn = document.getElementById('btn-sync-icon');
       if (syncBtn) syncBtn.classList.remove('spinning');
-      console.error("Erro ao sincronizar dados:", erro);
       exibirLoader(false);
-      mostrarToast("Falha ao sincronizar dados com o Google Sheets: " + mensagemErro(erro), 'error');
+      mostrarToast("Falha ao sincronizar: " + mensagemErro(erro), 'error');
+    })
+    .obterDadosCompletos();
+}
+
+/**
+ * Sincronização em SEGUNDO PLANO — não exibe loader pesado.
+ * Usada após salvar registros (otimista, como AppSheets).
+ * A setinha gira para indicar que está em andamento e para ao finalizar.
+ * viewAlvo = aba a ser recarregada ao terminar ('lancamentos', 'servidores', etc)
+ */
+function sincronizarEmSegundoPlano(viewAlvo = null) {
+  if (typeof google === "undefined" || !google.script) return;
+  const syncBtn = document.getElementById('btn-sync-icon');
+  if (syncBtn) syncBtn.classList.add('spinning');
+  google.script.run
+    .withSuccessHandler(function(dados) {
+      if (syncBtn) syncBtn.classList.remove('spinning');
+      AppState.dashboard = dados.dashboard || {};
+      AppState.servidores = Array.isArray(dados.servidores) ? dados.servidores : [];
+      AppState.lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
+      AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
+      AppState.dadosCompletosCarregados = true;
+      popularFiltroLotacoes();
+      if (viewAlvo) carregarDadosDaView(viewAlvo);
+    })
+    .withFailureHandler(function(erro) {
+      if (syncBtn) syncBtn.classList.remove('spinning');
+      console.warn("Falha na sincronização em segundo plano:", erro);
+      mostrarToast("Atualização em segundo plano falhou. Clique em ⟳ para recarregar.", 'warning');
     })
     .obterDadosCompletos();
 }
@@ -706,9 +729,10 @@ function salvarDadosServidor(event) {
   
   google.script.run
     .withSuccessHandler(function() {
+      exibirLoader(false);
       fecharModal('modal-servidor');
-      sincronizarDados(true, 'servidores'); // recarrega a tabela
       mostrarToast("Cadastro de servidor salvo com sucesso!", 'success');
+      sincronizarEmSegundoPlano('servidores'); // atualiza cache em segundo plano
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
@@ -732,8 +756,9 @@ async function confirmarDesativacaoServidor(matricula, nome) {
     
     google.script.run
       .withSuccessHandler(function() {
-        sincronizarDados(true, 'servidores');
+        exibirLoader(false);
         mostrarToast("Cadastro de servidor desativado com sucesso!", 'success');
+        sincronizarEmSegundoPlano('servidores');
       })
       .withFailureHandler(function(erro) {
         exibirLoader(false);
@@ -1578,13 +1603,13 @@ async function salvarDadosLancamento(event) {
   
   google.script.run
     .withSuccessHandler(function() {
+      exibirLoader(false);
       fecharModal('modal-lancamento');
-      sincronizarDados(true, 'lancamentos'); // recarrega toda a base para atualizar saldos alterados
-      mostrarToast("Lançamento de documento salvo com sucesso!", 'success');
+      mostrarToast("Lançamento salvo! Sincronizando em segundo plano...", 'success');
+      sincronizarEmSegundoPlano('lancamentos'); // atualiza cache sem bloquear o usuário
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
-      // Remove arquivos órfãos do Drive se gravação na Planilha falhar
       arquivosCriados.forEach(id => google.script.run.removerArquivoDrive(id));
       mostrarToast("Erro ao gravar lançamento: " + erro.toString(), 'error');
     })
@@ -1769,11 +1794,9 @@ function confirmarGeracaoProtocolo() {
   
   google.script.run
     .withSuccessHandler(function(idProtocolo) {
-      fecharModal('modal-criar-protocolo');
-      sincronizarDados(true, 'protocolos');
-      
       exibirLoader(false);
-      // Abre automaticamente o preview de impressão do protocolo recém-criado
+      fecharModal('modal-criar-protocolo');
+      sincronizarEmSegundoPlano('protocolos');
       abrirFolhaProtocolo(idProtocolo);
     })
     .withFailureHandler(function(erro) {
@@ -1820,14 +1843,15 @@ function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
     novoStatus = "Aguardando Assinatura";
   }
   
-  exibirLoader(true);
-    google.script.run
-      .withSuccessHandler(function() {
-        sincronizarDados(true, 'protocolos');
-      mostrarToast(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`, 'warning');
+  const syncBtn = document.getElementById('btn-sync-icon');
+  if (syncBtn) syncBtn.classList.add('spinning');
+  google.script.run
+    .withSuccessHandler(function() {
+      mostrarToast(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`, 'success');
+      sincronizarEmSegundoPlano('protocolos');
     })
     .withFailureHandler(function(erro) {
-      exibirLoader(false);
+      if (syncBtn) syncBtn.classList.remove('spinning');
       mostrarToast("Erro ao transicionar status: " + erro.toString(), 'error');
     })
     .atualizarStatusProtocolo(idProtocolo, novoStatus);
@@ -2611,14 +2635,17 @@ function abrirModalUsuarioPerfil(event) {
   }
 }
 
+/**
+ * Limpa o cache e faz um sincronismo completo (com loader).
+ * Só deve ser chamado explicitamente pelo usuário via dropdown.
+ */
 function sincronizarDadosLimpos(event) {
   if(event) event.preventDefault();
   const menu = document.getElementById('user-dropdown-menu');
   if (menu) menu.style.display = 'none';
-  // Reseta AppState
   AppState.dadosCompletosCarregados = false;
-  sincronizarDados(true);
-  mostrarToast("Cache limpo. Sincronizando dados completos...", "info");
+  mostrarToast("Cache limpo. Baixando todos os dados do servidor...", "info");
+  sincronizarDados(true); // loader pesado intencional — pedido explícito do usuário
 }
 
 function logoutUser(event) {
