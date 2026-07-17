@@ -3454,10 +3454,10 @@ function montarContextoEntidade() {
   // Coleta dados resumidos para a IA analisar
   return JSON.stringify({
     viewAtual: currentView,
-    totalServidores: (AppState.dadosGerais.servidores || []).length,
-    totalLancamentos: (AppState.dadosGerais.lancamentos || []).length,
-    lancamentosPendentes1Doc: (AppState.dadosGerais.lancamentos || []).filter(l => l.idoc === "").length,
-    feriasCompulsoriasRisco: (AppState.dadosGerais.servidores || []).filter(s => {
+    totalServidores: (AppState.servidores || []).length,
+    totalLancamentos: (AppState.lancamentos || []).length,
+    lancamentosPendentes1Doc: (AppState.lancamentos || []).filter(l => l.idoc === "").length,
+    feriasCompulsoriasRisco: (AppState.servidores || []).filter(s => {
       if (!s.periodosFerias) return false;
       const prox = s.periodosFerias.find(p => p.status === "Em aquisição");
       if (!prox || !prox.dataLiberacao) return false;
@@ -3532,6 +3532,7 @@ function iniciarVigia() {
     })
     .withFailureHandler(function(erro) {
       setEntidadePensando(false);
+      addMensagemEntidade("Erro ao conectar à API.", false, true);
     })
     .chamarEntidade(null, contexto);
 }
