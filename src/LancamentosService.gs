@@ -161,6 +161,11 @@ function salvarLancamento(dadosLanc) {
       anoNumero = String(dataInicio.getFullYear());
     }
     
+    if (tipoDoc === "Autorização de Horas Extras") {
+      if (dadosLanc.mesHE) mesNome = String(dadosLanc.mesHE).toUpperCase();
+      if (dadosLanc.anoHE) anoNumero = String(dadosLanc.anoHE);
+    }
+    
     const emailUsuario = Session.getActiveUser().getEmail().toLowerCase().trim();
     const timestamp = new Date();
     const nomePlanilha = matricula + ": " + servidor.nome;
@@ -409,4 +414,42 @@ function resolverUrlsAnexosLote(caminhos) {
   });
   
   return mapaResultados;
+}
+
+/**
+ * Atualiza rapidamente o número do 1Doc de um lançamento
+ */
+function atualizar1DocLote(linhaPlanilha, novo1Doc) {
+  if (!verificarSeEhOperador()) throw new Error("Acesso negado: Somente Operadores podem alterar lançamentos.");
+  
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    throw new Error("Sistema ocupado, tente novamente em alguns segundos.");
+  }
+  
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const aba = ss.getSheetByName("Lançamentos");
+    if (!aba) throw new Error("Aba 'Lançamentos' não encontrada");
+    
+    const cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
+    const idxIdoc = cabecalho.indexOf("1doc") + 1;
+    const idxEditadoPor = cabecalho.indexOf("editado_por") + 1;
+    const idxEditadoEm = cabecalho.indexOf("editado_em") + 1;
+    
+    if (idxIdoc === 0) throw new Error("Coluna 1doc não encontrada");
+    
+    aba.getRange(linhaPlanilha, idxIdoc).setValue(novo1Doc || "");
+    
+    const emailUsuario = Session.getActiveUser().getEmail();
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+    
+    if (idxEditadoPor > 0) aba.getRange(linhaPlanilha, idxEditadoPor).setValue(emailUsuario);
+    if (idxEditadoEm > 0) aba.getRange(linhaPlanilha, idxEditadoEm).setValue(timestamp);
+    
+    lancarLogSemLock_("ATUALIZAR_1DOC", "Lançamentos", "Atualizou o 1Doc (Linha " + linhaPlanilha + ") para " + (novo1Doc || "vazio"), "Lançamento", "", novo1Doc, novo1Doc);
+    return true;
+  } finally {
+    lock.releaseLock();
+  }
 }

@@ -11,7 +11,12 @@ const AppState = {
     papel: "Consulta"
   },
   servidores: [],
-  lancamentos: []
+  lancamentos: [],
+  paginacao: {
+    servidores: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
+    lancamentos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
+    protocolos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] }
+  }
 };
 
 /**
@@ -37,6 +42,73 @@ function renderizarIcones() {
 function mensagemErro(erro) {
   if (!erro) return "Erro desconhecido.";
   return erro.message || String(erro);
+}
+
+/**
+ * Exibe notificação customizada "Toast" e oculta automaticamente
+ */
+function mostrarToast(mensagem, tipo = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) {
+    mostrarToast(mensagem, 'warning');
+    return;
+  }
+  
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${tipo}`;
+  
+  let icone = 'info';
+  if (tipo === 'success') icone = 'check-circle';
+  if (tipo === 'error') icone = 'alert-circle';
+  if (tipo === 'warning') icone = 'alert-triangle';
+  
+  toast.innerHTML = `
+    <div class="toast-icon">
+      <span data-lucide="${icone}"></span>
+    </div>
+    <div class="toast-content">${escapeHtml(mensagem)}</div>
+  `;
+  
+  container.appendChild(toast);
+  renderizarIcones();
+  
+  setTimeout(() => {
+    toast.classList.add('toast-leaving');
+    toast.addEventListener('animationend', () => toast.remove());
+  }, 4000);
+}
+
+/**
+ * Exibe um Modal de Confirmação customizado (Retorna Promise<boolean>)
+ */
+function abrirConfirm(mensagem, titulo = 'Atenção') {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-confirm');
+    if (!modal) {
+      resolve(confirm(mensagem));
+      return;
+    }
+    document.getElementById('confirm-title').innerText = titulo;
+    document.getElementById('confirm-message').innerText = mensagem;
+    
+    const btnCancel = document.getElementById('confirm-btn-cancel');
+    const btnOk = document.getElementById('confirm-btn-ok');
+    
+    const fechar = (resultado) => {
+      fecharModal('modal-confirm');
+      btnCancel.removeEventListener('click', clkCancel);
+      btnOk.removeEventListener('click', clkOk);
+      resolve(resultado);
+    };
+    
+    const clkCancel = () => fechar(false);
+    const clkOk = () => fechar(true);
+    
+    btnCancel.addEventListener('click', clkCancel);
+    btnOk.addEventListener('click', clkOk);
+    
+    abrirModal('modal-confirm');
+  });
 }
 
 // Executa automaticamente ao carregar a página
@@ -118,7 +190,7 @@ function inicializarUsuario() {
       document.getElementById('current-user-name').innerText = "Acesso Negado";
       document.getElementById('current-user-role').innerText = "Não autorizado";
       exibirLoader(false);
-      alert("Erro ao validar credenciais do Google. Verifique se seu e-mail está cadastrado no sistema.");
+      mostrarToast("Erro ao validar credenciais do Google. Verifique se seu e-mail está cadastrado no sistema.", 'error');
     })
     .obterDadosUsuarioLogado(); // Essa função será criada no Auth.gs
 }
@@ -135,9 +207,13 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     return;
   }
   
+  const syncBtn = document.getElementById('btn-sync-icon');
+  if (syncBtn) syncBtn.classList.add('spinning');
+  
   exibirLoader(true);
   google.script.run
     .withSuccessHandler(function(dados) {
+      if (syncBtn) syncBtn.classList.remove('spinning');
       AppState.dashboard = dados.dashboard || {};
       AppState.servidores = Array.isArray(dados.servidores) ? dados.servidores : [];
       AppState.lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
@@ -161,9 +237,11 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       }
     })
     .withFailureHandler(function(erro) {
+      const syncBtn = document.getElementById('btn-sync-icon');
+      if (syncBtn) syncBtn.classList.remove('spinning');
       console.error("Erro ao sincronizar dados:", erro);
       exibirLoader(false);
-      alert("Falha ao sincronizar dados com o Google Sheets: " + mensagemErro(erro));
+      mostrarToast("Falha ao sincronizar dados com o Google Sheets: " + mensagemErro(erro), 'error');
     })
     .obterDadosCompletos();
 }
@@ -314,7 +392,24 @@ function carregarDashboard() {
   if (resumo.listaAusentes && resumo.listaAusentes.length > 0) {
     let html = "";
     resumo.listaAusentes.forEach(a => {
-      html += `<tr>             <td>               <button class="btn-action" onclick="abrirModalLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">                 <span data-lucide="eye" style="width: 14px; height: 14px;"></span>               </button>             </td>             <td><strong>${escapeHtml(a.idoc || '-')}</strong></td>             <td><strong>${escapeHtml(a.nome)}</strong></td>             <td>${escapeHtml(a.matricula)}</td>             <td>${escapeHtml(a.tipo)}</td>             <td>${escapeHtml(a.periodo)}</td>             <td style="text-align: center;">${a.dias}</td>           </tr>`;
+      html += `<tr>
+            <td>
+              <div style="display: flex; gap: 4px; justify-content: center;">
+                <button class="btn-action" onclick="abrirViewLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">
+                  <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
+                </button>
+                <button class="btn-action" onclick="abrirModalQuick1Doc(${a.linhaPlanilha}, '${escapeHtml(a.nome)}', '${escapeHtml(a.idoc || '')}'); return false;" title="Preencher 1Doc Rápido" style="color: var(--brand-primary);">
+                  <span data-lucide="file-signature" style="width: 14px; height: 14px;"></span>
+                </button>
+              </div>
+            </td>
+            <td><strong>${escapeHtml(a.idoc || '-')}</strong></td>
+            <td><strong>${escapeHtml(a.nome)}</strong></td>
+            <td>${escapeHtml(a.matricula)}</td>
+            <td>${escapeHtml(a.tipo)}</td>
+            <td>${escapeHtml(a.periodo)}</td>
+            <td style="text-align: center;">${a.dias || a.qtdHoras || '-'}</td>
+          </tr>`;
     });
     tabela.innerHTML = html;
   } else {
@@ -385,16 +480,28 @@ function carregarListaServidores() {
 /**
  * Renderiza as linhas da tabela de Servidores com base nos dados locais
  */
-function renderizarTabelaServidores(listaFiltrada) {
-  const servidores = Array.isArray(listaFiltrada)
+function renderizarTabelaServidores(listaFiltrada, mantemPagina = false) {
+  const listaOriginal = Array.isArray(listaFiltrada)
     ? listaFiltrada
     : (Array.isArray(AppState.servidores) ? AppState.servidores : []);
   const tbody = document.getElementById('tabela-servidores-body');
   
-  if (servidores.length === 0) {
+  if (!mantemPagina) {
+    AppState.paginacao.servidores.listaAtual = listaOriginal;
+    AppState.paginacao.servidores.paginaAtual = 1;
+  }
+  
+  const estado = AppState.paginacao.servidores;
+  const totalItens = estado.listaAtual.length;
+  
+  if (totalItens === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Nenhum servidor encontrado.</td></tr>`;
+    renderizarControlesPaginacao('paginacao-servidores', 'servidores', 0);
     return;
   }
+  
+  const start = (estado.paginaAtual - 1) * estado.itensPorPagina;
+  const servidores = estado.listaAtual.slice(start, start + estado.itensPorPagina);
   
   let html = "";
   servidores.forEach(s => {
@@ -428,6 +535,7 @@ function renderizarTabelaServidores(listaFiltrada) {
     });
   });
   renderizarIcones();
+  renderizarControlesPaginacao('paginacao-servidores', 'servidores', totalItens);
 }
 
 /**
@@ -565,7 +673,7 @@ function salvarDadosServidor(event) {
   };
   
   if (typeof google === "undefined" || !google.script) {
-    alert("Dados salvos em modo simulação local!");
+    mostrarToast("Dados salvos em modo simulação local!", 'warning');
     exibirLoader(false);
     fecharModal('modal-servidor');
     return;
@@ -575,11 +683,11 @@ function salvarDadosServidor(event) {
     .withSuccessHandler(function() {
       fecharModal('modal-servidor');
       sincronizarDados(true, 'servidores'); // recarrega a tabela
-      alert("Cadastro de servidor salvo com sucesso!");
+      mostrarToast("Cadastro de servidor salvo com sucesso!", 'success');
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
-      alert("Erro ao salvar servidor: " + erro.toString());
+      mostrarToast("Erro ao salvar servidor: " + erro.toString(), 'error');
     })
     .salvarServidor(dados);
 }
@@ -587,12 +695,12 @@ function salvarDadosServidor(event) {
 /**
  * Aciona a desativação lógica (soft delete) do servidor
  */
-function confirmarDesativacaoServidor(matricula, nome) {
-  if (confirm(`Atenção!\n\nVocê tem certeza que deseja DESATIVAR o cadastro do servidor ${nome} (Matrícula: ${matricula})?\n\nEle não aparecerá mais nos formulários ativos, mas todo o histórico dele na planilha será preservado.`)) {
+async function confirmarDesativacaoServidor(matricula, nome) {
+  if (await abrirConfirm(`Atenção!\n\nVocê tem certeza que deseja DESATIVAR o cadastro do servidor ${nome} (Matrícula: ${matricula})?\n\nEle não aparecerá mais nos formulários ativos, mas todo o histórico dele na planilha será preservado.`)) {
     exibirLoader(true);
     
     if (typeof google === "undefined" || !google.script) {
-      alert("Servidor desativado em modo de simulação local!");
+      mostrarToast("Servidor desativado em modo de simulação local!", 'warning');
       exibirLoader(false);
       return;
     }
@@ -600,11 +708,11 @@ function confirmarDesativacaoServidor(matricula, nome) {
     google.script.run
       .withSuccessHandler(function() {
         sincronizarDados(true, 'servidores');
-        alert("Cadastro de servidor desativado com sucesso!");
+        mostrarToast("Cadastro de servidor desativado com sucesso!", 'success');
       })
       .withFailureHandler(function(erro) {
         exibirLoader(false);
-        alert("Erro ao desativar servidor: " + erro.toString());
+        mostrarToast("Erro ao desativar servidor: " + erro.toString(), 'error');
       })
       .desativarServidor(matricula);
   }
@@ -777,7 +885,23 @@ function abrirFichaServidor(matricula) {
               statusText = "Anulado";
             }
 
-            html += `<tr>               <td>                 <button class="btn-action" onclick="abrirModalLancamento(${l.linhaPlanilha}); fecharModal('modal-ficha-servidor'); return false;" title="Visualizar/Editar Lançamento">                   <span data-lucide="eye" style="width: 14px; height: 14px;"></span>                 </button>               </td>               <td><strong>${escapeHtml(l.idoc)}</strong></td>               <td>${escapeHtml(l.tipo)}</td>               <td>${escapeHtml(l.dataInicio)}</td>               <td style="text-align: center;">${escapeHtml(l.dias || l.qtdHoras || '-')}</td>               <td><span class="badge ${statusClass}">${escapeHtml(statusText)}</span></td>             </tr>`;
+            html += `<tr>
+              <td>
+                <div style="display: flex; gap: 4px; justify-content: center;">
+                  <button class="btn-action" onclick="abrirViewLancamento(${l.linhaPlanilha}); fecharModal('modal-ficha-servidor'); return false;" title="Visualizar Lançamento">
+                    <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
+                  </button>
+                  <button class="btn-action" onclick="abrirModalQuick1Doc(${l.linhaPlanilha}, '${escapeHtml(servidor.nome)}', '${escapeHtml(l.idoc || '')}'); fecharModal('modal-ficha-servidor'); return false;" title="Preencher 1Doc Rápido" style="color: var(--brand-primary);">
+                    <span data-lucide="file-signature" style="width: 14px; height: 14px;"></span>
+                  </button>
+                </div>
+              </td>
+              <td><strong>${escapeHtml(l.idoc)}</strong></td>
+              <td>${escapeHtml(l.tipo)}</td>
+              <td>${escapeHtml(l.dataInicio)}</td>
+              <td style="text-align: center;">${escapeHtml(l.dias || l.qtdHoras || '-')}</td>
+              <td><span class="badge ${statusClass}">${escapeHtml(statusText)}</span></td>
+            </tr>`;
           });
           tabelaHist.innerHTML = html;
         }
@@ -809,16 +933,28 @@ function carregarListaLancamentos() {
 /**
  * Renderiza linhas da tabela de Lançamentos
  */
-function renderizarTabelaLancamentos(listaFiltrada) {
-  const lancamentos = Array.isArray(listaFiltrada)
+function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
+  const listaOriginal = Array.isArray(listaFiltrada)
     ? listaFiltrada
     : (Array.isArray(AppState.lancamentos) ? AppState.lancamentos : []);
   const tbody = document.getElementById('tabela-lancamentos-body');
   
-  if (lancamentos.length === 0) {
+  if (!mantemPagina) {
+    AppState.paginacao.lancamentos.listaAtual = listaOriginal;
+    AppState.paginacao.lancamentos.paginaAtual = 1;
+  }
+  
+  const estado = AppState.paginacao.lancamentos;
+  const totalItens = estado.listaAtual.length;
+  
+  if (totalItens === 0) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Nenhum lançamento encontrado.</td></tr>`;
+    renderizarControlesPaginacao('paginacao-lancamentos', 'lancamentos', 0);
     return;
   }
+  
+  const start = (estado.paginaAtual - 1) * estado.itensPorPagina;
+  const lancamentos = estado.listaAtual.slice(start, start + estado.itensPorPagina);
   
   let html = "";
   lancamentos.forEach(l => {
@@ -829,8 +965,40 @@ function renderizarTabelaLancamentos(listaFiltrada) {
     
     // Verifica se possui anexos vinculados
     const possuiAnexos = l.anexo1 || l.anexo2 || l.anexo3;
+    let dataShow = l.dataInicio;
+    if (l.tipo === "Autorização de Horas Extras" && !dataShow) {
+      if (l.mes && l.ano) dataShow = `${l.mes}/${l.ano}`;
+      else if (l.mes) dataShow = l.mes;
+      else if (l.ano) dataShow = l.ano;
+      else dataShow = "-";
+    }
     
-    html += `<tr>       <td><strong>${escapeHtml(l.idoc)}</strong></td>       <td>${escapeHtml(l.dataSolicitacao)}</td>       <td>${escapeHtml(l.tipo)}</td>       <td>${escapeHtml(l.nome)} (${escapeHtml(l.matricula)})</td>       <td>${escapeHtml(l.dataInicio)}</td>       <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (escapeHtml(l.qtdHoras) || '-')}</td>       <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>       <td>         <div class="action-buttons">           ${possuiAnexos ? `<button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos"><span data-lucide="paperclip" style="width: 14px; height: 14px;"></span></button>` : ''}           <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Lançamento">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
+    html += `<tr>
+      <td>
+        <div style="display: flex; gap: 4px; justify-content: center;">
+          <button class="btn-action" data-action="view-lanc" data-linha="${l.linhaPlanilha}" title="Visualizar Lançamento">
+            <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
+          </button>
+          <button class="btn-action" data-action="quick-1doc" data-linha="${l.linhaPlanilha}" data-nome="${escapeHtml(l.nome)}" data-idoc="${escapeHtml(l.idoc || '')}" title="Preencher 1Doc Rápido" style="color: var(--brand-primary);">
+            <span data-lucide="file-signature" style="width: 14px; height: 14px;"></span>
+          </button>
+        </div>
+      </td>
+      <td><strong>${escapeHtml(l.idoc)}</strong></td>
+      <td>${escapeHtml(l.tipo)}</td>
+      <td>${escapeHtml(l.nome)} (${escapeHtml(l.matricula)})</td>
+      <td>${escapeHtml(dataShow)}</td>
+      <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (escapeHtml(l.qtdHoras) || '-')}</td>
+      <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>
+      <td>
+        <div class="action-buttons">
+          ${possuiAnexos ? `<button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos"><span data-lucide="paperclip" style="width: 14px; height: 14px;"></span></button>` : ''}
+          <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Tudo">
+            <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
+          </button>
+        </div>
+      </td>
+    </tr>`;
   });
 
   tbody.innerHTML = html;
@@ -912,11 +1080,8 @@ function ajustarCamposFormularioLancamento() {
     document.getElementById('lanc-data-inicio').required = true;
     document.getElementById('lanc-dias').disabled = false;
     document.getElementById('lanc-dias').required = true;
-  } else if (tipo === "Hora Extra") {
+  } else if (tipo === "Autorização de Horas Extras") {
     blocoHoras.style.display = "block";
-    blocoFalta.style.display = "block";
-    document.getElementById('lanc-data-falta').disabled = false;
-    document.getElementById('lanc-data-falta').required = true;
     document.getElementById('lanc-qtd-horas').disabled = false;
     document.getElementById('lanc-qtd-horas').required = true;
   } else {
@@ -961,6 +1126,17 @@ function sugerirDespacho() {
     const limite = 5; // Padrão
     const restante = Math.max(0, limite - novoUsado);
     texto = `Possuía direito a ${limite} abonadas. Solicitou a ${novoUsado}ª abonada. Restam ${restante}.`;
+  } else if (tipo === "Autorização de Horas Extras") {
+    const qtdHoras = document.getElementById('lanc-qtd-horas').value || "0";
+    const mes = document.getElementById('lanc-mes-he').value;
+    const ano = document.getElementById('lanc-ano-he').value;
+    
+    let mesAnoTxt = "";
+    if (mes && ano) mesAnoTxt = ` referentes a ${mes}/${ano}`;
+    else if (mes) mesAnoTxt = ` referentes a ${mes}`;
+    else if (ano) mesAnoTxt = ` referentes ao ano ${ano}`;
+    
+    texto = `Autorização para compensação ou pagamento de ${qtdHoras} horas extras${mesAnoTxt} registrada.`;
   }
   
   if (texto) {
@@ -1046,7 +1222,7 @@ function abrirModalLancamento(linhaPlanilha) {
       })
       .withFailureHandler(function(err) {
         exibirLoader(false);
-        alert("Erro ao carregar lista de servidores: " + mensagemErro(err));
+        mostrarToast("Erro ao carregar lista de servidores: " + mensagemErro(err), 'error');
       })
       .obterListaServidores();
     return;
@@ -1087,7 +1263,7 @@ function abrirModalLancamento(linhaPlanilha) {
           })
           .withFailureHandler(function(err) {
             exibirLoader(false);
-            alert("Erro ao carregar detalhes do lançamento: " + mensagemErro(err));
+            mostrarToast("Erro ao carregar detalhes do lançamento: " + mensagemErro(err), 'error');
           })
           .obterListaLancamentos();
       } else {
@@ -1103,6 +1279,8 @@ function abrirModalLancamento(linhaPlanilha) {
       document.getElementById('lanc-despacho').value = l.despacho;
       document.getElementById('lanc-observacao').value = l.observacao;
       document.getElementById('lanc-qtd-horas').value = l.qtdHoras;
+      document.getElementById('lanc-mes-he').value = (l.mes && l.mes.charAt(0).toUpperCase() + l.mes.slice(1).toLowerCase()) || "";
+      document.getElementById('lanc-ano-he').value = l.ano || "";
       document.getElementById('lanc-dias').value = l.dias;
       
       // Parse de Data Solicitação
@@ -1138,6 +1316,7 @@ function abrirModalLancamento(linhaPlanilha) {
   }
   
   ajustarCamposFormularioLancamento();
+  if (typeof inicializarWizard === 'function') inicializarWizard();
   abrirModal('modal-lancamento');
 }
 
@@ -1261,7 +1440,7 @@ async function salvarDadosLancamento(event) {
   const matricula = document.getElementById('lanc-matricula').value;
   if (!matricula) {
     exibirLoader(false);
-    alert("Erro: Você precisa selecionar um servidor válido usando a lista de sugestões.");
+    mostrarToast("Erro: Você precisa selecionar um servidor válido usando a lista de sugestões.", 'error');
     return;
   }
   
@@ -1270,8 +1449,8 @@ async function salvarDadosLancamento(event) {
   
   if (idocInput && AppState.lancamentos) {
     const lExistente = AppState.lancamentos.find(l => l.idoc === idocInput && l.linhaPlanilha !== linhaAtual);
-    if (lExistente) {
-      if (!confirm(`Aviso: O protocolo ${idocInput} já está registrado no sistema para o servidor(a) ${lExistente.nome}.\n\nDeseja prosseguir com o lançamento mesmo assim?`)) {
+    if (lExistente && tipoDoc !== "Autorização de Horas Extras" && lExistente.tipo !== "Autorização de Horas Extras") {
+      if (!await abrirConfirm(`Aviso: O protocolo ${idocInput} já está registrado no sistema para o servidor(a) ${lExistente.nome}.\n\nDeseja prosseguir com o lançamento mesmo assim?`)) {
         exibirLoader(false);
         return;
       }
@@ -1295,7 +1474,7 @@ async function salvarDadosLancamento(event) {
         if (periodosAbertos.length > 0) {
           const periodoMaisAntigo = periodosAbertos[0];
           if (diasInput > periodoMaisAntigo.saldo) {
-            const prosseguir = confirm(`Aviso: O servidor possui o período mais antigo (${periodoMaisAntigo.referencia}) com saldo residual de apenas ${periodoMaisAntigo.saldo} dias.\n\nO ideal seria liquidar esta pendência primeiro antes de agrupar mais dias.\n\nDeseja prosseguir com o lançamento mesmo assim?`);
+            const prosseguir = await abrirConfirm(`Aviso: O servidor possui o período mais antigo (${periodoMaisAntigo.referencia}) com saldo residual de apenas ${periodoMaisAntigo.saldo} dias.\n\nO ideal seria liquidar esta pendência primeiro antes de agrupar mais dias.\n\nDeseja prosseguir com o lançamento mesmo assim?`);
             if (!prosseguir) {
               exibirLoader(false);
               return;
@@ -1304,7 +1483,7 @@ async function salvarDadosLancamento(event) {
         }
       }
     }
-  } else if (tipoDoc === "Hora Extra") {
+  } else if (tipoDoc === "Autorização de Horas Extras") {
     dataInicioInput = document.getElementById('lanc-data-falta').value;
     diasInput = 0;
     qtdHorasInput = document.getElementById('lanc-qtd-horas').value;
@@ -1322,6 +1501,8 @@ async function salvarDadosLancamento(event) {
     dataInicio: dataInicioInput,
     dias: diasInput,
     qtdHoras: qtdHorasInput,
+    mesHE: document.getElementById('lanc-mes-he') ? document.getElementById('lanc-mes-he').value : "",
+    anoHE: document.getElementById('lanc-ano-he') ? document.getElementById('lanc-ano-he').value : "",
     despacho: document.getElementById('lanc-despacho').value,
     observacao: document.getElementById('lanc-observacao').value.trim(),
     anexo1: "",
@@ -1356,12 +1537,12 @@ async function salvarDadosLancamento(event) {
     exibirLoader(false);
     // Remove uploads criados de forma imediata em caso de erro na transferência
     arquivosCriados.forEach(id => google.script.run.removerArquivoDrive(id));
-    alert("Falha no upload dos anexos: " + erroUpload.toString());
+    mostrarToast("Falha no upload dos anexos: " + erroUpload.toString(), 'error');
     return;
   }
   
   if (typeof google === "undefined" || !google.script) {
-    alert("Lançamento gravado em simulação local!");
+    mostrarToast("Lançamento gravado em simulação local!", 'warning');
     exibirLoader(false);
     fecharModal('modal-lancamento');
     return;
@@ -1371,13 +1552,13 @@ async function salvarDadosLancamento(event) {
     .withSuccessHandler(function() {
       fecharModal('modal-lancamento');
       sincronizarDados(true, 'lancamentos'); // recarrega toda a base para atualizar saldos alterados
-      alert("Lançamento de documento salvo com sucesso!");
+      mostrarToast("Lançamento de documento salvo com sucesso!", 'success');
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
       // Remove arquivos órfãos do Drive se gravação na Planilha falhar
       arquivosCriados.forEach(id => google.script.run.removerArquivoDrive(id));
-      alert("Erro ao gravar lançamento: " + erro.toString());
+      mostrarToast("Erro ao gravar lançamento: " + erro.toString(), 'error');
     })
     .salvarLancamento(dados);
 }
@@ -1422,15 +1603,30 @@ function carregarListaProtocolos() {
 /**
  * Renderiza linhas da tabela de Protocolos
  */
-function renderizarTabelaProtocolos(listaFiltrada) {
-  const protocolos = listaFiltrada || AppState.protocolos;
+function renderizarTabelaProtocolos(listaFiltrada, mantemPagina = false) {
+  const listaOriginal = Array.isArray(listaFiltrada)
+    ? listaFiltrada
+    : (Array.isArray(AppState.protocolos) ? AppState.protocolos : []);
   const tabela = document.getElementById('tabela-protocolos-body');
   
-  if (protocolos.length === 0) {
+  if (!mantemPagina) {
+    AppState.paginacao.protocolos.listaAtual = listaOriginal;
+    AppState.paginacao.protocolos.paginaAtual = 1;
+  }
+  
+  const estado = AppState.paginacao.protocolos;
+  const totalItens = estado.listaAtual.length;
+  
+  if (totalItens === 0) {
     tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px; color: var(--text-secondary);">Nenhum protocolo encontrado.</td></tr>`;
+    renderizarControlesPaginacao('paginacao-protocolos', 'protocolos', 0);
     exibirLoader(false);
     return;
   }
+  
+  const start = (estado.paginaAtual - 1) * estado.itensPorPagina;
+  const protocolos = estado.listaAtual.slice(start, start + estado.itensPorPagina);
+
   
   let html = "";
   protocolos.forEach(p => {
@@ -1449,6 +1645,7 @@ function renderizarTabelaProtocolos(listaFiltrada) {
     });
   });
   renderizarIcones();
+  renderizarControlesPaginacao('paginacao-protocolos', 'protocolos', totalItens);
 }
 
 /**
@@ -1478,7 +1675,7 @@ function abrirModalCriarProtocolo() {
   document.getElementById('check-todos-pendentes').checked = false;
   
   if (typeof google === "undefined" || !google.script) {
-    alert("Função disponível apenas com a planilha integrada!");
+    mostrarToast("Função disponível apenas com a planilha integrada!", 'warning');
     exibirLoader(false);
     return;
   }
@@ -1505,7 +1702,7 @@ function abrirModalCriarProtocolo() {
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
-      alert("Erro ao buscar lançamentos pendentes: " + erro.toString());
+      mostrarToast("Erro ao buscar lançamentos pendentes: " + erro.toString(), 'error');
     })
     .obterLancamentosPendentesProtocolo();
 }
@@ -1536,7 +1733,7 @@ function confirmarGeracaoProtocolo() {
   const selecionados = Array.from(document.querySelectorAll('input[name="chk-lancamento-pendente"]:checked')).map(cb => cb.value);
   
   if (selecionados.length === 0) {
-    alert("Selecione pelo menos um lançamento de documento físico para criar a folha de protocolo.");
+    mostrarToast("Selecione pelo menos um lançamento de documento físico para criar a folha de protocolo.", 'warning');
     return;
   }
   
@@ -1553,7 +1750,7 @@ function confirmarGeracaoProtocolo() {
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
-      alert("Erro ao gerar folha de protocolo: " + erro.toString());
+      mostrarToast("Erro ao gerar folha de protocolo: " + erro.toString(), 'error');
     })
     .criarProtocolo(selecionados);
 }
@@ -1572,7 +1769,7 @@ function abrirFolhaProtocolo(idProtocolo) {
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
-      alert("Erro ao renderizar folha timbrada: " + erro.toString());
+      mostrarToast("Erro ao renderizar folha timbrada: " + erro.toString(), 'error');
     })
     .obterHtmlFolhaProtocolo(idProtocolo);
 }
@@ -1599,11 +1796,11 @@ function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
     google.script.run
       .withSuccessHandler(function() {
         sincronizarDados(true, 'protocolos');
-      alert(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`);
+      mostrarToast(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`, 'warning');
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
-      alert("Erro ao transicionar status: " + erro.toString());
+      mostrarToast("Erro ao transicionar status: " + erro.toString(), 'error');
     })
     .atualizarStatusProtocolo(idProtocolo, novoStatus);
 }
@@ -1649,7 +1846,7 @@ function gerarDadosRelatorio() {
   exibirLoader(true);
   
   if (typeof google === "undefined" || !google.script) {
-    alert("Função disponível apenas conectada ao Apps Script (modo local)!");
+    mostrarToast("Função disponível apenas conectada ao Apps Script (modo local)!", 'warning');
     exibirLoader(false);
     return;
   }
@@ -1662,7 +1859,7 @@ function gerarDadosRelatorio() {
   
   let handlerErro = function(e) {
     exibirLoader(false);
-    alert("Erro ao emitir relatório: " + e.toString());
+    mostrarToast("Erro ao emitir relatório: " + e.toString(), 'error');
   };
   
   if (tipo === 'compulsorias') {
@@ -1936,7 +2133,7 @@ function carregarListaUsuarios() {
     })
     .withFailureHandler(function(e) {
       exibirLoader(false);
-      alert("Erro ao buscar usuários: " + e.toString());
+      mostrarToast("Erro ao buscar usuários: " + e.toString(), 'error');
     })
     .obterListaUsuarios();
 }
@@ -1997,27 +2194,27 @@ function salvarDadosUsuario(event) {
     .withSuccessHandler(function() {
       fecharModal('modal-usuario');
       carregarListaUsuarios();
-      alert("Acesso do usuário salvo com sucesso!");
+      mostrarToast("Acesso do usuário salvo com sucesso!", 'success');
     })
     .withFailureHandler(function(e) {
       exibirLoader(false);
-      alert("Erro ao gerenciar usuário: " + e.toString());
+      mostrarToast("Erro ao gerenciar usuário: " + e.toString(), 'error');
     })
     .salvarUsuario(dados);
 }
 
-function confirmarDesativacaoUsuario(email) {
-  if (confirm(`Deseja mesmo BLOQUEAR e desativar o acesso do e-mail ${email}?\n\nEle não conseguirá mais entrar no sistema.`)) {
+async function confirmarDesativacaoUsuario(email) {
+  if (await abrirConfirm(`Deseja mesmo BLOQUEAR e desativar o acesso do e-mail ${email}?\n\nEle não conseguirá mais entrar no sistema.`)) {
     exibirLoader(true);
     
     google.script.run
       .withSuccessHandler(function() {
         carregarListaUsuarios();
-        alert("Acesso desativado com sucesso!");
+        mostrarToast("Acesso desativado com sucesso!", 'success');
       })
       .withFailureHandler(function(e) {
         exibirLoader(false);
-        alert("Erro ao desativar usuário: " + e.toString());
+        mostrarToast("Erro ao desativar usuário: " + e.toString(), 'error');
       })
       .desativarUsuario(email);
   }
@@ -2037,7 +2234,7 @@ function carregarListaConfiguracoes() {
     })
     .withFailureHandler(function(e) {
       exibirLoader(false);
-      alert("Erro ao buscar configurações: " + e.toString());
+      mostrarToast("Erro ao buscar configurações: " + e.toString(), 'error');
     })
     .obterListaConfiguracoes();
 }
@@ -2058,7 +2255,7 @@ function editarValorConfiguracao(linha, chave) {
   const valor = input.value.trim();
   
   if (!valor) {
-    alert("O valor do parâmetro não pode ficar em branco.");
+    mostrarToast("O valor do parâmetro não pode ficar em branco.", 'warning');
     return;
   }
   
@@ -2066,12 +2263,12 @@ function editarValorConfiguracao(linha, chave) {
   
   google.script.run
     .withSuccessHandler(function() {
-      alert(`Parâmetro ${chave} atualizado com sucesso!`);
+      mostrarToast(`Parâmetro ${chave} atualizado com sucesso!`, 'success');
       carregarListaConfiguracoes();
     })
     .withFailureHandler(function(e) {
       exibirLoader(false);
-      alert("Erro ao atualizar parâmetro: " + e.toString());
+      mostrarToast("Erro ao atualizar parâmetro: " + e.toString(), 'error');
     })
     .salvarConfiguracao({
       linhaPlanilha: linha,
@@ -2094,7 +2291,7 @@ function carregarLogsAuditoria() {
     })
     .withFailureHandler(function(e) {
       exibirLoader(false);
-      alert("Erro ao buscar logs: " + e.toString());
+      mostrarToast("Erro ao buscar logs: " + e.toString(), 'error');
     })
     .obterRelatorioLogs();
 }
@@ -2132,5 +2329,259 @@ function filtrarLogsAuditoria() {
   });
   
   renderizarTabelaLogs(filtrados);
+}
+
+// ==========================================
+// PAGINAÇÃO
+// ==========================================
+function renderizarControlesPaginacao(idContainer, tipoTabela, totalItens) {
+  const container = document.getElementById(idContainer);
+  if (!container) return;
+  
+  const estado = AppState.paginacao[tipoTabela];
+  const totalPaginas = Math.ceil(totalItens / estado.itensPorPagina) || 1;
+  
+  if (estado.paginaAtual > totalPaginas) estado.paginaAtual = totalPaginas;
+  if (estado.paginaAtual < 1) estado.paginaAtual = 1;
+  
+  const html = `
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; font-size: 13px; color: var(--text-secondary);">
+      <div>Mostrando ${(estado.paginaAtual - 1) * estado.itensPorPagina + (totalItens > 0 ? 1 : 0)} a ${Math.min(estado.paginaAtual * estado.itensPorPagina, totalItens)} de ${totalItens} registros</div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 13px;" ${estado.paginaAtual === 1 ? 'disabled' : ''} onclick="mudarPagina('${tipoTabela}', ${estado.paginaAtual - 1})">Anterior</button>
+        <span style="display: flex; align-items: center; padding: 0 8px; font-weight: 600;">${estado.paginaAtual} / ${totalPaginas}</span>
+        <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 13px;" ${estado.paginaAtual === totalPaginas ? 'disabled' : ''} onclick="mudarPagina('${tipoTabela}', ${estado.paginaAtual + 1})">Próxima</button>
+      </div>
+    </div>
+  `;
+  container.innerHTML = html;
+}
+
+function mudarPagina(tipoTabela, novaPagina) {
+  AppState.paginacao[tipoTabela].paginaAtual = novaPagina;
+  
+  if (tipoTabela === 'servidores') {
+    renderizarTabelaServidores(AppState.paginacao.servidores.listaAtual, true);
+  } else if (tipoTabela === 'lancamentos') {
+    renderizarTabelaLancamentos(AppState.paginacao.lancamentos.listaAtual, true);
+  } else if (tipoTabela === 'protocolos') {
+    renderizarTabelaProtocolos(AppState.paginacao.protocolos.listaAtual, true);
+  }
+}
+
+// ==========================================
+// CONTROLE DO WIZARD (Lançamento)
+// ==========================================
+let etapaAtualWizard = 1;
+
+function inicializarWizard() {
+  etapaAtualWizard = 1;
+  document.getElementById('lanc-step-1').style.display = 'block';
+  document.getElementById('lanc-step-2').style.display = 'none';
+  document.getElementById('lanc-step-3').style.display = 'none';
+  
+  document.getElementById('btn-lanc-voltar').style.display = 'none';
+  document.getElementById('btn-lanc-avancar').style.display = 'block';
+  document.getElementById('btn-lanc-salvar').style.display = 'none';
+}
+
+function avancarPassoLancamento() {
+  if (etapaAtualWizard === 1) {
+    // Validação básica da Etapa 1
+    const tipo = document.getElementById('lanc-tipo').value;
+    const matricula = document.getElementById('lanc-matricula').value;
+    const dataSol = document.getElementById('lanc-data-solicitacao').value;
+    
+    if (!tipo || !matricula || !dataSol) {
+      mostrarToast("Preencha todos os campos obrigatórios da Etapa 1 (Tipo, Servidor e Data da Solicitação).", "warning");
+      return;
+    }
+    
+    document.getElementById('lanc-step-1').style.display = 'none';
+    document.getElementById('lanc-step-2').style.display = 'block';
+    document.getElementById('btn-lanc-voltar').style.display = 'block';
+    etapaAtualWizard = 2;
+    
+  } else if (etapaAtualWizard === 2) {
+    // Validação da Etapa 2 baseada no Tipo
+    const tipo = document.getElementById('lanc-tipo').value;
+    
+    if (tipo.includes("Férias") || tipo === "Licença Prêmio") {
+      if (!document.getElementById('lanc-data-inicio').value) {
+        mostrarToast("A Data de Início é obrigatória para este tipo de documento.", "warning");
+        return;
+      }
+    } else if (tipo === "Autorização de Horas Extras") {
+      if (!document.getElementById('lanc-qtd-horas').value) {
+        mostrarToast("A quantidade de horas é obrigatória.", "warning");
+        return;
+      }
+    } else if (tipo !== "Avaliação do Estágio Probatório" && tipo !== "Não Efetivado (Anulado)") {
+      if (!document.getElementById('lanc-data-falta').value) {
+        mostrarToast("A data da falta/afastamento é obrigatória.", "warning");
+        return;
+      }
+    }
+
+    document.getElementById('lanc-step-2').style.display = 'none';
+    document.getElementById('lanc-step-3').style.display = 'block';
+    
+    document.getElementById('btn-lanc-avancar').style.display = 'none';
+    document.getElementById('btn-lanc-salvar').style.display = 'flex'; // Usar flex por causa do ícone
+    etapaAtualWizard = 3;
+  }
+}
+
+function voltarPassoLancamento() {
+  if (etapaAtualWizard === 3) {
+    document.getElementById('lanc-step-3').style.display = 'none';
+    document.getElementById('lanc-step-2').style.display = 'block';
+    
+    document.getElementById('btn-lanc-avancar').style.display = 'block';
+    document.getElementById('btn-lanc-salvar').style.display = 'none';
+    etapaAtualWizard = 2;
+    
+  } else if (etapaAtualWizard === 2) {
+    document.getElementById('lanc-step-2').style.display = 'none';
+    document.getElementById('lanc-step-1').style.display = 'block';
+    
+    document.getElementById('btn-lanc-voltar').style.display = 'none';
+    etapaAtualWizard = 1;
+  }
+}
+// ==========================================
+// VISUALIZADOR E QUICK 1DOC
+// ==========================================
+
+function abrirViewLancamento(linhaPlanilha) {
+  const l = AppState.lancamentos.find(item => item.linhaPlanilha === linhaPlanilha);
+  if (!l) {
+    mostrarToast("Lançamento não encontrado.", "error");
+    return;
+  }
+  
+  document.getElementById('view-servidor').innerText = l.nome || "-";
+  document.getElementById('view-matricula').innerText = l.matricula || "-";
+  document.getElementById('view-tipo').innerText = l.tipo || "-";
+  
+  const dataSol = l.dataSolicitacao ? l.dataSolicitacao.split('-').reverse().join('/') : "-";
+  document.getElementById('view-data-sol').innerText = dataSol;
+  
+  const dataIni = l.dataInicio || l.dataFalta || "-";
+  document.getElementById('view-data-ini').innerText = dataIni ? dataIni.split('-').reverse().join('/') : "-";
+  
+  document.getElementById('view-qtd').innerText = l.dias ? l.dias + " dias" : (l.qtdHoras ? l.qtdHoras + " horas" : "-");
+  
+  const idocVal = l.idoc || "-";
+  document.getElementById('view-idoc').innerText = idocVal;
+  
+  document.getElementById('view-status').innerText = l.status || "Ativo";
+  document.getElementById('view-despacho').innerText = l.despacho || "Sem despacho";
+  document.getElementById('view-obs').innerText = l.observacao || "Sem observações";
+  
+  // Configura botão de Editar Tudo
+  document.getElementById('btn-view-editar').onclick = function() {
+    fecharModal('modal-view-lancamento');
+    abrirModalLancamento(linhaPlanilha);
+  };
+  
+  // Configura botão Quick 1Doc
+  document.getElementById('btn-view-quick-1doc').onclick = function() {
+    fecharModal('modal-view-lancamento');
+    abrirModalQuick1Doc(linhaPlanilha, l.nome, l.idoc);
+  };
+  
+  abrirModal('modal-view-lancamento');
+}
+
+function abrirModalQuick1Doc(linhaPlanilha, nomeServidor, idocAtual) {
+  document.getElementById('quick-idoc-linha').value = linhaPlanilha;
+  document.getElementById('quick-1doc-servidor').innerText = nomeServidor || "";
+  document.getElementById('quick-idoc-input').value = idocAtual || "";
+  
+  abrirModal('modal-quick-1doc');
+  
+  // Foca no input após abrir (pequeno delay para transição)
+  setTimeout(() => {
+    document.getElementById('quick-idoc-input').focus();
+  }, 100);
+}
+
+function salvarQuick1Doc() {
+  const linhaPlanilha = parseInt(document.getElementById('quick-idoc-linha').value);
+  const novo1Doc = document.getElementById('quick-idoc-input').value.trim();
+  
+  if (!linhaPlanilha) return;
+  
+  exibirLoader(true);
+  
+  google.script.run
+    .withSuccessHandler(function() {
+      // Atualiza localmente
+      const l = AppState.lancamentos.find(item => item.linhaPlanilha === linhaPlanilha);
+      if (l) l.idoc = novo1Doc;
+      
+      fecharModal('modal-quick-1doc');
+      carregarLancamentosEstatisticas(); // Recarrega tela
+      mostrarToast("1Doc atualizado com sucesso!", "success");
+    })
+    .withFailureHandler(function(err) {
+      exibirLoader(false);
+      mostrarToast("Erro ao salvar 1Doc: " + mensagemErro(err), "error");
+    })
+    .atualizar1DocLote(linhaPlanilha, novo1Doc);
+}
+// ==========================================
+// FUNÇÕES DO MENU DE USUÁRIO E HEADER
+// ==========================================
+function toggleUserMenu(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const menu = document.getElementById('user-dropdown-menu');
+  if (menu) {
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+// Fechar menu de usuário ao clicar fora
+document.addEventListener('click', function(event) {
+  const menu = document.getElementById('user-dropdown-menu');
+  const userInfo = document.querySelector('.user-info');
+  if (menu && menu.style.display === 'block') {
+    if (!userInfo.contains(event.target)) {
+      menu.style.display = 'none';
+    }
+  }
+});
+
+function abrirModalUsuarioPerfil(event) {
+  if(event) event.preventDefault();
+  const menu = document.getElementById('user-dropdown-menu');
+  if (menu) menu.style.display = 'none';
+  // Reaproveita a aba de administração ou avisa se não for admin (ou poderia fazer algo específico)
+  if (document.querySelector('.admin-only').style.display !== 'none') {
+    navegarPara('admin');
+  } else {
+    mostrarToast("No momento a edição de perfil está disponível apenas para administradores, solicite a alteração a um administrador.", 'info');
+  }
+}
+
+function sincronizarDadosLimpos(event) {
+  if(event) event.preventDefault();
+  const menu = document.getElementById('user-dropdown-menu');
+  if (menu) menu.style.display = 'none';
+  // Reseta AppState
+  AppState.dadosCompletosCarregados = false;
+  sincronizarDados(true);
+  mostrarToast("Cache limpo. Sincronizando dados completos...", "info");
+}
+
+function logoutUser(event) {
+  if(event) event.preventDefault();
+  // Simplesmente descarrega a interface e exibe loader infinito ou mensagem
+  document.body.innerHTML = '<div style="display: flex; height: 100vh; align-items: center; justify-content: center; font-family: sans-serif; flex-direction: column;"><span data-lucide="log-out" style="width: 48px; height: 48px; margin-bottom: 20px; color: var(--text-secondary);"></span><h2>Sessão Encerrada</h2><p style="color: var(--text-secondary);">Você saiu do sistema de RH.</p><button onclick="window.top.location.reload()" class="btn btn-primary" style="margin-top: 20px;">Fazer Login Novamente</button></div>';
+  if(typeof lucide !== 'undefined') lucide.createIcons();
 }
 </script>

@@ -29,13 +29,20 @@
         </nav>
 
         <div class="header-actions">
-          <button class="header-icon-button" onclick="sincronizarDados(true)" title="Sincronizar dados" aria-label="Sincronizar dados"><span data-lucide="refresh-cw"></span></button>
+          <button class="header-icon-button" onclick="sincronizarDados(true)" title="Sincronizar dados" aria-label="Sincronizar dados"><span data-lucide="refresh-cw" id="btn-sync-icon"></span></button>
           <button class="header-icon-button" onclick="toggleDarkMode()" title="Alternar tema" aria-label="Alternar tema"><span data-lucide="moon" id="theme-icon"></span></button>
-          <div class="user-info">
+          <div class="user-info" style="cursor: pointer; position: relative;" onclick="toggleUserMenu(event)">
             <div class="user-avatar" id="current-user-avatar">U</div>
             <div class="user-details">
               <div class="user-name" id="current-user-name">Carregando...</div>
               <div class="user-role" id="current-user-role">Acessando...</div>
+            </div>
+            
+            <div id="user-dropdown-menu" class="dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); padding: 8px 0; z-index: 1000; min-width: 200px; margin-top: 10px;">
+              <a href="#" onclick="abrirModalPerfil(event)" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px;"><span data-lucide="user" style="width: 14px; height: 14px;"></span> Meu Perfil</a>
+              <a href="#" onclick="sincronizarDadosLimpos(event)" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px;"><span data-lucide="refresh-ccw" style="width: 14px; height: 14px;"></span> Sincronizar (Limpar Cache)</a>
+              <div style="height: 1px; background: var(--border-color); margin: 4px 0;"></div>
+              <a href="#" onclick="logoutUser(event)" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--danger); text-decoration: none; font-size: 14px;"><span data-lucide="log-out" style="width: 14px; height: 14px;"></span> Sair da Conta</a>
             </div>
           </div>
           <button class="mobile-menu-button" onclick="alternarMenuMobile(true)" aria-label="Abrir menu"><span data-lucide="menu"></span></button>
@@ -182,6 +189,7 @@
                   </tr>
                 </tbody>
               </table>
+              <div id="paginacao-servidores" style="padding: 0 16px;"></div>
             </div>
           </section>
           
@@ -241,6 +249,7 @@
                   </tr>
                 </tbody>
               </table>
+              <div id="paginacao-lancamentos" style="padding: 0 16px;"></div>
             </div>
           </section>
           
@@ -283,6 +292,7 @@
                   </tr>
                 </tbody>
               </table>
+              <div id="paginacao-protocolos" style="padding: 0 16px;"></div>
             </div>
           </section>
           
@@ -673,103 +683,155 @@
         </div>
         <form id="form-lancamento" onsubmit="salvarDadosLancamento(event)">
           <input type="hidden" id="lanc-linha" value="">
-          <div class="modal-body">
+                    <div class="modal-body">
             
-            <div class="form-row">
+            <!-- Etapa 1: Dados Básicos -->
+            <div id="lanc-step-1" class="wizard-step">
+              <h4 style="margin-bottom: 16px; font-size: 14px; color: var(--brand-primary);">Etapa 1 de 3: Identificação</h4>
+              <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                  <label class="form-label">Tipo de Documento *</label>
+                  <select id="lanc-tipo" class="form-control" required onchange="ajustarCamposFormularioLancamento()">
+                    <option value="Férias">Férias</option>
+                    <option value="Férias (1/3 Pecúnia)">Férias (1/3 Pecúnia)</option>
+                    <option value="Abonada">Abonada</option>
+                    <option value="Abonada Natalícia">Abonada Natalícia</option>
+                    <option value="Abonada Eleitoral">Abonada Eleitoral</option>
+                    <option value="Licença Prêmio">Licença Prêmio</option>
+                    <option value="Autorização de Horas Extras">Autorização de Horas Extras</option>
+                    <option value="Avaliação do Estágio Probatório">Avaliação Estágio Probatório</option>
+                    <option value="Não Efetivado (Anulado)">Não Efetivado (Anulado)</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label">Data de Solicitação *</label>
+                  <input type="date" id="lanc-data-solicitacao" class="form-control" required>
+                </div>
+              </div>
+
+              <!-- Seleção de Servidor com Autocomplete -->
+              <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label">Servidor *</label>
+                <div style="position: relative;">
+                  <input type="text" id="lanc-busca-servidor" class="form-control" required placeholder="Digite o nome ou matrícula do servidor..." oninput="buscarServidorAutocomplete()">
+                  <input type="hidden" id="lanc-matricula" value="">
+                  <div id="autocomplete-lista" style="position: absolute; width: 100%; max-height: 200px; overflow-y: auto; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 0 0 6px 6px; z-index: 1001; display: none;"></div>
+                </div>
+                <p class="form-help" id="lanc-servidor-info" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; display: none;">
+                  Cargo: <span id="info-serv-cargo">-</span> | Lotação: <span id="info-serv-lotacao">-</span> | Saldo Férias: <strong id="info-serv-saldo">-</strong> | Abonadas: <strong id="info-serv-abonadas">-</strong>
+                </p>
+              </div>
+            </div>
+
+            <!-- Etapa 2: Detalhes do Período e Anexos -->
+            <div id="lanc-step-2" class="wizard-step" style="display: none;">
+              <h4 style="margin-bottom: 16px; font-size: 14px; color: var(--brand-primary);">Etapa 2 de 3: Período e Documentos</h4>
+              
+              <!-- Bloco 1: Campos Específicos de Férias e Licença Prêmio -->
+              <div class="form-row" id="bloco-ferias">
+                <div class="form-group">
+                  <label class="form-label">Data de Início *</label>
+                  <input type="date" id="lanc-data-inicio" class="form-control">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Quantidade de Dias *</label>
+                  <input type="number" id="lanc-dias" class="form-control" value="30" min="1" max="90" oninput="sugerirDespacho()">
+                </div>
+              </div>
+
+              <!-- Bloco 2: Campos Específicos de Falta/Abono/Probatório -->
+              <div class="form-group" id="bloco-falta" style="display: none;">
+                <label class="form-label">Data da Falta / Afastamento *</label>
+                <input type="date" id="lanc-data-falta" class="form-control">
+              </div>
+
+              <!-- Bloco 3: Horas Extras -->
+              <div class="form-row" id="bloco-horas" style="display: none; align-items: flex-end;">
+                <div class="form-group" style="flex: 2;">
+                  <label class="form-label">Quantidade de Horas *</label>
+                  <input type="text" id="lanc-qtd-horas" class="form-control" placeholder="Ex: 02:00" oninput="sugerirDespacho()">
+                </div>
+                <div class="form-group" style="flex: 2;">
+                  <label class="form-label">Mês (HE)</label>
+                  <select id="lanc-mes-he" class="form-control" onchange="sugerirDespacho()">
+                    <option value="">Automático</option>
+                    <option value="Janeiro">Janeiro</option>
+                    <option value="Fevereiro">Fevereiro</option>
+                    <option value="Março">Março</option>
+                    <option value="Abril">Abril</option>
+                    <option value="Maio">Maio</option>
+                    <option value="Junho">Junho</option>
+                    <option value="Julho">Julho</option>
+                    <option value="Agosto">Agosto</option>
+                    <option value="Setembro">Setembro</option>
+                    <option value="Outubro">Outubro</option>
+                    <option value="Novembro">Novembro</option>
+                    <option value="Dezembro">Dezembro</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label">Ano (HE)</label>
+                  <input type="number" id="lanc-ano-he" class="form-control" placeholder="Ex: 2026" oninput="sugerirDespacho()">
+                </div>
+              </div>
+
+              <!-- Uploads de Anexos (Até 3 PDFs) -->
+              <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label">Anexar Documentos (PDF)</label>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <input type="file" id="lanc-file-1" class="form-control" accept="application/pdf">
+                  <input type="file" id="lanc-file-2" class="form-control" accept="application/pdf">
+                  <input type="file" id="lanc-file-3" class="form-control" accept="application/pdf">
+                </div>
+                <div id="anexos-existentes" style="margin-top: 10px; display: none;">
+                  <p style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Anexos cadastrados:</p>
+                  <ul id="lista-anexos-existentes" style="list-style: none; font-size: 13px; margin-top: 4px;"></ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- Etapa 3: Finalização -->
+            <div id="lanc-step-3" class="wizard-step" style="display: none;">
+              <h4 style="margin-bottom: 16px; font-size: 14px; color: var(--brand-primary);">Etapa 3 de 3: Finalização</h4>
+              
+              <!-- Despacho e Observação -->
               <div class="form-group">
-                <label class="form-label">Tipo de Documento *</label>
-                <select id="lanc-tipo" class="form-control" required onchange="ajustarCamposFormularioLancamento()">
-                  <option value="Férias">Férias</option>
-                  <option value="Férias (1/3 Pecúnia)">Férias (1/3 Pecúnia)</option>
-                  <option value="Abonada">Abonada</option>
-                  <option value="Abonada Natalícia">Abonada Natalícia</option>
-                  <option value="Abonada Eleitoral">Abonada Eleitoral</option>
-                  <option value="Licença Prêmio">Licença Prêmio</option>
-                  <option value="Hora Extra">Hora Extra</option>
-                  <option value="Avaliação do Estágio Probatório">Avaliação Estágio Probatório</option>
-                  <option value="Não Efetivado (Anulado)">Não Efetivado (Anulado)</option>
-                </select>
+                <label class="form-label">Despacho Individual</label>
+                <input type="text" id="lanc-despacho" class="form-control" placeholder="Ex: 1º Abono, Férias Deferidas, etc...">
               </div>
+
               <div class="form-group">
-                <label class="form-label">No 1Doc (Protocolo)</label>
-                <input type="text" id="lanc-idoc" class="form-control" placeholder="Ex: 14.129/2026">
+                <label class="form-label">Observações</label>
+                <textarea id="lanc-observacao" class="form-control" rows="3" placeholder="Insira observações relevantes..."></textarea>
               </div>
-            </div>
 
-            <!-- Seleção de Servidor com Autocomplete -->
-            <div class="form-group">
-              <label class="form-label">Servidor *</label>
-              <div style="position: relative;">
-                <input type="text" id="lanc-busca-servidor" class="form-control" required placeholder="Digite o nome ou matrícula do servidor..." oninput="buscarServidorAutocomplete()">
-                <input type="hidden" id="lanc-matricula" value="">
-                <div id="autocomplete-lista" style="position: absolute; width: 100%; max-height: 200px; overflow-y: auto; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 0 0 6px 6px; z-index: 1001; display: none;"></div>
+              <div class="form-group" style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
+                <label class="form-label">Informar No 1Doc / Protocolo (Opcional)</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="lanc-idoc" class="form-control" placeholder="Ex: 14.129/2026">
+                </div>
+                <p class="form-help" style="font-size: 11px; margin-top: 4px; color: var(--text-muted);">Pode ser deixado em branco e preenchido depois pela ação Rápida na tabela.</p>
               </div>
-              <p class="form-help" id="lanc-servidor-info" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; display: none;">
-                Cargo: <span id="info-serv-cargo">-</span> | Lotação: <span id="info-serv-lotacao">-</span> | Saldo Férias: <strong id="info-serv-saldo">-</strong> | Abonadas: <strong id="info-serv-abonadas">-</strong>
-              </p>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label class="form-label">Data de Solicitação *</label>
-                <input type="date" id="lanc-data-solicitacao" class="form-control" required>
-              </div>
-            </div>
-
-            <!-- Bloco 1: Campos Específicos de Férias e Licença Prêmio -->
-            <div class="form-row" id="bloco-ferias">
-              <div class="form-group">
-                <label class="form-label">Data de Início *</label>
-                <input type="date" id="lanc-data-inicio" class="form-control">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Quantidade de Dias *</label>
-                <input type="number" id="lanc-dias" class="form-control" value="30" min="1" max="90" oninput="sugerirDespacho()">
-              </div>
-            </div>
-
-            <!-- Bloco 2: Campos Específicos de Falta/Abono/Probatório -->
-            <div class="form-group" id="bloco-falta" style="display: none;">
-              <label class="form-label">Data da Falta / Afastamento *</label>
-              <input type="date" id="lanc-data-falta" class="form-control">
-            </div>
-
-            <!-- Bloco 3: Horas Extras -->
-            <div class="form-group" id="bloco-horas" style="display: none;">
-              <label class="form-label">Quantidade de Horas *</label>
-              <input type="text" id="lanc-qtd-horas" class="form-control" placeholder="Ex: 02:00">
-            </div>
-
-            <!-- Uploads de Anexos (Até 3 PDFs) -->
-            <div class="form-group">
-              <label class="form-label">Anexar Documentos (PDF)</label>
-              <div style="display: flex; flex-direction: column; gap: 8px;">
-                <input type="file" id="lanc-file-1" class="form-control" accept="application/pdf">
-                <input type="file" id="lanc-file-2" class="form-control" accept="application/pdf">
-                <input type="file" id="lanc-file-3" class="form-control" accept="application/pdf">
-              </div>
-              <div id="anexos-existentes" style="margin-top: 10px; display: none;">
-                <p style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Anexos cadastrados:</p>
-                <ul id="lista-anexos-existentes" style="list-style: none; font-size: 13px; margin-top: 4px;"></ul>
-              </div>
-            </div>
-
-            <!-- Despacho e Observação -->
-            <div class="form-group">
-              <label class="form-label">Despacho Individual</label>
-              <input type="text" id="lanc-despacho" class="form-control" placeholder="Ex: 1º Abono, Férias Deferidas, etc...">
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">Observações</label>
-              <textarea id="lanc-observacao" class="form-control" rows="3" placeholder="Insira observações relevantes..."></textarea>
             </div>
 
           </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar Lançamento</button>
+          <div class="modal-footer" style="justify-content: space-between;">
+            <div>
+              <button type="button" class="btn btn-secondary" id="btn-lanc-voltar" style="display: none;" onclick="voltarPassoLancamento()">
+                <span data-lucide="arrow-left" style="width:16px; height:16px;"></span> Voltar
+              </button>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="btn-lanc-avancar" onclick="avancarPassoLancamento()">
+                Próxima Etapa <span data-lucide="arrow-right" style="width:16px; height:16px; margin-left:4px;"></span>
+              </button>
+              <button type="submit" class="btn btn-primary" id="btn-lanc-salvar" style="display: none;">
+                <span data-lucide="save" style="width:16px; height:16px; margin-right:4px;"></span> Salvar Lançamento
+              </button>
+            </div>
           </div>
+
         </form>
       </div>
     </div>
@@ -915,6 +977,93 @@
         </div>
         <div class="modal-body" id="print-area-relatorio" style="padding: 40px; background-color: #fff; overflow-y: auto;">
           <!-- Relatório impresso é colocado aqui -->
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 8: Visualizador Completo (View) -->
+    <div class="modal-overlay" id="modal-view-lancamento">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Detalhes do Lançamento</h3>
+          <button class="modal-close" onclick="fecharModal('modal-view-lancamento')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+              <div><strong style="color: var(--text-secondary);">Servidor:</strong> <br><span id="view-servidor"></span></div>
+              <div><strong style="color: var(--text-secondary);">Matrícula:</strong> <br><span id="view-matricula"></span></div>
+              <div><strong style="color: var(--text-secondary);">Tipo:</strong> <br><span id="view-tipo"></span></div>
+              <div><strong style="color: var(--text-secondary);">Data Solicitação:</strong> <br><span id="view-data-sol"></span></div>
+              <div><strong style="color: var(--text-secondary);">Início / Falta:</strong> <br><span id="view-data-ini"></span></div>
+              <div><strong style="color: var(--text-secondary);">Quantidade:</strong> <br><span id="view-qtd"></span></div>
+              <div><strong style="color: var(--text-secondary);">1Doc / Protocolo:</strong> <br><strong id="view-idoc" style="color: var(--brand-primary);"></strong></div>
+              <div><strong style="color: var(--text-secondary);">Status:</strong> <br><span id="view-status"></span></div>
+            </div>
+            <div style="margin-top: 12px; font-size: 14px;">
+              <strong style="color: var(--text-secondary);">Despacho:</strong> <br><span id="view-despacho"></span>
+            </div>
+            <div style="margin-top: 12px; font-size: 14px;">
+              <strong style="color: var(--text-secondary);">Observações:</strong> <br><span id="view-obs"></span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content: space-between;">
+          <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-view-lancamento')">Fechar</button>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-primary" id="btn-view-quick-1doc">Informar 1Doc</button>
+            <button type="button" class="btn btn-secondary" id="btn-view-editar">
+              <span data-lucide="edit-3" style="width:16px; height:16px; margin-right:4px;"></span> Editar Tudo
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 9: Preenchimento Rápido de 1Doc -->
+    <div class="modal-overlay" id="modal-quick-1doc" style="z-index: 10000;">
+      <div class="modal-content small" style="max-width: 400px;">
+        <div class="modal-header">
+          <h3 class="modal-title">Informar Protocolo 1Doc</h3>
+          <button class="modal-close" onclick="fecharModal('modal-quick-1doc')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Servidor: <strong id="quick-1doc-servidor"></strong></p>
+          <div class="form-group">
+            <label class="form-label">Nº 1Doc (Protocolo)</label>
+            <input type="text" id="quick-idoc-input" class="form-control" placeholder="Ex: 14.129/2026">
+            <input type="hidden" id="quick-idoc-linha" value="">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="fecharModal('modal-quick-1doc')">Cancelar</button>
+          <button class="btn btn-primary" onclick="salvarQuick1Doc()">Salvar Protocolo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICATIONS -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- MODAL CUSTOM CONFIRM -->
+    <div class="modal-overlay" id="modal-confirm" style="z-index: 9999;">
+      <div class="modal-content small" style="max-width: 450px;">
+        <div class="modal-header">
+          <h3 class="modal-title" id="confirm-title">Confirmação</h3>
+          <button class="modal-close" onclick="fecharModal('modal-confirm')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p id="confirm-message" style="font-size: 14px; margin-bottom: 10px; color: var(--text-secondary);"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="confirm-btn-cancel">Cancelar</button>
+          <button class="btn btn-primary" id="confirm-btn-ok">Confirmar</button>
         </div>
       </div>
     </div>
