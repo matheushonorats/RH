@@ -3401,10 +3401,27 @@ function tocarSomNotificacao() {
   }
 }
 
+function girarBotaoEntidade(callback) {
+  const fab = document.querySelector('.entidade-fab');
+  if (fab) {
+    fab.classList.remove('rotate');
+    void fab.offsetWidth; // trigger reflow
+    fab.classList.add('rotate');
+    setTimeout(() => {
+      fab.classList.remove('rotate');
+      if (callback) callback();
+    }, 600); // 600ms matching transition time
+  } else {
+    if (callback) callback();
+  }
+}
+
 function exibirBadgeNotificacao() {
   if (!entidadeChatAberto) {
-    document.getElementById('entidade-badge').style.display = 'flex';
-    tocarSomNotificacao();
+    girarBotaoEntidade(function() {
+      document.getElementById('entidade-badge').style.display = 'flex';
+      tocarSomNotificacao();
+    });
   }
 }
 
