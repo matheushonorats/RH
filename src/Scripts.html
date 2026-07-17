@@ -2306,10 +2306,7 @@ function gerarDadosRelatorio() {
     exibirLoader(false);
   };
   
-  let handlerErro = function(e) {
-    exibirLoader(false);
-    mostrarToast("Erro ao emitir relatório: " + e.toString(), 'error');
-  };
+
   
   if (tipo === 'compulsorias') {
     tituloUltimoRelatorio = "Relatório de Férias Compulsórias (Acúmulo de 2 Períodos)";
