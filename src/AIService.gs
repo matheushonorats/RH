@@ -9,12 +9,11 @@
  */
 function chamarEntidade(mensagemUsuario, contextoLocalStr) {
   try {
-    const config = obterListaConfiguracoes().find(c => c.chave === 'OPENROUTER_API_KEY');
-    if (!config || !config.valor || config.valor.trim() === '') {
-      return { erro: "A chave da API do OpenRouter (OPENROUTER_API_KEY) não foi configurada em Administração > Parametrizações Gerais." };
+    const apiKey = obterConfigValorInterno_('OPENROUTER_API_KEY');
+    if (!apiKey) {
+      return { erro: "A chave da API do OpenRouter (OPENROUTER_API_KEY) não foi encontrada na aba 'Configuracoes' da planilha." };
     }
     
-    const apiKey = config.valor.trim();
     const url = "https://openrouter.ai/api/v1/chat/completions";
     
     // Obter dados gerais do sistema como contexto de fundo
@@ -70,7 +69,7 @@ Regras:
     
     if (responseCode !== 200) {
       Logger.log("Erro API OpenRouter: " + responseBody);
-      return { erro: "Não foi possível conectar à Entidade no momento. Tente novamente mais tarde." };
+      return { erro: "Erro API OpenRouter (" + responseCode + "): " + responseBody };
     }
     
     const data = JSON.parse(responseBody);
@@ -94,6 +93,26 @@ Regras:
     
   } catch (error) {
     Logger.log("Erro interno em chamarEntidade: " + error.toString());
-    return { erro: "Ocorreu um erro interno ao processar sua solicitação." };
+    return { erro: "Erro interno na Entidade: " + error.toString() };
   }
+}
+
+/**
+ * Busca o valor de uma configuração sem exigir ser Administrador.
+ */
+function obterConfigValorInterno_(chave) {
+  try {
+    const ss = obterPlanilha_();
+    const aba = ss.getSheetByName("Configuracoes");
+    if (!aba) return "";
+    const dados = aba.getDataRange().getValues();
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0]).trim() === chave) {
+        return String(dados[i][1]).trim();
+      }
+    }
+  } catch (e) {
+    Logger.log("Erro ao obter config " + chave + ": " + e.toString());
+  }
+  return "";
 }
