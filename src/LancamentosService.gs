@@ -428,7 +428,7 @@ function atualizar1DocLote(linhaPlanilha, novo1Doc) {
   }
   
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = obterPlanilha_();
     const aba = ss.getSheetByName("Lançamentos");
     if (!aba) throw new Error("Aba 'Lançamentos' não encontrada");
     
