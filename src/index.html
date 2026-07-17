@@ -491,6 +491,7 @@
                   <option value="Lançamentos">Lançamentos</option>
                   <option value="Protocolos">Protocolos</option>
                   <option value="Usuarios">Usuários</option>
+                  <option value="IA_Entidade">IA Entidade</option>
                 </select>
                 <select id="log-filtro-acao" class="form-control filter-select" onchange="filtrarLogsAuditoria()">
                   <option value="">Todas Ações</option>
@@ -530,7 +531,7 @@
         </div>
         
         <footer style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; border-top: 1px solid var(--border-color); margin-top: auto;">
-          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.1.2</strong>
+          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.2.8</strong>
         </footer>
       </main>
       
@@ -1154,6 +1155,47 @@
         </div>
       </div>
     </div>
+
+    <!-- WIDGET ENTIDADE (ASSISTENTE IA) -->
+    <div id="entidade-widget" class="entidade-widget">
+      <!-- Chat Window -->
+      <div id="entidade-chat-window" class="entidade-chat-window" style="display: none;">
+        <div class="entidade-header">
+          <div class="entidade-title">
+            <span data-lucide="sparkles" style="width: 16px; height: 16px;"></span>
+            <strong>Entidade</strong>
+            <span class="entidade-status" id="entidade-status-text">Online</span>
+          </div>
+          <button class="entidade-close" onclick="fecharChatEntidade()"><span data-lucide="x" style="width: 18px; height: 18px;"></span></button>
+        </div>
+        
+        <div class="entidade-messages" id="entidade-messages">
+          <div class="entidade-msg ia">
+            Olá! Sou a Entidade, vigia deste sistema. Como posso ajudar?
+          </div>
+        </div>
+        
+        <div class="entidade-chips" id="entidade-chips" style="display: none;">
+          <!-- Chips gerados dinamicamente via JS -->
+        </div>
+
+        <div class="entidade-input-area">
+          <input type="text" id="entidade-input" placeholder="Pergunte algo ou peça uma ação..." onkeypress="entidadeKeyPress(event)">
+          <button id="entidade-send-btn" onclick="enviarMensagemEntidade()">
+            <span data-lucide="send" style="width: 16px; height: 16px;"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Floating Button -->
+      <button id="entidade-fab" class="entidade-fab" onclick="toggleChatEntidade()">
+        <span data-lucide="bot" id="entidade-fab-icon"></span>
+        <div id="entidade-badge" class="entidade-badge" style="display: none;">!</div>
+      </button>
+    </div>
+
+    <!-- AUDIO PARA NOTIFICAÇÃO -->
+    <audio id="entidade-audio" src="https://www.soundjay.com/buttons/sounds/button-10.mp3" preload="auto"></audio>
 
     <!-- Scripts da Interface -->
     <?!= incluir("Scripts"); ?>
