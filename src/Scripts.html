@@ -2341,12 +2341,24 @@ function desenharTabelaRelatorio(tipo, dados) {
   let htmlHead = "<tr>";
   let htmlBody = "";
   
+  const thStyle = "cursor:pointer; user-select:none; transition: background 0.2s;";
+  
   if (tipo === 'compulsorias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual", "Limite p/ Início", "Venc. 3º Período"];
-    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo Atual</th><th style='text-align:center;'>Limite p/ Início</th><th style='text-align:center;'>Venc. 3º Per.</th>";
+    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Cargo</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Lotação</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Saldo Atual</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Limite p/ Início</th><th onclick="ordenarTabelaRelatorio(this, 6)" style="${thStyle} text-align:center;">Venc. 3º Per.</th>`;
+    
+    // Default sort by who needs to leave first
+    dados = dados.map(s => {
+      s.limiteCalc = calcularLimiteCompulsoria(s);
+      return s;
+    }).sort((a, b) => {
+      const valA = a.limiteCalc.diasRestantes === null ? 999999 : a.limiteCalc.diasRestantes;
+      const valB = b.limiteCalc.diasRestantes === null ? 999999 : b.limiteCalc.diasRestantes;
+      return valA - valB;
+    });
     
     dados.forEach(s => {
-      const limite = calcularLimiteCompulsoria(s);
+      const limite = s.limiteCalc;
       let limitHtml = limite.limiteInicio;
       if (limite.diasRestantes !== null) {
         if (limite.diasRestantes < 0) {
@@ -2360,28 +2372,28 @@ function desenharTabelaRelatorio(tipo, dados) {
     });
   } else if (tipo === 'situacao_ferias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual"];
-    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Cargo</th><th>Lotação</th><th style='text-align:center;'>Saldo Atual</th>";
+    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Cargo</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Lotação</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Saldo Atual</th>`;
     
     dados.forEach(s => {
       htmlBody += `<tr>         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>       </tr>`;
     });
   } else if (tipo === 'calendario_ausencias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Tipo de Ausência", "Início", "Fim", "Total de Dias"];
-    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Tipo de Ausência</th><th style='text-align:center;'>Início</th><th style='text-align:center;'>Fim</th><th style='text-align:center;'>Dias</th>";
+    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Tipo de Ausência</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle} text-align:center;">Início</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Fim</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Dias</th>`;
     
     dados.forEach(a => {
       htmlBody += `<tr>         <td><strong>${escapeHtml(a.nome)}</strong></td>         <td>${escapeHtml(a.matricula)}</td>         <td>${escapeHtml(a.tipo)}</td>         <td style='text-align:center;'>${escapeHtml(a.inicio)}</td>         <td style='text-align:center;'>${escapeHtml(a.fim)}</td>         <td style='text-align:center;'>${a.dias}</td>       </tr>`;
     });
   } else if (tipo === 'resumo_mensal') {
     colunasUltimoRelatorio = ["1Doc", "Data", "Tipo", "Servidor", "Matrícula", "Data Saída", "Dias/Qtd", "Status"];
-    htmlHead += "<th>1Doc / Prot.</th><th>Data Solicitação</th><th>Tipo Documento</th><th>Servidor</th><th>Matrícula</th><th style='text-align:center;'>Data Início</th><th style='text-align:center;'>Duração</th><th>Status</th>";
+    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">1Doc / Prot.</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Data Solicitação</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Tipo Documento</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Data Início</th><th onclick="ordenarTabelaRelatorio(this, 6)" style="${thStyle} text-align:center;">Duração</th><th onclick="ordenarTabelaRelatorio(this, 7)" style="${thStyle}">Status</th>`;
     
     dados.forEach(l => {
       htmlBody += `<tr>         <td><strong>${escapeHtml(l.idoc)}</strong></td>         <td>${escapeHtml(l.dataSolicitacao)}</td>         <td>${escapeHtml(l.tipo)}</td>         <td>${escapeHtml(l.nome)}</td>         <td>${escapeHtml(l.matricula)}</td>         <td style='text-align:center;'>${escapeHtml(l.dataInicio)}</td>         <td style='text-align:center;'>${l.dias > 0 ? l.dias + ' d' : (escapeHtml(l.qtdHoras) || '-')}</td>         <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${escapeHtml(l.status)}</span></td>       </tr>`;
     });
   } else if (tipo === 'abonos_anuais') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Lotação", "Abonadas Usadas", "Cota Limite", "Saldo Restante"];
-    htmlHead += "<th>Servidor</th><th>Matrícula</th><th>Lotação</th><th style='text-align:center;'>Abonadas Usadas</th><th style='text-align:center;'>Cota Limite</th><th style='text-align:center;'>Saldo Restante</th>";
+    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Lotação</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle} text-align:center;">Abonadas Usadas</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Cota Limite</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Saldo Restante</th>`;
     
     dados.forEach(a => {
       htmlBody += `<tr>         <td><strong>${escapeHtml(a.nome)}</strong></td>         <td>${escapeHtml(a.matricula)}</td>         <td>${escapeHtml(a.lotacao)}</td>         <td style='text-align:center;'>${a.abonosUsados} / ${a.limiteAnual}</td>         <td style='text-align:center;'>${a.limiteAnual}</td>         <td style='text-align:center; font-weight:bold; color: ${a.saldoRestante === 0 ? 'var(--status-leave-text)' : 'var(--status-active-text)'}'>${a.saldoRestante} d</td>       </tr>`;
@@ -2393,6 +2405,50 @@ function desenharTabelaRelatorio(tipo, dados) {
   body.innerHTML = htmlBody;
   
   document.getElementById('rep-resultado-container').style.display = "block";
+}
+
+let ordenacaoRelatorio = { coluna: -1, asc: true };
+
+function ordenarTabelaRelatorio(thElement, colIndex) {
+  const tbody = document.getElementById('tabela-relatorio-body');
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  if (rows.length === 0 || rows[0].querySelector('td[colspan]')) return;
+  
+  const asc = (ordenacaoRelatorio.coluna === colIndex) ? !ordenacaoRelatorio.asc : true;
+  ordenacaoRelatorio = { coluna: colIndex, asc: asc };
+  
+  const ths = thElement.parentElement.querySelectorAll("th");
+  ths.forEach(t => {
+    t.innerHTML = t.innerHTML.replace(/ \u25B2| \u25BC/g, ''); // Remove arrows
+    t.style.backgroundColor = "";
+  });
+  thElement.innerHTML += asc ? " \u25B2" : " \u25BC";
+  thElement.style.backgroundColor = "rgba(0,0,0,0.05)";
+  
+  rows.sort((a, b) => {
+    const cellA = a.children[colIndex].innerText.trim();
+    const cellB = b.children[colIndex].innerText.trim();
+    
+    const dateRegex = /^(\d{2})\/(\d{2})\/(\d{4})/;
+    if (dateRegex.test(cellA) && dateRegex.test(cellB)) {
+      const da = cellA.split(' ')[0].split('/');
+      const db = cellB.split(' ')[0].split('/');
+      const timeA = new Date(da[2], da[1]-1, da[0]).getTime();
+      const timeB = new Date(db[2], db[1]-1, db[0]).getTime();
+      return asc ? timeA - timeB : timeB - timeA;
+    }
+    
+    const numA = parseFloat(cellA.replace(/[^\d.-]/g, ''));
+    const numB = parseFloat(cellB.replace(/[^\d.-]/g, ''));
+    
+    if (!isNaN(numA) && !isNaN(numB) && cellA.match(/\d/) && cellB.match(/\d/)) {
+      return asc ? numA - numB : numB - numA;
+    }
+    
+    return asc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+  });
+  
+  rows.forEach(r => tbody.appendChild(r));
 }
 
 /**
