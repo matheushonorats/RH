@@ -25,7 +25,7 @@ function obterIndicesColunasLancamentos_(cabecalho) {
     anexo3:          indiceCabecalho_(cabecalho, ["ANEXO 3", "ANEXO3"]),
     despacho:        indiceCabecalho_(cabecalho, ["DESPACHO INDIVIDUAL", "DESPACHO"]),
     observacao:      indiceCabecalho_(cabecalho, ["OBSERVACAO INDIVIDUAL", "OBSERVACAO", "OBSERVACOES"]),
-    idProtocolo:     indiceCabecalho_(cabecalho, ["ID PROTOCOLO"]),
+    idProtocolo:     indiceCabecalho_(cabecalho, ["ID_PROTOCOLO", "ID PROTOCOLO"]),
     criadoPor:       indiceCabecalho_(cabecalho, ["CRIADO POR"]),
     criadoEm:        indiceCabecalho_(cabecalho, ["CRIADO EM"]),
     editadoPor:      indiceCabecalho_(cabecalho, ["EDITADO POR"]),

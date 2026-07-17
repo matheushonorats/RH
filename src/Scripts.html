@@ -868,9 +868,10 @@ function carregarDashboard() {
                 <button class="btn-action" onclick="abrirViewLancamento(${a.linhaPlanilha}); return false;" title="Visualizar Lançamento">
                   <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
                 </button>
+                ${(!a.idoc || a.idoc.trim() === "") ? `
                 <button class="btn-action" onclick="abrirModalQuick1Doc(${a.linhaPlanilha}, '${escapeHtml(a.nome)}', '${escapeHtml(a.idoc || '')}'); return false;" title="Preencher 1Doc Rápido" style="color: var(--brand-primary);">
                   <span data-lucide="file-signature" style="width: 14px; height: 14px;"></span>
-                </button>
+                </button>` : ''}
               </div>
             </td>
             <td><strong>${escapeHtml(a.idoc || '-')}</strong></td>
@@ -1449,9 +1450,10 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
           <button class="btn-action" data-action="view-lanc" data-linha="${l.linhaPlanilha}" title="Visualizar Lançamento">
             <span data-lucide="eye" style="width: 14px; height: 14px;"></span>
           </button>
+          ${(!l.idoc || l.idoc.trim() === "") ? `
           <button class="btn-action" data-action="quick-1doc" data-linha="${l.linhaPlanilha}" data-nome="${escapeHtml(l.nome)}" data-idoc="${escapeHtml(l.idoc || '')}" title="Preencher 1Doc Rápido" style="color: var(--brand-primary);">
             <span data-lucide="file-signature" style="width: 14px; height: 14px;"></span>
-          </button>
+          </button>` : ''}
         </div>
       </td>
       <td><strong>${escapeHtml(l.idoc)}</strong></td>
@@ -3176,6 +3178,28 @@ function abrirViewLancamento(linhaPlanilha) {
   document.getElementById('view-despacho').innerText = l.despacho || "Sem despacho";
   document.getElementById('view-obs').innerText = l.observacao || "Sem observações";
   
+  // Exibir ligação com o protocolo se existir
+  const protContainer = document.getElementById('view-protocolo-vinculo-container');
+  const protLink = document.getElementById('view-protocolo-vinculo');
+  if (l.idProtocolo && l.idProtocolo !== "undefined" && l.idProtocolo !== "null" && String(l.idProtocolo).trim() !== "") {
+    protContainer.style.display = 'block';
+    protLink.innerText = l.idProtocolo;
+    protLink.onclick = function() {
+      fecharModal('modal-view-lancamento');
+      abrirFolhaProtocolo(l.idProtocolo);
+    };
+  } else {
+    protContainer.style.display = 'none';
+  }
+  
+  // Ocultar botão de informar 1doc se já possuir
+  const btnQuick1Doc = document.getElementById('btn-view-quick-1doc');
+  if (l.idoc && l.idoc.trim() !== "") {
+    btnQuick1Doc.style.display = 'none';
+  } else {
+    btnQuick1Doc.style.display = 'inline-block';
+  }
+  
   const containerAnexos = document.getElementById('view-anexos-container');
   const divAnexos = document.getElementById('view-anexos');
   const validAnexos = [l.anexo1, l.anexo2, l.anexo3].filter(a => a && a.trim() !== "" && a.trim() !== "undefined");
@@ -3198,7 +3222,7 @@ function abrirViewLancamento(linhaPlanilha) {
   };
   
   // Configura botão Quick 1Doc
-  document.getElementById('btn-view-quick-1doc').onclick = function() {
+  btnQuick1Doc.onclick = function() {
     fecharModal('modal-view-lancamento');
     abrirModalQuick1Doc(linhaPlanilha, l.nome, l.idoc);
   };

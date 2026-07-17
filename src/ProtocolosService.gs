@@ -95,10 +95,13 @@ function criarProtocolo(linhasLancamentos) {
     // 2. Mapeamento de colunas da aba Lançamentos
     const dadosLanc = abaLanc.getDataRange().getValues();
     const cabecalhoLanc = dadosLanc[0];
-    const colIdxIDProt = cabecalhoLanc.indexOf("ID_Protocolo");
+    let colIdxIDProt = cabecalhoLanc.indexOf("ID_Protocolo");
+    if (colIdxIDProt === -1) {
+      colIdxIDProt = cabecalhoLanc.indexOf("ID PROTOCOLO");
+    }
 
     if (colIdxIDProt === -1) {
-      throw new Error("Erro de infraestrutura: Coluna 'ID_Protocolo' não encontrada na aba Lançamentos.");
+      throw new Error("Erro de infraestrutura: Coluna 'ID_Protocolo' ou 'ID PROTOCOLO' não encontrada na aba Lançamentos.");
     }
 
     // 3. Escrita em lote: acumula pares [linha, valor] e grava tudo de uma vez
@@ -392,7 +395,7 @@ function contarLancamentosPorProtocolo_(ss) {
 
   const cabecalho = dados[0];
   // Lê tanto ID_Protocolo quanto Link_Protocolo (dados migrados usam Link_Protocolo como ID)
-  const colIdxIDProt  = indiceCabecalho_(cabecalho, ["ID PROTOCOLO"]);
+  const colIdxIDProt  = indiceCabecalho_(cabecalho, ["ID_PROTOCOLO", "ID PROTOCOLO"]);
   const colIdxLinkProt = indiceCabecalho_(cabecalho, ["LINK PROTOCOLO", "LINK PROTOCOLO"]);
 
   if (colIdxIDProt === -1 && colIdxLinkProt === -1) return {};
