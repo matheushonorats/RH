@@ -453,3 +453,50 @@ function atualizar1DocLote(linhaPlanilha, novo1Doc) {
     lock.releaseLock();
   }
 }
+
+function obterAnexoBase64(caminho) {
+  obterDadosUsuarioLogado(); // Verifica token e permissões
+  
+  let caminhoLimpo = String(caminho || "").trim();
+  if (!caminhoLimpo) throw new Error("Caminho inválido.");
+  
+  if (caminhoLimpo.startsWith("http://") || caminhoLimpo.startsWith("https://")) {
+    throw new Error("Não é possível baixar links externos diretos por aqui.");
+  }
+  
+  const ss = obterPlanilha_();
+  let pastaPai = null;
+  try {
+    pastaPai = DriveApp.getFileById(ss.getId()).getParents().next();
+  } catch (e) {
+    throw new Error("Erro ao obter pasta raiz do sistema.");
+  }
+  
+  const partes = caminhoLimpo.split("/");
+  let cursorPasta = pastaPai;
+  
+  for (let i = 0; i < partes.length - 1; i++) {
+    const nomeSubpasta = partes[i];
+    if (!nomeSubpasta) continue;
+    const subs = cursorPasta.getFoldersByName(nomeSubpasta);
+    if (subs.hasNext()) {
+      cursorPasta = subs.next();
+    } else {
+      throw new Error("Pasta não encontrada no Drive.");
+    }
+  }
+  
+  const nomeArquivo = partes[partes.length - 1];
+  const arquivos = cursorPasta.getFilesByName(nomeArquivo);
+  if (arquivos.hasNext()) {
+    const file = arquivos.next();
+    const blob = file.getBlob();
+    return {
+      nome: file.getName(),
+      mimeType: blob.getContentType(),
+      b64: Utilities.base64Encode(blob.getBytes())
+    };
+  }
+  
+  throw new Error("Arquivo não encontrado no Drive.");
+}
