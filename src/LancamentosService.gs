@@ -433,9 +433,9 @@ function atualizar1DocLote(linhaPlanilha, novo1Doc) {
     if (!aba) throw new Error("Aba 'Lançamentos' não encontrada");
     
     const cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
-    const idxIdoc = cabecalho.indexOf("1doc") + 1;
-    const idxEditadoPor = cabecalho.indexOf("editado_por") + 1;
-    const idxEditadoEm = cabecalho.indexOf("editado_em") + 1;
+    const idxIdoc = indiceCabecalho_(cabecalho, ["N PROC 1DOC", "1DOC", "PROTOCOLO", "N 1DOC"]) + 1;
+    const idxEditadoPor = indiceCabecalho_(cabecalho, ["EDITADO POR"]) + 1;
+    const idxEditadoEm = indiceCabecalho_(cabecalho, ["EDITADO EM"]) + 1;
     
     if (idxIdoc === 0) throw new Error("Coluna 1doc não encontrada");
     

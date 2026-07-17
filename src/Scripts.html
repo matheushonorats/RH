@@ -973,7 +973,7 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
   const totalItens = estado.listaAtual.length;
   
   if (totalItens === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Nenhum lançamento encontrado.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-secondary);">Nenhum lançamento encontrado.</td></tr>`;
     renderizarControlesPaginacao('paginacao-lancamentos', 'lancamentos', 0);
     return;
   }
@@ -1010,13 +1010,14 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
         </div>
       </td>
       <td><strong>${escapeHtml(l.idoc)}</strong></td>
+      <td>${escapeHtml(l.dataSolicitacao)}</td>
       <td>${escapeHtml(l.tipo)}</td>
-      <td>${escapeHtml(l.nome)} (${escapeHtml(l.matricula)})</td>
+      <td>${escapeHtml(l.nome)} <br><small>(${escapeHtml(l.matricula)})</small></td>
       <td>${escapeHtml(dataShow)}</td>
       <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (escapeHtml(l.qtdHoras) || '-')}</td>
       <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>
       <td>
-        <div class="action-buttons">
+        <div class="action-buttons" style="justify-content: flex-end;">
           ${possuiAnexos ? `<button class="btn-action" data-action="ver-anexos" data-a1="${escapeHtml(l.anexo1)}" data-a2="${escapeHtml(l.anexo2)}" data-a3="${escapeHtml(l.anexo3)}" title="Visualizar Anexos"><span data-lucide="paperclip" style="width: 14px; height: 14px;"></span></button>` : ''}
           <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Tudo">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
@@ -1474,6 +1475,7 @@ async function salvarDadosLancamento(event) {
   
   const idocInput = document.getElementById('lanc-idoc').value.trim();
   const linhaAtual = parseInt(document.getElementById('lanc-linha').value) || -1;
+  const tipoDoc = document.getElementById('lanc-tipo').value;
   
   if (idocInput && AppState.lancamentos) {
     const lExistente = AppState.lancamentos.find(l => l.idoc === idocInput && l.linhaPlanilha !== linhaAtual);
@@ -1484,8 +1486,6 @@ async function salvarDadosLancamento(event) {
       }
     }
   }
-  
-  const tipoDoc = document.getElementById('lanc-tipo').value;
   let dataInicioInput = "";
   let diasInput = 0;
   let qtdHorasInput = "";
