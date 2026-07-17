@@ -2589,7 +2589,8 @@ function salvarQuick1Doc() {
       if (l) l.idoc = novo1Doc;
       
       fecharModal('modal-quick-1doc');
-      carregarLancamentosEstatisticas(); // Recarrega tela
+      exibirLoader(false);
+      carregarListaLancamentos(); // Recarrega tela
       mostrarToast("1Doc atualizado com sucesso!", "success");
     })
     .withFailureHandler(function(err) {
