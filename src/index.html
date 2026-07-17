@@ -38,11 +38,11 @@
               <div class="user-role" id="current-user-role">Acessando...</div>
             </div>
             
-            <div id="user-dropdown-menu" class="dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); padding: 8px 0; z-index: 1000; min-width: 200px; margin-top: 10px;">
-              <a href="#" onclick="abrirModalPerfil(event)" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px;"><span data-lucide="user" style="width: 14px; height: 14px;"></span> Meu Perfil</a>
-              <a href="#" onclick="sincronizarDadosLimpos(event)" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px;"><span data-lucide="refresh-ccw" style="width: 14px; height: 14px;"></span> Sincronizar (Limpar Cache)</a>
+            <div id="user-dropdown-menu" class="dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); padding: 8px 0; z-index: 1000; min-width: 220px; margin-top: 10px;">
+              <a href="#" onclick="abrirModalPerfil(event)" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px; white-space: nowrap;"><span data-lucide="user" style="width: 14px; height: 14px;"></span> Meu Perfil</a>
+              <a href="#" onclick="sincronizarDadosLimpos(event)" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px; white-space: nowrap;"><span data-lucide="refresh-ccw" style="width: 14px; height: 14px;"></span> Sincronizar (Limpar Cache)</a>
               <div style="height: 1px; background: var(--border-color); margin: 4px 0;"></div>
-              <a href="#" onclick="logoutUser(event)" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px; color: var(--danger); text-decoration: none; font-size: 14px;"><span data-lucide="log-out" style="width: 14px; height: 14px;"></span> Sair da Conta</a>
+              <a href="#" onclick="logoutUser(event)" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; color: var(--danger); text-decoration: none; font-size: 14px; white-space: nowrap;"><span data-lucide="log-out" style="width: 14px; height: 14px;"></span> Sair da Conta</a>
             </div>
           </div>
           <button class="mobile-menu-button" onclick="alternarMenuMobile(true)" aria-label="Abrir menu"><span data-lucide="menu"></span></button>
