@@ -19,6 +19,8 @@ const AppState = {
   }
 };
 
+let currentView = 'dashboard';
+
 // ==========================================
 // SYNC QUEUE — Fila de operações pendentes
 // ==========================================
@@ -359,6 +361,7 @@ window.addEventListener('DOMContentLoaded', () => {
  * Controla a navegação SPA entre as abas do menu
  */
 function navegarPara(idView) {
+  currentView = idView;
   // 1. Ocultar todas as views e desativar todos os links
   document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
   document.querySelectorAll('.menu-link').forEach(link => link.classList.remove('active'));
@@ -848,6 +851,12 @@ function carregarDadosDaView(idView) {
  */
 function carregarDashboard() {
   if (typeof google === "undefined" || !google.script) return;
+
+  // Agenda o vigia se não foi iniciado ainda
+  if (typeof entidadeVigiaAtivo !== 'undefined' && !entidadeVigiaAtivo) {
+    entidadeVigiaAtivo = true;
+    setTimeout(iniciarVigia, 4000);
+  }
 
   const resumo = AppState.dashboard || {};
   
@@ -3536,14 +3545,4 @@ function iniciarVigia() {
     })
     .chamarEntidade(null, contexto);
 }
-
-// Quando a sync inicial termina, se o app carregou, a gente agenda o Vigia para não travar a UI inicial
-const orgRenderDashboardCards = renderDashboardCards;
-renderDashboardCards = function() {
-  orgRenderDashboardCards();
-  if (!entidadeVigiaAtivo && currentView === 'dashboard') {
-    entidadeVigiaAtivo = true;
-    setTimeout(iniciarVigia, 4000); // aguarda 4s depois de abrir a tela
-  }
-};
 </script>
