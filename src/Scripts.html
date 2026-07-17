@@ -41,6 +41,7 @@ function mensagemErro(erro) {
 
 // Executa automaticamente ao carregar a página
 window.addEventListener('DOMContentLoaded', () => {
+  inicializarInterface();
   // Inicializa os ícones do Lucide quando o CDN estiver disponível.
   renderizarIcones();
   
@@ -63,27 +64,11 @@ function navegarPara(idView) {
   }
   
   // 3. Ativar o link clicado e mover o indicador
-  const linkAtivo = Array.from(document.querySelectorAll('.menu-link')).find(link => 
-    link.getAttribute('onclick') && link.getAttribute('onclick').includes(`'${idView}'`)
-  );
-  if (linkAtivo) {
-    linkAtivo.classList.add('active');
-    
-    // Move o indicador flutuante
-    const ind = document.getElementById('sidebar-indicator');
-    if (ind) {
-      // O offsetTop do link (dentro do li) + o offset do próprio li em relação ao ul
-      const li = linkAtivo.closest('li');
-      if (li) {
-        ind.style.top = li.offsetTop + "px";
-        ind.style.height = linkAtivo.offsetHeight + "px";
-      }
-    }
-  }
+  document.querySelectorAll(`.menu-link[data-view="${idView}"]`).forEach(link => link.classList.add('active'));
   
   // 4. Mudar o título superior da barra
   const titulos = {
-    'dashboard': 'Dashboard Geral',
+    'dashboard': 'Visão Geral',
     'servidores': 'Gestão de Servidores',
     'lancamentos': 'Histórico de Lançamentos',
     'protocolos': 'Controle de Protocolos',
@@ -91,6 +76,8 @@ function navegarPara(idView) {
     'admin': 'Painel Administrativo'
   };
   document.getElementById('view-title').innerText = titulos[idView] || 'RH Central';
+  alternarMenuMobile(false);
+  document.querySelector('.view-container')?.scrollTo({ top: 0, behavior: 'smooth' });
   
   // 5. Recarrega os ícones Lucide para garantir renderização correta
   renderizarIcones();
@@ -120,7 +107,7 @@ function inicializarUsuario() {
       
       // Se for Admin, mostra o menu administrativo
       if (usuario.papel === "Administrador" || usuario.papel === "Admin") {
-        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
+        document.querySelectorAll('.admin-only').forEach(el => el.style.removeProperty('display'));
       }
       
       // Ao invés de carregar o dashboard isoladamente, baixa tudo do servidor de uma vez
@@ -187,6 +174,10 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
 function atualizarBarraUsuario() {
   document.getElementById('current-user-name').innerText = AppState.usuarioLogado.nome;
   document.getElementById('current-user-role').innerText = AppState.usuarioLogado.papel;
+  const avatar = document.getElementById('current-user-avatar');
+  if (avatar) avatar.innerText = obterIniciais(AppState.usuarioLogado.nome);
+  const greeting = document.getElementById('dashboard-greeting');
+  if (greeting) greeting.innerText = `${obterSaudacao()}, ${obterPrimeiroNome(AppState.usuarioLogado.nome)}.`;
   if (typeof lucide !== 'undefined') {
     lucide.createIcons();
   }
@@ -217,6 +208,61 @@ function toggleDarkMode() {
       logo.src = 'https://www.turismosaosebastiao.com.br/img/sao-sebastiao/logo-rodape-horizontal.png';
     }
   }
+  try { localStorage.setItem('rh-theme', body.classList.contains('dark-mode') ? 'dark' : 'light'); } catch (e) {}
+}
+
+function inicializarInterface() {
+  try {
+    const temaSalvo = localStorage.getItem('rh-theme');
+    if (temaSalvo === 'light') document.body.classList.remove('dark-mode');
+    if (temaSalvo === 'dark') document.body.classList.add('dark-mode');
+  } catch (e) {}
+
+  const dataLabel = document.getElementById('current-date-label');
+  if (dataLabel) {
+    dataLabel.innerText = new Intl.DateTimeFormat('pt-BR', {
+      weekday: 'long', day: '2-digit', month: 'long'
+    }).format(new Date());
+  }
+
+  atualizarLogoTema();
+}
+
+function atualizarLogoTema() {
+  const logo = document.getElementById('sidebar-logo');
+  const icon = document.getElementById('theme-icon');
+  const escuro = document.body.classList.contains('dark-mode');
+  if (logo) logo.src = escuro
+    ? 'https://i.ibb.co/v8brz40/manualmarca-pmss25-28-TURISMO-BRANCO.png'
+    : 'https://www.turismosaosebastiao.com.br/img/sao-sebastiao/logo-rodape-horizontal.png';
+  if (icon) icon.setAttribute('data-lucide', escuro ? 'moon' : 'sun');
+}
+
+function alternarMenuMobile(abrir) {
+  const drawer = document.getElementById('mobile-drawer');
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  if (!drawer || !backdrop) return;
+  drawer.classList.toggle('active', Boolean(abrir));
+  backdrop.classList.toggle('active', Boolean(abrir));
+  document.body.classList.toggle('mobile-menu-open', Boolean(abrir));
+}
+
+function obterPrimeiroNome(nome) {
+  const primeiro = String(nome || '').trim().split(/\s+/)[0];
+  if (!primeiro) return 'seja bem-vindo';
+  return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
+}
+
+function obterIniciais(nome) {
+  const partes = String(nome || 'Usuário').trim().split(/\s+/).filter(Boolean);
+  return ((partes[0]?.[0] || 'U') + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase();
+}
+
+function obterSaudacao() {
+  const hora = new Date().getHours();
+  if (hora < 12) return 'Bom dia';
+  if (hora < 18) return 'Boa tarde';
+  return 'Boa noite';
 }
 
 /**
@@ -261,6 +307,7 @@ function carregarDashboard() {
   document.getElementById('dash-ferias-compulsorias').innerText = resumo.compulsorias || 0;
   document.getElementById('dash-ausentes-hoje').innerText = resumo.ausentesHoje || 0;
   document.getElementById('dash-protocolos-pendentes').innerText = resumo.protocolosPendentes || 0;
+  atualizarGraficoDashboard(resumo);
   
   // Renderiza tabela de ausências de hoje
   const tabela = document.getElementById('dash-tabela-ausencias');
@@ -271,9 +318,24 @@ function carregarDashboard() {
     });
     tabela.innerHTML = html;
   } else {
-    tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td></tr>`;
+    tabela.innerHTML = `<tr><td colspan="7" class="empty-state-cell"><span data-lucide="calendar-check-2"></span><strong>Nenhuma ausência hoje</strong><small>Não há afastamentos vigentes para a data atual.</small></td></tr>`;
   }
   renderizarIcones();
+}
+
+function atualizarGraficoDashboard(resumo) {
+  const ativos = Number(resumo.ativos || 0);
+  const atencao = Number(resumo.compulsorias || 0);
+  const total = Math.max(ativos, 0);
+  const percentualAtencao = total > 0 ? Math.min(100, Math.round((atencao / total) * 100)) : 0;
+  const donut = document.getElementById('dashboard-donut');
+  if (donut) donut.style.setProperty('--attention-percent', `${percentualAtencao}%`);
+  const totalEl = document.getElementById('donut-total');
+  const ativosEl = document.getElementById('donut-ativos');
+  const atencaoEl = document.getElementById('donut-atencao');
+  if (totalEl) totalEl.innerText = total;
+  if (ativosEl) ativosEl.innerText = Math.max(0, ativos - atencao);
+  if (atencaoEl) atencaoEl.innerText = atencao;
 }
 
 /**
