@@ -28,10 +28,12 @@ function obterResumoDashboard() {
     const cabecalho = dadosServ[0];
     const colAtivoIdx = indiceCabecalho_(cabecalho, ["ATIVO"]);
     const colMatriculaIdx = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+    const colAdmissaoIdx = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
     const colSaldoFeriasIdx = indiceCabecalho_(cabecalho, ["FERIAS SALDO HOJE", "SALDO HOJE", "SALDO FERIAS"]);
+    const colPenalidadeFeriasIdx = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
     
-    // Calcula saldos de todos os servidores em lote
-    const mapaSaldos = construirMapaSaldosFerias_(ss);
+    // Calcula saldos e períodos de todos os servidores em lote.
+    const resumoFerias = construirResumoFerias_(ss);
 
     if (colMatriculaIdx === -1) {
       throw new Error("Cabecalho MATRICULA nao encontrado na aba Servidores.");
@@ -47,14 +49,23 @@ function obterResumoDashboard() {
         totalAtivos++;
       }
       
-      // Férias Compulsórias (Saldo de férias >= 60 dias)
+      // Risco compulsório: 60 dias disponíveis e 3º período em até 6 meses.
+      const chaveMatricula = normalizarChaveMatricula_(matricula);
+      const feriasServidor = resumoFerias[chaveMatricula] || { saldo: 0, periodos: [] };
       const saldoPlanilha = colSaldoFeriasIdx !== -1
         ? obterNumeroPlanilha_(dadosServ[i][colSaldoFeriasIdx])
         : null;
-      const saldoFerias = saldoPlanilha !== null
+      const penalidadeFerias = colPenalidadeFeriasIdx !== -1 ? (parseInt(dadosServ[i][colPenalidadeFeriasIdx], 10) || 0) : 0;
+      const saldoFerias = (saldoPlanilha !== null
         ? saldoPlanilha
-        : (mapaSaldos[normalizarChaveMatricula_(matricula)] || 0);
-      if (saldoFerias >= 60) {
+        : (feriasServidor.saldo || 0)) - penalidadeFerias;
+      const avaliacaoCompulsoria = avaliarRiscoCompulsoriaFerias_(
+        saldoFerias,
+        feriasServidor.periodos,
+        colAdmissaoIdx !== -1 ? dadosServ[i][colAdmissaoIdx] : null,
+        hoje
+      );
+      if (ativo === "Sim" && avaliacaoCompulsoria.emRisco) {
         totalCompulsorias++;
       }
     }

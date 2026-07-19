@@ -10,6 +10,8 @@ const AppState = {
   lancamentos: [],
   protocolos: [],
   dashboard: {},
+  insightEntidade: null,
+  briefingDiarioEntidade: null,
   dadosCompletosCarregados: false,
   cacheRestaurado: false,
   paginacao: {
@@ -176,12 +178,14 @@ function tentarMostrarInsight() {
   };
   
   textEl.innerHTML = html;
+  const duracaoTicker = Math.min(180, Math.max(22, 8 + String(textEl.textContent || '').length * 0.11));
+  textEl.style.setProperty('--entidade-ticker-duration', duracaoTicker + 's');
   el.classList.add('show');
   renderizarIcones();
   
   timeoutInsight = setTimeout(() => {
     fecharInsightAtual();
-  }, 12000); // 12s para a animação do ticker passar toda
+  }, (duracaoTicker + 2) * 1000);
 }
 
 function fecharInsightAtual() {
@@ -960,18 +964,107 @@ function carregarDashboard() {
 }
 
 function atualizarGraficoDashboard(resumo) {
-  const ativos = Number(resumo.ativos || 0);
-  const atencao = Number(resumo.compulsorias || 0);
-  const total = Math.max(ativos, 0);
-  const percentualAtencao = total > 0 ? Math.min(100, Math.round((atencao / total) * 100)) : 0;
-  const donut = document.getElementById('dashboard-donut');
-  if (donut) donut.style.setProperty('--attention-percent', `${percentualAtencao}%`);
-  const totalEl = document.getElementById('donut-total');
-  const ativosEl = document.getElementById('donut-ativos');
-  const atencaoEl = document.getElementById('donut-atencao');
+  renderizarCardInteligenteDashboard(AppState.insightEntidade);
+}
+
+function obterDistribuicaoLotacoesDashboard() {
+  const mapa = {};
+  (AppState.servidores || []).forEach(function(servidor) {
+    if (String(servidor.status || '').toLowerCase() === 'inativo') return;
+    const lotacao = String(servidor.lotacao || 'Não informada').trim() || 'Não informada';
+    mapa[lotacao] = (mapa[lotacao] || 0) + 1;
+  });
+  return Object.entries(mapa)
+    .map(item => ({ lotacao: item[0], quantidade: item[1] }))
+    .sort((a, b) => b.quantidade - a.quantidade || a.lotacao.localeCompare(b.lotacao));
+}
+
+function renderizarDistribuicaoLotacoesDashboard() {
+  const lista = obterDistribuicaoLotacoesDashboard();
+  const total = lista.reduce((soma, item) => soma + item.quantidade, 0);
+  const pizza = document.getElementById('dashboard-location-pie');
+  const legenda = document.getElementById('dashboard-location-legend');
+  const totalEl = document.getElementById('location-chart-total');
+  const countEl = document.getElementById('location-chart-count');
   if (totalEl) totalEl.innerText = total;
-  if (ativosEl) ativosEl.innerText = Math.max(0, ativos - atencao);
-  if (atencaoEl) atencaoEl.innerText = atencao;
+  if (countEl) countEl.innerText = `${lista.length} ${lista.length === 1 ? 'lotação' : 'lotações'}`;
+  if (!pizza || !legenda) return;
+
+  if (!lista.length) {
+    pizza.style.background = 'var(--bg-tertiary)';
+    pizza.setAttribute('aria-label', 'Nenhuma lotação disponível');
+    legenda.innerHTML = '<div class="location-chart-empty">Nenhuma lotação disponível.</div>';
+    return;
+  }
+
+  const principais = lista.slice(0, 5);
+  const quantidadeOutras = lista.slice(5).reduce((soma, item) => soma + item.quantidade, 0);
+  const fatias = quantidadeOutras > 0
+    ? principais.concat([{ lotacao: 'Outras lotações', quantidade: quantidadeOutras }])
+    : principais;
+  const cores = ['#10b981', '#22c55e', '#38bdf8', '#818cf8', '#f59e0b', '#64748b'];
+  let acumulado = 0;
+  const gradiente = fatias.map(function(item, indice) {
+    const inicio = acumulado;
+    acumulado += (item.quantidade / total) * 100;
+    return `${cores[indice]} ${inicio.toFixed(2)}% ${acumulado.toFixed(2)}%`;
+  }).join(', ');
+
+  pizza.style.background = `conic-gradient(from -90deg, ${gradiente})`;
+  pizza.setAttribute('aria-label', fatias.map(function(item) {
+    return `${item.lotacao}: ${item.quantidade}`;
+  }).join('; '));
+
+  legenda.innerHTML = fatias.map(function(item, indice) {
+    const percentual = Math.round((item.quantidade / total) * 100);
+    return `<div class="location-pie-legend-row" title="${escapeHtml(item.lotacao)}: ${item.quantidade} servidores (${percentual}%)">
+      <span class="location-pie-dot" style="background:${cores[indice]}"></span>
+      <span class="location-pie-label">${escapeHtml(item.lotacao)}</span>
+      <strong>${item.quantidade}</strong>
+      <small>${percentual}%</small>
+    </div>`;
+  }).join('');
+}
+
+function renderizarCardInteligenteDashboard(insight) {
+  const card = document.getElementById('smart-dashboard-card');
+  const alertState = document.getElementById('dashboard-ai-alert-state');
+  const locationState = document.getElementById('dashboard-location-state');
+  const eyebrow = document.getElementById('smart-card-eyebrow');
+  const title = document.getElementById('smart-card-title');
+  const icon = document.getElementById('smart-card-icon');
+  if (!card || !alertState || !locationState) return;
+
+  const briefing = AppState.briefingDiarioEntidade;
+  const temAlertas = Boolean(insight && insight.temAlertas && insight.resposta);
+  const temBriefing = Boolean(briefing && briefing.disponivel && briefing.resposta);
+  const mostrarEntidade = temAlertas || temBriefing;
+  card.classList.toggle('has-alerts', temAlertas);
+  card.classList.toggle('has-briefing', !temAlertas && temBriefing);
+  alertState.style.display = mostrarEntidade ? 'flex' : 'none';
+  locationState.style.display = mostrarEntidade ? 'none' : 'flex';
+
+  if (temAlertas) {
+    eyebrow.innerText = 'AVISOS DA ENTIDADE';
+    title.innerText = 'Pontos que exigem atenção';
+    icon.innerHTML = '<span data-lucide="bell-ring"></span>';
+    document.getElementById('dashboard-ai-alert-content').innerHTML = renderizarMarkdownSeguroEntidade(limparComandosEntidade(insight.resposta));
+    const data = insight.geradoEm ? new Date(Number(insight.geradoEm)) : new Date();
+    document.getElementById('dashboard-ai-alert-date').innerText = `Atualizado em ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+  } else if (temBriefing) {
+    eyebrow.innerText = 'VISÃO GERAL DA ENTIDADE';
+    title.innerText = 'Resumo e prioridades do dia';
+    icon.innerHTML = '<span data-lucide="ghost"></span>';
+    document.getElementById('dashboard-ai-alert-content').innerHTML = renderizarMarkdownSeguroEntidade(limparComandosEntidade(briefing.resposta));
+    const data = briefing.geradoEm ? new Date(Number(briefing.geradoEm)) : new Date();
+    document.getElementById('dashboard-ai-alert-date').innerText = `Briefing de ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+  } else {
+    eyebrow.innerText = 'DISTRIBUIÇÃO DA EQUIPE';
+    title.innerText = 'Servidores por lotação';
+    icon.innerHTML = '<span data-lucide="map-pinned"></span>';
+    renderizarDistribuicaoLotacoesDashboard();
+  }
+  renderizarIcones();
 }
 
 /**
@@ -2649,6 +2742,24 @@ function exportarRelatorioExcel() {
  * Calcula a data limite para o início das férias com base na liberação do próximo (3º) período.
  */
 function calcularLimiteCompulsoria(servidor) {
+  if (servidor.dataTerceiroPeriodo === 'Já vencido' || Number(servidor.saldoHoje || 0) >= 90) {
+    return { vencimento3: 'Já vencido', limiteInicio: 'Imediato', diasRestantes: 0 };
+  }
+
+  if (servidor.dataTerceiroPeriodo) {
+    const partesRisco = String(servidor.dataTerceiroPeriodo).split('/');
+    if (partesRisco.length === 3) {
+      const dataVencRisco = new Date(Number(partesRisco[2]), Number(partesRisco[1]) - 1, Number(partesRisco[0]));
+      const dataLimiteRisco = new Date(dataVencRisco);
+      dataLimiteRisco.setDate(dataVencRisco.getDate() - 30);
+      return {
+        vencimento3: servidor.dataTerceiroPeriodo,
+        limiteInicio: formatarDataDate_(dataLimiteRisco),
+        diasRestantes: Number.isFinite(Number(servidor.diasParaTerceiroPeriodo)) ? Number(servidor.diasParaTerceiroPeriodo) - 30 : null
+      };
+    }
+  }
+
   const periodos = servidor.periodosFerias || [];
   const proximo = periodos.find(p => p.status === "Em aquisição");
   
@@ -3428,6 +3539,26 @@ function logoutUser(event) {
    ========================================= */
 let entidadeChatAberto = false;
 let entidadeVigiaAtivo = false;
+let entidadeHistorico = [];
+let entidadeAudioContext = null;
+let entidadeSomPendente = false;
+let entidadeInsightPollingTimer = null;
+let entidadeUltimoInsightNotificado = 0;
+let entidadeBriefingDiarioSolicitado = false;
+let entidadeBriefingExibirAoCarregar = false;
+let entidadeBriefingMensagemExibida = false;
+
+window.addEventListener('pointerdown', function habilitarSomEntidade() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx && !entidadeAudioContext) entidadeAudioContext = new AudioCtx();
+    if (entidadeAudioContext && entidadeAudioContext.state === 'suspended') entidadeAudioContext.resume();
+    if (entidadeSomPendente) {
+      entidadeSomPendente = false;
+      tocarSomNotificacao();
+    }
+  } catch (e) {}
+}, { once: true });
 
 function toggleChatEntidade() {
   entidadeChatAberto = !entidadeChatAberto;
@@ -3444,9 +3575,55 @@ function toggleChatEntidade() {
       entidadeVigiaAtivo = true;
       iniciarVigia();
     }
+    solicitarBriefingDiarioEntidade(true);
   } else {
     chatWindow.style.display = 'none';
   }
+}
+
+function solicitarBriefingDiarioEntidade(exibirNoChat = false) {
+  if (exibirNoChat) entidadeBriefingExibirAoCarregar = true;
+
+  if (AppState.briefingDiarioEntidade) {
+    renderizarCardInteligenteDashboard(AppState.insightEntidade);
+    apresentarBriefingDiarioNoChat_();
+    return;
+  }
+  if (entidadeBriefingDiarioSolicitado) return;
+  entidadeBriefingDiarioSolicitado = true;
+  if (entidadeBriefingExibirAoCarregar) setEntidadePensando(true);
+
+  backendApi()
+    .withSuccessHandler(function(res) {
+      if (entidadeBriefingExibirAoCarregar) setEntidadePensando(false);
+      if (!res || !res.disponivel || !res.resposta) return;
+      AppState.briefingDiarioEntidade = res;
+      renderizarCardInteligenteDashboard(AppState.insightEntidade);
+      if (res.mostrar) {
+        exibirBadgeNotificacao();
+        // O ticker apresenta o briefing integral; clicar nele continua sendo
+        // apenas um atalho opcional para conversar com a Entidade.
+        exibirInsightStatus(res.resposta);
+      }
+      apresentarBriefingDiarioNoChat_();
+    })
+    .withFailureHandler(function(erro) {
+      if (entidadeBriefingExibirAoCarregar) setEntidadePensando(false);
+      console.warn('Não foi possível carregar o briefing diário da Entidade:', erro);
+    })
+    .obterBriefingDiarioEntidade();
+}
+
+function apresentarBriefingDiarioNoChat_() {
+  const briefing = AppState.briefingDiarioEntidade;
+  if (!entidadeBriefingExibirAoCarregar || entidadeBriefingMensagemExibida || !briefing || !briefing.mostrar || !briefing.resposta) return;
+
+  entidadeBriefingMensagemExibida = true;
+  addMensagemEntidade(briefing.resposta, false, false, false, briefing.interacaoId || '');
+  entidadeHistorico.push({ role: 'assistant', content: limparComandosEntidade(briefing.resposta) });
+  if (entidadeHistorico.length > 20) entidadeHistorico = entidadeHistorico.slice(-20);
+  briefing.mostrar = false;
+  backendApi().withFailureHandler(function() {}).marcarBriefingDiarioEntidadeComoVisto();
 }
 
 function fecharChatEntidade() {
@@ -3455,10 +3632,32 @@ function fecharChatEntidade() {
 }
 
 function tocarSomNotificacao() {
-  const audio = document.getElementById('entidade-audio');
-  if (audio) {
-    audio.volume = 0.5;
-    audio.play().catch(e => console.log('Audio autoplay prevented'));
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!entidadeAudioContext && AudioCtx) entidadeAudioContext = new AudioCtx();
+    if (!entidadeAudioContext || entidadeAudioContext.state !== 'running') {
+      entidadeSomPendente = true;
+      if (entidadeAudioContext && entidadeAudioContext.state === 'suspended') entidadeAudioContext.resume().catch(() => {});
+      return;
+    }
+
+    const inicio = entidadeAudioContext.currentTime;
+    [659.25, 783.99, 987.77].forEach(function(frequencia, indice) {
+      const oscilador = entidadeAudioContext.createOscillator();
+      const ganho = entidadeAudioContext.createGain();
+      oscilador.type = 'sine';
+      oscilador.frequency.value = frequencia;
+      ganho.gain.setValueAtTime(0.0001, inicio + indice * 0.11);
+      ganho.gain.exponentialRampToValueAtTime(0.16, inicio + indice * 0.11 + 0.02);
+      ganho.gain.exponentialRampToValueAtTime(0.0001, inicio + indice * 0.11 + 0.28);
+      oscilador.connect(ganho);
+      ganho.connect(entidadeAudioContext.destination);
+      oscilador.start(inicio + indice * 0.11);
+      oscilador.stop(inicio + indice * 0.11 + 0.3);
+    });
+  } catch (e) {
+    const audio = document.getElementById('entidade-audio');
+    if (audio) audio.play().catch(() => { entidadeSomPendente = true; });
   }
 }
 
@@ -3495,19 +3694,64 @@ function piscarRobozinho() {
   }
 }
 
-function addMensagemEntidade(texto, isUser = false, isError = false) {
+function limparComandosEntidade(texto) {
+  return String(texto || '')
+    .replace(/\[(?:NAVEGAR_(?:DASHBOARD|SERVIDORES|LANCAMENTOS|PROTOCOLOS|RELATORIOS)|ABRIR_MODAL_(?:LANCAMENTO|SERVIDOR|PROTOCOLO)|FILTRAR_(?:FERIAS_COMPULSORIAS|SEM_1DOC))\]/g, '')
+    .replace(/\[ABRIR_FICHA_SERVIDOR:[^\]]+\]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function executarComandoEntidade(texto) {
+  const comandos = [
+    ['[NAVEGAR_DASHBOARD]', () => navegarPara('dashboard')],
+    ['[NAVEGAR_SERVIDORES]', () => navegarPara('servidores')],
+    ['[NAVEGAR_LANCAMENTOS]', () => navegarPara('lancamentos')],
+    ['[NAVEGAR_PROTOCOLOS]', () => navegarPara('protocolos')],
+    ['[NAVEGAR_RELATORIOS]', () => navegarPara('relatorios')],
+    ['[ABRIR_MODAL_LANCAMENTO]', () => abrirModalLancamento()],
+    ['[ABRIR_MODAL_SERVIDOR]', () => abrirModalServidor()],
+    ['[ABRIR_MODAL_PROTOCOLO]', () => abrirModalCriarProtocolo()],
+    ['[FILTRAR_FERIAS_COMPULSORIAS]', () => aplicarFiltroDashboard('compulsorias')],
+    ['[FILTRAR_SEM_1DOC]', () => aplicarFiltroDashboard('pendentes')]
+  ];
+
+  const ficha = String(texto || '').match(/\[ABRIR_FICHA_SERVIDOR:([^\]]+)\]/);
+  if (ficha) {
+    const matricula = ficha[1].trim();
+    if (matricula) setTimeout(() => abrirFichaServidor(matricula), 350);
+    return;
+  }
+
+  const comando = comandos.find(item => String(texto || '').includes(item[0]));
+  if (comando) setTimeout(comando[1], 350);
+}
+
+function renderizarMarkdownSeguroEntidade(texto) {
+  return escapeHtml(texto)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^[-*]\s+/gm, '• ')
+    .replace(/\n/g, '<br>');
+}
+
+function addMensagemEntidade(texto, isUser = false, isError = false, executarAcoes = false, interacaoId = '') {
   const messagesDiv = document.getElementById('entidade-messages');
   const msgDiv = document.createElement('div');
   msgDiv.className = 'entidade-msg ' + (isError ? 'system-error' : (isUser ? 'user' : 'ia'));
+  const textoVisivel = isUser || isError ? String(texto || '') : limparComandosEntidade(texto);
   
   if (isUser || isError) {
-    msgDiv.innerText = texto;
+    msgDiv.innerText = textoVisivel;
   } else {
-    // Basic Markdown render para IA
-    let html = texto
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\n/g, '<br>');
-    msgDiv.innerHTML = html;
+    msgDiv.innerHTML = renderizarMarkdownSeguroEntidade(textoVisivel);
+    if (interacaoId) {
+      const feedback = document.createElement('div');
+      feedback.className = 'entidade-feedback';
+      feedback.innerHTML = `<span>Esta resposta ajudou?</span>
+        <button type="button" title="Resposta útil" onclick="avaliarRespostaEntidade('${escapeHtml(interacaoId)}', true, this)"><span data-lucide="thumbs-up"></span></button>
+        <button type="button" title="Resposta não útil" onclick="avaliarRespostaEntidade('${escapeHtml(interacaoId)}', false, this)"><span data-lucide="thumbs-down"></span></button>`;
+      msgDiv.appendChild(feedback);
+    }
   }
   
   messagesDiv.appendChild(msgDiv);
@@ -3516,18 +3760,8 @@ function addMensagemEntidade(texto, isUser = false, isError = false) {
   // Piscar o robozinho para dar feedback de interação
   piscarRobozinho();
   
-  // Interceptar comandos especiais na resposta da IA
-  if (!isUser && !isError) {
-    if (texto.includes('[ABRIR_MODAL_LANCAMENTO]')) {
-      setTimeout(() => abrirModalLancamento(), 1500);
-    }
-    if (texto.includes('[ABRIR_MODAL_SERVIDOR]')) {
-      setTimeout(() => abrirModalServidor(), 1500);
-    }
-    if (texto.includes('[ABRIR_MODAL_PROTOCOLO]')) {
-      setTimeout(() => abrirModalCriarProtocolo(), 1500);
-    }
-  }
+  // Ações só são executadas depois de uma pergunta explícita, nunca no vigia automático.
+  if (!isUser && !isError && executarAcoes) executarComandoEntidade(texto);
 }
 
 function setEntidadePensando(isThinking) {
@@ -3550,23 +3784,97 @@ function setEntidadePensando(isThinking) {
 }
 
 function montarContextoEntidade() {
-  // Coleta dados resumidos para a IA analisar
-  return JSON.stringify({
-    viewAtual: currentView,
-    totalServidores: (AppState.servidores || []).length,
-    totalLancamentos: (AppState.lancamentos || []).length,
-    lancamentosPendentes1Doc: (AppState.lancamentos || []).filter(l => l.idoc === "").length,
-    feriasCompulsoriasRisco: (AppState.servidores || []).filter(s => {
-      if (!s.periodosFerias) return false;
-      const prox = s.periodosFerias.find(p => p.status === "Em aquisição");
-      if (!prox || !prox.dataLiberacao) return false;
-      const partes = prox.dataLiberacao.split('/');
-      if (partes.length !== 3) return false;
-      const dataVenc = new Date(partes[2], partes[1] - 1, partes[0]);
-      dataVenc.setDate(dataVenc.getDate() - 30);
-      return dataVenc < new Date();
-    }).length
+  const servidores = Array.isArray(AppState.servidores) ? AppState.servidores : [];
+  const lancamentos = Array.isArray(AppState.lancamentos) ? AppState.lancamentos : [];
+  const protocolos = Array.isArray(AppState.protocolos) ? AppState.protocolos : [];
+  const dashboard = AppState.dashboard || {};
+
+  const feriasCompulsorias = servidores
+    .filter(s => s.feriasCompulsorias === true)
+    .sort((a, b) => {
+      const prazoA = a.diasParaTerceiroPeriodo == null ? 999999 : Number(a.diasParaTerceiroPeriodo);
+      const prazoB = b.diasParaTerceiroPeriodo == null ? 999999 : Number(b.diasParaTerceiroPeriodo);
+      return prazoA - prazoB || Number(b.saldoHoje || 0) - Number(a.saldoHoje || 0) || String(a.nome || '').localeCompare(String(b.nome || ''));
+    })
+    .slice(0, 30)
+    .map(s => ({
+      nome: s.nome,
+      matricula: s.matricula,
+      lotacao: s.lotacao,
+      saldoDisponivelDias: Number(s.saldoHoje || 0),
+      statusAtual: s.status,
+      dataTerceiroPeriodo: s.dataTerceiroPeriodo || '',
+      diasParaTerceiroPeriodo: s.diasParaTerceiroPeriodo,
+      periodosDisponiveis: (s.periodosFerias || [])
+        .filter(p => p.status === 'Disponível' && Number(p.saldo || 0) > 0)
+        .map(p => ({ periodo: p.periodo || p.periodoAquisitivo || '', saldo: Number(p.saldo || 0), dataLiberacao: p.dataLiberacao || '' }))
+    }));
+
+  const pendencias1Doc = lancamentos
+    .filter(l => {
+      if (String(l.status || '').toLowerCase() === 'anulado') return false;
+      if (String(l.idoc || '').trim()) return false;
+      const partes = String(l.dataSolicitacao || '').split('/');
+      if (partes.length !== 3) return true;
+      const data = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+      return !isNaN(data.getTime()) && ((Date.now() - data.getTime()) / 86400000) <= 365;
+    })
+    .slice(0, 30)
+    .map(l => ({ nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataSolicitacao: l.dataSolicitacao, status: l.status, linhaPlanilha: l.linhaPlanilha }));
+
+  const porLotacao = {};
+  servidores.forEach(s => {
+    const lotacao = String(s.lotacao || 'Não informada').trim() || 'Não informada';
+    porLotacao[lotacao] = (porLotacao[lotacao] || 0) + 1;
   });
+
+  const statusProtocolos = {};
+  protocolos.forEach(p => {
+    const status = String(p.status || 'Não informado');
+    statusProtocolos[status] = (statusProtocolos[status] || 0) + 1;
+  });
+
+  return JSON.stringify({
+    telaAtual: currentView,
+    perfilUsuario: AppState.usuarioLogado && AppState.usuarioLogado.papel,
+    dadosAtualizadosDoServidor: Boolean(AppState.dadosCompletosCarregados),
+    resumoOficial: {
+      servidoresAtivos: Number(dashboard.ativos || 0),
+      feriasCompulsorias: Number(dashboard.compulsorias || 0),
+      ausentesHoje: Number(dashboard.ausentesHoje || 0),
+      lancamentosSem1Doc: Number(dashboard.protocolosPendentes || 0)
+    },
+    ausenciasHoje: (dashboard.listaAusentes || []).slice(0, 20).map(a => ({ nome: a.nome, matricula: a.matricula, tipo: a.tipo, periodo: a.periodo, dias: a.dias, idoc: a.idoc || '' })),
+    servidoresEmFeriasCompulsorias: feriasCompulsorias,
+    pendenciasDe1Doc: pendencias1Doc,
+    equipePorLotacao: Object.entries(porLotacao).sort((a, b) => b[1] - a[1]).slice(0, 15).map(item => ({ lotacao: item[0], quantidade: item[1] })),
+    protocolosPorStatus: statusProtocolos,
+    ultimosLancamentos: lancamentos.slice(-15).reverse().map(l => ({ nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataInicio: l.dataInicio, dias: l.dias, status: l.status, idoc: l.idoc || '' })),
+    limitesDeListagem: { feriasCompulsorias: 30, pendenciasDe1Doc: 30, ausenciasHoje: 20 }
+  });
+}
+
+function avaliarRespostaEntidade(interacaoId, util, botao) {
+  let correcao = '';
+  const papel = String(AppState.usuarioLogado && AppState.usuarioLogado.papel || '');
+  const podeEnsinar = papel === 'Administrador' || papel === 'Admin' || papel === 'Operador';
+  if (!util && podeEnsinar) {
+    correcao = window.prompt('O que a Entidade deveria ter respondido ou considerado? (opcional)') || '';
+  }
+
+  backendApi()
+    .withSuccessHandler(function() {
+      const area = botao && botao.closest('.entidade-feedback');
+      if (area) {
+        area.classList.add('avaliado');
+        area.innerHTML = util ? '<span>Obrigado. Resposta marcada como útil.</span>' : '<span>Obrigado. A correção foi registrada.</span>';
+      }
+      mostrarToast('Feedback enviado para a memória da Entidade.', 'success');
+    })
+    .withFailureHandler(function(erro) {
+      mostrarToast('Não foi possível registrar o feedback: ' + mensagemErro(erro), 'error');
+    })
+    .avaliarInteracaoEntidade(interacaoId, util ? 'UTIL' : 'NAO_UTIL', correcao);
 }
 
 function enviarMensagemEntidade(textoForcado = null) {
@@ -3581,25 +3889,30 @@ function enviarMensagemEntidade(textoForcado = null) {
   
   if (!textoForcado) input.value = '';
   addMensagemEntidade(texto, true);
+  entidadeHistorico.push({ role: 'user', content: texto });
+  if (entidadeHistorico.length > 20) entidadeHistorico = entidadeHistorico.slice(-20);
   setEntidadePensando(true);
   document.getElementById('entidade-chips').style.display = 'none';
   
   const contexto = montarContextoEntidade();
+  const historicoAnterior = entidadeHistorico.slice(0, -1).slice(-10);
   
-  google.script.run
+  backendApi()
     .withSuccessHandler(function(res) {
       setEntidadePensando(false);
       if (res.erro) {
         addMensagemEntidade(res.erro, false, true);
       } else if (res.resposta) {
-        addMensagemEntidade(res.resposta);
+        addMensagemEntidade(res.resposta, false, false, true, res.interacaoId || '');
+        entidadeHistorico.push({ role: 'assistant', content: limparComandosEntidade(res.resposta) });
+        if (entidadeHistorico.length > 20) entidadeHistorico = entidadeHistorico.slice(-20);
       }
     })
     .withFailureHandler(function(erro) {
       setEntidadePensando(false);
       addMensagemEntidade("Erro de conexão.", false, true);
     })
-    .chamarEntidade(texto, contexto);
+    .chamarEntidade(texto, contexto, historicoAnterior);
 }
 
 function entidadeKeyPress(e) {
@@ -3610,50 +3923,61 @@ function entidadeKeyPress(e) {
 
 // Inicia uma varredura discreta quando a tela Dashboard carrega
 function iniciarVigia() {
-  setEntidadePensando(true);
-  const contexto = montarContextoEntidade();
-  
-  google.script.run
+  solicitarBriefingDiarioEntidade(false);
+  consultarInsightEntidade();
+  if (!entidadeInsightPollingTimer) {
+    entidadeInsightPollingTimer = setInterval(consultarInsightEntidade, 10 * 60 * 1000);
+  }
+}
+
+function consultarInsightEntidade() {
+  backendApi()
     .withSuccessHandler(function(res) {
-      setEntidadePensando(false);
-      if (res.silencioso) {
-        // Tudo certo, não faz nada.
-        console.log("Vigia: Tudo em ordem.");
-      } else if (res.resposta) {
-        addMensagemEntidade(res.resposta);
-        exibirBadgeNotificacao();
-        
-        // Exibe o insight da Entidade na barra de status superior (passa apenas uma vez)
-        exibirInsightStatus(res.resposta);
-        
-        // Sugerir chips rápidos
-        const chipsDiv = document.getElementById('entidade-chips');
-        chipsDiv.innerHTML = `
-          <div class="entidade-chip" onclick="enviarMensagemEntidade('Quero resolver isso agora')">Resolver</div>
-          <div class="entidade-chip" onclick="enviarMensagemEntidade('Me lembre mais tarde')">Lembrar depois</div>
-          <div class="entidade-chip" onclick="enviarMensagemEntidade('Mostrar detalhes')">Detalhes</div>
-        `;
-        chipsDiv.style.display = 'flex';
+      AppState.insightEntidade = res || { temAlertas: false, resposta: '' };
+      renderizarCardInteligenteDashboard(AppState.insightEntidade);
+      if (res && res.temAlertas && res.resposta) {
+        const geradoEm = Number(res.geradoEm || 0);
+        if (!geradoEm || geradoEm > entidadeUltimoInsightNotificado) {
+          entidadeUltimoInsightNotificado = geradoEm || Date.now();
+          addMensagemEntidade(res.resposta);
+          exibirBadgeNotificacao();
+          exibirInsightStatus(res.resposta);
+
+          const chipsDiv = document.getElementById('entidade-chips');
+          chipsDiv.innerHTML = `
+            <div class="entidade-chip" onclick="enviarMensagemEntidade('Quero resolver isso agora')">Resolver</div>
+            <div class="entidade-chip" onclick="enviarMensagemEntidade('Mostrar detalhes dos avisos atuais')">Detalhes</div>
+          `;
+          chipsDiv.style.display = 'flex';
+        }
       }
     })
     .withFailureHandler(function(erro) {
-      setEntidadePensando(false);
-      addMensagemEntidade("Erro ao conectar à API.", false, true);
+      console.warn('Não foi possível carregar os avisos da Entidade:', erro);
+      AppState.insightEntidade = { temAlertas: false, resposta: '' };
+      renderizarCardInteligenteDashboard(AppState.insightEntidade);
     })
-    .chamarEntidade(null, contexto);
+    .obterInsightEntidadeAtual();
 }
 
 function exibirInsightStatus(texto) {
-  // Remove markdown simples (ex: asteriscos de negrito, comandos especiais)
-  let textoLimpo = texto.replace(/\*\*/g, '').replace(/\[.*?\]/g, '').trim();
-  if (textoLimpo.length > 90) {
-    textoLimpo = textoLimpo.substring(0, 87) + '...';
-  }
+  // Converte o conteúdo completo para uma única linha contínua do ticker.
+  // Remove apenas formatação/comandos, sem resumir nem cortar a mensagem.
+  let textoLimpo = String(limparComandosEntidade(texto || ''))
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\*\*/g, '')
+    .replace(/`/g, '')
+    .replace(/^\s*[-•]\s+/gm, '')
+    .replace(/\r?\n+/g, ' • ')
+    .replace(/\s*•\s*•\s*/g, ' • ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!textoLimpo) return;
   
-  let prefix = `<span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 6px; color: #a5b4fc; flex-shrink: 0;"></span> `;
+  let prefix = `<span data-lucide="ghost" style="width: 12px; height: 12px; margin-right: 6px; color: #a5b4fc; flex-shrink: 0;"></span> `;
   
   // Adiciona na fila e tenta mostrar
-  filaStatusInsights.push(prefix + textoLimpo);
+  filaStatusInsights.push(prefix + escapeHtml(textoLimpo));
   tentarMostrarInsight();
 }
 </script>

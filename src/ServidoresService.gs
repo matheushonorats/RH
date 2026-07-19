@@ -77,6 +77,13 @@ function obterListaServidores() {
       let saldoHojeCalculado = saldoCalc - penF;
       let abonosUsadosCalculado = (feriasServidor.abonosUsados || 0) + penA;
       
+      const avaliacaoCompulsoria = avaliarRiscoCompulsoriaFerias_(
+        saldoHojeCalculado,
+        feriasServidor.periodos,
+        idxAdmissao !== -1 ? linha[idxAdmissao] : null,
+        new Date()
+      );
+
       servidores.push({
         nome: String(linha[idxNome]).trim(),
         matricula: matricula,
@@ -87,7 +94,9 @@ function obterListaServidores() {
         situacao: idxSituacao !== -1 ? String(linha[idxSituacao]).trim() : "",
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
         saldoHoje: saldoHojeCalculado,
-        feriasCompulsorias: saldoHojeCalculado >= 60,
+        feriasCompulsorias: avaliacaoCompulsoria.emRisco,
+        dataTerceiroPeriodo: avaliacaoCompulsoria.dataTerceiroPeriodo,
+        diasParaTerceiroPeriodo: avaliacaoCompulsoria.diasRestantes,
         projetado: parseInt(feriasServidor.projetado) || 0,
         infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias] || "").trim() : "",
         periodosFerias: feriasServidor.periodos,
@@ -103,12 +112,77 @@ function obterListaServidores() {
 }
 
 /**
+ * Regra única de risco compulsório:
+ * - exige ao menos dois períodos disponíveis (60 dias);
+ * - entra no alerta quando o período seguinte libera em até 6 meses;
+ * - saldos de 90 dias ou mais já ultrapassaram o limite e permanecem no alerta.
+ */
+function avaliarRiscoCompulsoriaFerias_(saldoDisponivel, periodos, admissao, dataReferencia) {
+  const saldo = Number(saldoDisponivel || 0);
+  const hoje = dataReferencia instanceof Date ? new Date(dataReferencia) : new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  if (saldo < 60) {
+    return { emRisco: false, dataTerceiroPeriodo: '', diasRestantes: null };
+  }
+
+  // Três períodos já disponíveis: o limite já foi atingido ou ultrapassado.
+  if (saldo >= 90) {
+    return { emRisco: true, dataTerceiroPeriodo: 'Já vencido', diasRestantes: 0 };
+  }
+
+  let dataTerceiro = null;
+  const proximo = (periodos || []).find(function(periodo) {
+    return periodo.status === 'Em aquisição' && periodo.dataLiberacao;
+  });
+  if (proximo) dataTerceiro = normalizarDataServidorObjeto_(proximo.dataLiberacao);
+
+  // A rotina de créditos só grava períodos adquiridos; por isso, usa o próximo
+  // aniversário de admissão quando o período em aquisição ainda não existe na aba.
+  if (!dataTerceiro) {
+    const dataAdmissao = normalizarDataServidorObjeto_(admissao);
+    if (dataAdmissao) {
+      dataTerceiro = new Date(hoje.getFullYear(), dataAdmissao.getMonth(), dataAdmissao.getDate());
+      while (dataTerceiro <= hoje) {
+        dataTerceiro.setFullYear(dataTerceiro.getFullYear() + 1);
+      }
+    }
+  }
+
+  if (!dataTerceiro) {
+    return { emRisco: false, dataTerceiroPeriodo: '', diasRestantes: null };
+  }
+
+  dataTerceiro.setHours(0, 0, 0, 0);
+  const limiteSeisMeses = new Date(hoje);
+  limiteSeisMeses.setMonth(limiteSeisMeses.getMonth() + 6);
+  const diasRestantes = Math.ceil((dataTerceiro.getTime() - hoje.getTime()) / 86400000);
+
+  return {
+    emRisco: dataTerceiro <= limiteSeisMeses,
+    dataTerceiroPeriodo: formatarDataServidor_(dataTerceiro),
+    diasRestantes: diasRestantes
+  };
+}
+
+/**
  * Salva ou atualiza um cadastro de servidor com cópia automática de fórmulas e escrita em lote
  */
 function salvarServidor(dadosServidor) {
   if (!verificarSeEhOperador()) {
     throw new Error("Você não possui permissão para salvar ou alterar cadastros de servidores.");
   }
+
+  const situacoesPermitidas = {
+    ESTATUTARIO: "ESTATUTÁRIO",
+    COMISSIONADO: "COMISSIONADO",
+    ESTAGIARIO: "ESTAGIÁRIO"
+  };
+  const chaveSituacao = normalizarCabecalho_(dadosServidor && dadosServidor.situacao || '').toUpperCase();
+  if (!situacoesPermitidas[chaveSituacao]) {
+    throw new Error("Situação funcional inválida. Selecione Estatutário, Comissionado ou Estagiário.");
+  }
+  dadosServidor.situacao = situacoesPermitidas[chaveSituacao];
 
   const lock = LockService.getScriptLock();
   let gerarCreditosDepois = false;

@@ -168,22 +168,27 @@
               </div>
 
               <aside class="dashboard-side-column">
-                <div class="insight-card">
-                  <div class="insight-header"><div><span class="page-eyebrow">VISÃO RÁPIDA</span><h3>Distribuição da equipe</h3></div><span data-lucide="pie-chart"></span></div>
-                  <div class="donut-wrap"><div class="dashboard-donut" id="dashboard-donut"><div><strong id="donut-total">0</strong><span>servidores</span></div></div></div>
-                  <div class="donut-legend"><span><i class="legend-dot active-dot"></i>Ativos <strong id="donut-ativos">0</strong></span><span><i class="legend-dot alert-dot"></i>Em atenção <strong id="donut-atencao">0</strong></span></div>
-                  <div class="insight-actions" style="display: flex; gap: 8px; margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px;" onclick="enviarMensagemEntidade('Quero ver a distribuição dos servidores por lotação e os números de cada uma.')"><span data-lucide="map-pin" style="width: 12px; height: 12px; margin-right: 4px;"></span> Lotação</button>
-                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px; color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.05);" onclick="enviarMensagemEntidade('Quais são os seus principais insights sobre a nossa equipe no momento?')"><span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 4px;"></span> Insights IA</button>
+                <div class="smart-dashboard-card" id="smart-dashboard-card">
+                  <div class="smart-card-header">
+                    <div>
+                      <span class="page-eyebrow" id="smart-card-eyebrow">DISTRIBUIÇÃO DA EQUIPE</span>
+                      <h3 id="smart-card-title">Servidores por lotação</h3>
+                    </div>
+                    <span class="smart-card-icon" id="smart-card-icon"><span data-lucide="map-pinned"></span></span>
                   </div>
-                </div>
-                <div class="quick-actions-card">
-                  <div class="insight-header"><div><span class="page-eyebrow">ATALHOS</span><h3>Ações rápidas</h3></div></div>
-                  <div class="quick-actions-grid">
-                    <button onclick="abrirModalServidor()"><span data-lucide="user-plus"></span><span>Novo servidor</span></button>
-                    <button onclick="abrirModalLancamento()"><span data-lucide="file-plus-2"></span><span>Novo lançamento</span></button>
-                    <button onclick="abrirModalCriarProtocolo()"><span data-lucide="clipboard-plus"></span><span>Criar protocolo</span></button>
-                    <button onclick="navegarPara('relatorios')"><span data-lucide="chart-no-axes-combined"></span><span>Emitir relatório</span></button>
+
+                  <div id="dashboard-ai-alert-state" class="dashboard-ai-alert-state" style="display: none;">
+                    <div class="ai-alert-summary" id="dashboard-ai-alert-content"></div>
+                    <div class="smart-card-footer"><span id="dashboard-ai-alert-date"></span><button class="text-button" onclick="toggleChatEntidade()">Conversar com a Entidade <span data-lucide="arrow-right"></span></button></div>
+                  </div>
+
+                  <div id="dashboard-location-state" class="dashboard-location-state">
+                    <div class="location-chart-summary"><strong id="location-chart-total">0</strong><span>servidores distribuídos por local</span></div>
+                    <div class="location-pie-layout">
+                      <div id="dashboard-location-pie" class="location-pie" role="img" aria-label="Distribuição dos servidores por lotação"></div>
+                      <div id="dashboard-location-legend" class="location-pie-legend"></div>
+                    </div>
+                    <div class="smart-card-footer"><span>Dados da aba Servidores</span><span id="location-chart-count">0 lotações</span></div>
                   </div>
                 </div>
               </aside>
@@ -205,6 +210,7 @@
                 <option value="">Todas Situações</option>
                 <option value="ESTATUTÁRIO">Estatutário</option>
                 <option value="COMISSIONADO">Comissionado</option>
+                <option value="ESTAGIÁRIO">Estagiário</option>
               </select>
               <select id="filtro-status-servidor" class="form-control filter-select" onchange="filtrarTabelaServidores()">
                 <option value="">Todos Status</option>
@@ -535,7 +541,7 @@
         </div>
         
         <footer style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 13px; border-top: 1px solid var(--border-color); margin-top: auto;">
-          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.2.9</strong>
+          Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V2.3.0</strong>
         </footer>
       </main>
       
@@ -555,26 +561,27 @@
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label">Matrícula *</label>
-                <input type="text" id="serv-matricula" class="form-control" required placeholder="Ex: 86916">
+                <input type="text" id="serv-matricula" class="form-control" required placeholder="Ex: 00000">
               </div>
               <div class="form-group">
                 <label class="form-label">Situação *</label>
                 <select id="serv-situacao" class="form-control" required>
                   <option value="ESTATUTÁRIO">Estatutário</option>
                   <option value="COMISSIONADO">Comissionado</option>
+                  <option value="ESTAGIÁRIO">Estagiário</option>
                 </select>
               </div>
             </div>
             
             <div class="form-group">
               <label class="form-label">Nome Completo *</label>
-              <input type="text" id="serv-nome" class="form-control" required placeholder="Ex: ADIVANESSA PRATES DE ANDRADE">
+              <input type="text" id="serv-nome" class="form-control" required placeholder="Ex: NOME COMPLETO DO SERVIDOR">
             </div>
             
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label">Cargo</label>
-                <input type="text" id="serv-cargo" class="form-control" placeholder="Ex: SERVENTE">
+                <input type="text" id="serv-cargo" class="form-control" placeholder="Ex: CARGO DO SERVIDOR">
               </div>
               <div class="form-group">
                 <label class="form-label">Lotação</label>
@@ -594,7 +601,7 @@
               </div>
               <div class="form-group">
                 <label class="form-label">E-mail *</label>
-                <input type="email" id="serv-email" class="form-control" required placeholder="Ex: vanessaprates@gmail.com">
+                <input type="email" id="serv-email" class="form-control" required placeholder="Ex: servidor@saosebastiao.sp.gov.br">
               </div>
             </div>
 
@@ -1170,7 +1177,7 @@
       <div id="entidade-chat-window" class="entidade-chat-window" style="display: none;">
         <div class="entidade-header">
           <div class="entidade-title">
-            <span data-lucide="sparkles" style="width: 16px; height: 16px;"></span>
+            <span data-lucide="ghost" style="width: 17px; height: 17px;"></span>
             <strong>Entidade</strong>
             <span class="entidade-status" id="entidade-status-text">Online</span>
           </div>
@@ -1197,7 +1204,7 @@
 
       <!-- Floating Button -->
       <button id="entidade-fab" class="entidade-fab" onclick="toggleChatEntidade()">
-        <span data-lucide="bot" id="entidade-fab-icon"></span>
+        <span data-lucide="ghost" id="entidade-fab-icon"></span>
         <div id="entidade-badge" class="entidade-badge" style="display: none;">!</div>
       </button>
     </div>

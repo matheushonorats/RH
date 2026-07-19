@@ -38,6 +38,34 @@ const CONFIG_SETUP = {
       "Chave", 
       "Valor", 
       "Descrição"
+    ],
+    "IA_Memoria": [
+      "ID",
+      "Data",
+      "Usuário",
+      "Pergunta",
+      "Resposta",
+      "Avaliação",
+      "Correção",
+      "Ativo"
+    ],
+    "IA_Insights": [
+      "ID",
+      "Data",
+      "Fingerprint",
+      "Alerta",
+      "Resposta",
+      "Provedor",
+      "Status",
+      "Mostrado_Em",
+      "Resolvido_Em"
+    ],
+    "IA_Conhecimento": [
+      "CHAVE",
+      "DATA_ATUALIZACAO",
+      "PERGUNTA_REFERENCIA",
+      "ORIENTACAO_VALIDADA",
+      "ATIVO"
     ]
   },
   abasExistentesModificadas: {
@@ -195,6 +223,25 @@ function criarGatilhosDiarios_() {
       .timeBased()
       .everyDays(1)
       .atHour(7)
+      .create();
+    count++;
+  }
+
+  // 3. Vigia da Entidade (a cada hora; a IA só é chamada quando há mudança relevante)
+  if (!funcoesExistentes.has("executarVigiaEntidadeAgendado")) {
+    ScriptApp.newTrigger("executarVigiaEntidadeAgendado")
+      .timeBased()
+      .everyHours(1)
+      .create();
+    count++;
+  }
+
+  // 4. Manutenção das tabelas auxiliares (diário entre 02:00 e 03:00)
+  if (!funcoesExistentes.has("executarManutencaoAutomaticaSistema")) {
+    ScriptApp.newTrigger("executarManutencaoAutomaticaSistema")
+      .timeBased()
+      .everyDays(1)
+      .atHour(2)
       .create();
     count++;
   }
