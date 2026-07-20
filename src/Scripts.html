@@ -1303,7 +1303,23 @@ function abrirModalServidor(matricula) {
   }
   
   abrirModal('modal-servidor');
+  toggleCamposObrigatoriosServidor();
 }
+
+/**
+ * Alterna a obrigatoriedade dos campos com base no status "Inativo"
+ */
+function toggleCamposObrigatoriosServidor() {
+  const isAtivo = document.getElementById('serv-ativo').value !== 'Não';
+  const camposRequired = ['serv-matricula', 'serv-situacao', 'serv-nome', 'serv-email'];
+  camposRequired.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.required = isAtivo;
+    }
+  });
+}
+
 
 /**
  * Envia os dados do formulário de servidor ao backend do Apps Script

@@ -628,7 +628,7 @@
             <div class="form-row">
               <div class="form-group" id="serv-ativo-wrapper" style="display: none;">
                 <label class="form-label">Cadastro Ativo?</label>
-                <select id="serv-ativo" class="form-control">
+                <select id="serv-ativo" class="form-control" onchange="toggleCamposObrigatoriosServidor()">
                   <option value="Sim">Sim, servidor ativo</option>
                   <option value="Não">Não, desativado (Inativo)</option>
                 </select>
