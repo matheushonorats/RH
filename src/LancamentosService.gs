@@ -263,13 +263,7 @@ function salvarArquivoNoDrive(conteudoBase64, nomeArquivo, tipoMime) {
     try {
       pasta = DriveApp.getFolderById(idPastaAnexos);
     } catch(erroFolder) {
-      // Fallback: se não encontrar ou não tiver acesso, tenta localizar ou criar uma pasta genérica
-      const pastasFallback = DriveApp.getFoldersByName("RH - Anexos Lançamentos");
-      if (pastasFallback.hasNext()) {
-        pasta = pastasFallback.next();
-      } else {
-        pasta = DriveApp.createFolder("RH - Anexos Lançamentos");
-      }
+      throw new Error("A pasta destino de anexos configurada (" + idPastaAnexos + ") não foi encontrada ou você não tem permissão de acesso a ela.");
     }
     
     // Converte e cria arquivo de forma privada (sem setSharing "Anyone with link" - herda pasta)
