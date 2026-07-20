@@ -4,6 +4,8 @@
     <base target="_top">
     <!-- Lucide Icons para ícones modernos e limpos (sem emojis) -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
     <?!= incluir("Styles"); ?>
   </head>
   <body class="dark-mode">
@@ -174,7 +176,10 @@
                       <span class="page-eyebrow" id="smart-card-eyebrow">DISTRIBUIÇÃO DA EQUIPE</span>
                       <h3 id="smart-card-title">Servidores por lotação</h3>
                     </div>
-                    <span class="smart-card-icon" id="smart-card-icon"><span data-lucide="map-pinned"></span></span>
+                    <div class="smart-card-header-actions">
+                      <span class="smart-card-icon" id="smart-card-icon"><span data-lucide="map-pinned"></span></span>
+                      <button id="dismiss-smart-card-message" class="smart-card-dismiss" type="button" onclick="fecharMensagemEntidadeNoCard()" title="Fechar mensagem e ver gráfico de lotações" aria-label="Fechar mensagem e ver gráfico de lotações" style="display: none;"><span data-lucide="x"></span></button>
+                    </div>
                   </div>
 
                   <div id="dashboard-ai-alert-state" class="dashboard-ai-alert-state" style="display: none;">
@@ -189,6 +194,20 @@
                       <div id="dashboard-location-legend" class="location-pie-legend"></div>
                     </div>
                     <div class="smart-card-footer"><span>Dados da aba Servidores</span><span id="location-chart-count">0 lotações</span></div>
+                  </div>
+                </div>
+
+                <div class="quick-actions-card" style="margin-top: 24px;">
+                  <div class="insight-header"><div><span class="page-eyebrow">ATALHOS</span><h3>Ações rápidas</h3></div></div>
+                  <div class="quick-actions-grid">
+                    <button onclick="abrirModalServidor()"><span data-lucide="user-plus"></span><span>Novo servidor</span></button>
+                    <button onclick="abrirModalLancamento()"><span data-lucide="file-plus-2"></span><span>Novo lançamento</span></button>
+                    <button onclick="abrirModalCriarProtocolo()"><span data-lucide="clipboard-plus"></span><span>Criar protocolo</span></button>
+                    <button onclick="navegarPara('relatorios')"><span data-lucide="chart-no-axes-combined"></span><span>Emitir relatório</span></button>
+                  </div>
+                  <div class="insight-actions" style="display: flex; gap: 8px; margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px;" onclick="enviarMensagemEntidade('Quero ver a distribuição dos servidores por lotação e os números de cada uma.')"><span data-lucide="map-pin" style="width: 12px; height: 12px; margin-right: 4px;"></span> Lotação</button>
+                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px; color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.05);" onclick="enviarMensagemEntidade('Quais são os seus principais insights sobre a nossa equipe no momento?')"><span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 4px;"></span> Insights IA</button>
                   </div>
                 </div>
               </aside>
@@ -1194,7 +1213,14 @@
           <!-- Chips gerados dinamicamente via JS -->
         </div>
 
+        <div class="entidade-file-preview" id="entidade-file-preview" style="display: none;">
+          <span data-lucide="file-text"></span>
+          <span id="entidade-file-name"></span>
+          <button type="button" onclick="limparArquivoEntidade()" title="Remover PDF" aria-label="Remover PDF"><span data-lucide="x"></span></button>
+        </div>
         <div class="entidade-input-area">
+          <input type="file" id="entidade-file-input" accept="application/pdf" style="display: none;" onchange="selecionarArquivoEntidade(event)">
+          <button type="button" class="entidade-attach" onclick="document.getElementById('entidade-file-input').click()" title="Anexar PDF para lançamento" aria-label="Anexar PDF para lançamento"><span data-lucide="paperclip" style="width: 16px; height: 16px;"></span></button>
           <input type="text" id="entidade-input" placeholder="Pergunte algo ou peça uma ação..." onkeypress="entidadeKeyPress(event)">
           <button id="entidade-send-btn" onclick="enviarMensagemEntidade()">
             <span data-lucide="send" style="width: 16px; height: 16px;"></span>
