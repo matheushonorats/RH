@@ -3566,7 +3566,26 @@ function logoutUser(event) {
   if(event) event.preventDefault();
   localStorage.removeItem('rh_token');
   localStorage.removeItem('rh_user');
-  window.top.location.reload();
+  
+  document.querySelector('.app-container').style.display = 'none';
+  document.getElementById('login-container').style.display = 'flex';
+  
+  AppState.servidores = [];
+  AppState.lancamentos = [];
+  AppState.protocolos = [];
+  AppState.dadosCompletosCarregados = false;
+  
+  document.getElementById('current-user-name').innerText = '';
+  document.getElementById('current-user-role').innerText = '';
+  document.getElementById('user-dropdown-menu').style.display = 'none';
+  
+  document.getElementById('login-email').value = '';
+  if (document.getElementById('login-senha')) {
+    document.getElementById('login-senha').value = '';
+  }
+  document.getElementById('login-senha-container').style.display = 'none';
+  
+  mostrarToast("Você saiu do sistema.", "info");
 }
 
 /* =========================================
