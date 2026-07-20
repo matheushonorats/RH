@@ -1758,8 +1758,10 @@ function ajustarCamposFormularioLancamento() {
     blocoHoras.style.display = "block";
     document.getElementById('lanc-qtd-horas').disabled = false;
     document.getElementById('lanc-qtd-horas').required = true;
+  } else if (tipo === "Avaliação do Estágio Probatório") {
+    // Não requer data de ausência
   } else {
-    // Abonadas, Avaliação Probatório, Não Efetivados
+    // Abonadas, Não Efetivados, etc
     blocoFalta.style.display = "block";
     document.getElementById('lanc-data-falta').disabled = false;
     document.getElementById('lanc-data-falta').required = true;
@@ -2136,6 +2138,9 @@ async function salvarDadosLancamento(event) {
     dataInicioInput = document.getElementById('lanc-data-falta').value;
     diasInput = 0;
     qtdHorasInput = document.getElementById('lanc-qtd-horas').value;
+  } else if (tipoDoc === "Avaliação do Estágio Probatório") {
+    dataInicioInput = document.getElementById('lanc-data-solicitacao').value;
+    diasInput = 0;
   } else {
     dataInicioInput = document.getElementById('lanc-data-falta').value;
     diasInput = 1; // abonos duram 1 dia
