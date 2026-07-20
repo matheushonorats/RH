@@ -82,8 +82,8 @@ const SyncQueue = {
         if (self.fila.length > 0) {
           setTimeout(() => self.processar(), 500);
         } else {
-          // Fila vazia: sincroniza dados frescos do servidor em background
-          sincronizarEmSegundoPlano();
+          // Fila vazia: sincroniza dados frescos do servidor em background e atualiza a view atual
+          sincronizarEmSegundoPlano(currentView);
         }
       })
       .withFailureHandler(function(erro) {
