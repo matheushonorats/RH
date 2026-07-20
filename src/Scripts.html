@@ -4015,6 +4015,9 @@ function iniciarVigia() {
 function consultarInsightEntidade() {
   backendApi()
     .withSuccessHandler(function(res) {
+      if (res && !mensagemEntidadeEhValida_(res.resposta)) {
+        res = { temAlertas: false, resposta: '' };
+      }
       AppState.insightEntidade = res || { temAlertas: false, resposta: '' };
       renderizarCardInteligenteDashboard(AppState.insightEntidade);
       if (res && res.temAlertas && res.resposta) {
@@ -4040,6 +4043,12 @@ function consultarInsightEntidade() {
       renderizarCardInteligenteDashboard(AppState.insightEntidade);
     })
     .obterInsightEntidadeAtual();
+}
+
+function mensagemEntidadeEhValida_(texto) {
+  const valor = String(texto || '').trim();
+  if (valor.length < 18) return false;
+  return !/^(?:user\s*safety\s*:|content\s*policy\s*:|safety\s*check\s*:|model\s*status\s*:)/i.test(valor);
 }
 
 function exibirInsightStatus(texto) {

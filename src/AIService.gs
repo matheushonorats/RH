@@ -147,6 +147,7 @@ ${JSON.stringify(dadosContexto, null, 2)}
     respostaIA = normalizarComandosRespostaEntidade_(respostaIA);
     respostaIA = removerRaciocinioExpostoEntidade_(respostaIA);
     if (!respostaIA) {
+      if (!mensagemUsuario) return { silencioso: true, provedor: retornoModelo.provedor };
       return { erro: 'A Entidade descartou uma resposta incompleta do provedor. Tente novamente.' };
     }
     
@@ -361,7 +362,8 @@ function removerRaciocinioExpostoEntidade_(resposta) {
 
   // Estes padrões são meta-comentários de modelos e nunca devem chegar à interface.
   const raciocinioExposto = /(?:okay,?\s*the user|the user is saying|let me check|looking at the data|according to (?:the )?rules|in my previous response|wait,?\s*the user|i should have)/i;
-  if (raciocinioExposto.test(texto)) return '';
+  const respostaTecnica = /^(?:user\s*safety\s*:|content\s*policy\s*:|safety\s*check\s*:|model\s*status\s*:)/i;
+  if (raciocinioExposto.test(texto) || respostaTecnica.test(texto) || texto.length < 18) return '';
   return texto;
 }
 
@@ -878,8 +880,8 @@ function gerarInsightEntidade_(forcarAnalise) {
   }
   const agora = new Date().getTime();
   const registro = resultado && resultado.silencioso
-    ? { versao: '2.3.2-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
-    : { versao: '2.3.2-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
+    ? { versao: '2.3.3-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
+    : { versao: '2.3.3-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
 
   props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(registro));
   props.setProperty('ENTIDADE_ESTADO_ANALISADO', JSON.stringify(estadoAtual));
@@ -1016,7 +1018,7 @@ function obterInsightEntidadeAtual() {
   if (salvo) {
     try {
       const insight = JSON.parse(salvo);
-      if (insight.versao === '2.3.2-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
+      if (insight.versao === '2.3.3-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
     } catch (e) {}
   }
 
@@ -1028,7 +1030,7 @@ function obterInsightEntidadeAtual() {
     if (atualizado) {
       try {
         const insightAtual = JSON.parse(atualizado);
-        if (insightAtual.versao === '2.3.2-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
+        if (insightAtual.versao === '2.3.3-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
       } catch (e) {}
     }
     return gerarInsightEntidade_(false);
