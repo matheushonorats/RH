@@ -2100,7 +2100,7 @@ async function salvarDadosLancamento(event) {
   const linhaAtual = parseInt(document.getElementById('lanc-linha').value) || -1;
   const tipoDoc = document.getElementById('lanc-tipo').value;
   
-  if (idocInput && AppState.lancamentos) {
+  if (idocInput && idocInput !== "-" && AppState.lancamentos) {
     const lExistente = AppState.lancamentos.find(l => l.idoc === idocInput && l.linhaPlanilha !== linhaAtual);
     if (lExistente && tipoDoc !== "Autorização de Horas Extras" && lExistente.tipo !== "Autorização de Horas Extras") {
       if (!await abrirConfirm(`Aviso: O protocolo ${idocInput} já está registrado no sistema para o servidor(a) ${lExistente.nome}.\n\nDeseja prosseguir com o lançamento mesmo assim?`)) {
