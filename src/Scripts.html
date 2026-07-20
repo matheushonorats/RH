@@ -2546,8 +2546,8 @@ function desenharTabelaRelatorio(tipo, dados) {
   const thStyle = "cursor:pointer; user-select:none; transition: background 0.2s;";
   
   if (tipo === 'compulsorias') {
-    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual", "Limite p/ Início", "Venc. 3º Período"];
-    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Cargo</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Lotação</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Saldo Atual</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Limite p/ Início</th><th onclick="ordenarTabelaRelatorio(this, 6)" style="${thStyle} text-align:center;">Venc. 3º Per.</th>`;
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual", "Prazo Máx. p/ Sair", "Venc. 3º Período"];
+    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Cargo</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Lotação</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Saldo Atual</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Prazo Máx. p/ Sair</th><th onclick="ordenarTabelaRelatorio(this, 6)" style="${thStyle} text-align:center;">Venc. 3º Per.</th>`;
     
     // Default sort by who needs to leave first
     dados = dados.map(s => {
