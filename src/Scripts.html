@@ -12,6 +12,8 @@ const AppState = {
   dashboard: {},
   insightEntidade: null,
   briefingDiarioEntidade: null,
+  mensagemEntidadeOculta: '',
+  conviteEntidadePendente: false,
   dadosCompletosCarregados: false,
   cacheRestaurado: false,
   paginacao: {
@@ -1038,9 +1040,14 @@ function renderizarCardInteligenteDashboard(insight) {
   const briefing = AppState.briefingDiarioEntidade;
   const temAlertas = Boolean(insight && insight.temAlertas && insight.resposta);
   const temBriefing = Boolean(briefing && briefing.disponivel && briefing.resposta);
-  const mostrarEntidade = temAlertas || temBriefing;
-  card.classList.toggle('has-alerts', temAlertas);
-  card.classList.toggle('has-briefing', !temAlertas && temBriefing);
+  const chaveMensagem = temAlertas
+    ? 'insight:' + String(insight.geradoEm || '') + ':' + String(insight.resposta || '').slice(0, 80)
+    : (temBriefing ? 'briefing:' + String(briefing.data || '') + ':' + String(briefing.geradoEm || '') : '');
+  const mostrarEntidade = (temAlertas || temBriefing) && AppState.mensagemEntidadeOculta !== chaveMensagem;
+  const botaoFechar = document.getElementById('dismiss-smart-card-message');
+  card.classList.toggle('has-alerts', mostrarEntidade && temAlertas);
+  card.classList.toggle('has-briefing', mostrarEntidade && !temAlertas && temBriefing);
+  if (botaoFechar) botaoFechar.style.display = mostrarEntidade ? 'grid' : 'none';
   alertState.style.display = mostrarEntidade ? 'flex' : 'none';
   locationState.style.display = mostrarEntidade ? 'none' : 'flex';
 
@@ -1064,7 +1071,19 @@ function renderizarCardInteligenteDashboard(insight) {
     icon.innerHTML = '<span data-lucide="map-pinned"></span>';
     renderizarDistribuicaoLotacoesDashboard();
   }
+  atualizarConviteEntidade();
   renderizarIcones();
+}
+
+function fecharMensagemEntidadeNoCard() {
+  const insight = AppState.insightEntidade;
+  const briefing = AppState.briefingDiarioEntidade;
+  if (insight && insight.temAlertas && insight.resposta) {
+    AppState.mensagemEntidadeOculta = 'insight:' + String(insight.geradoEm || '') + ':' + String(insight.resposta || '').slice(0, 80);
+  } else if (briefing && briefing.disponivel && briefing.resposta) {
+    AppState.mensagemEntidadeOculta = 'briefing:' + String(briefing.data || '') + ':' + String(briefing.geradoEm || '');
+  }
+  renderizarCardInteligenteDashboard(insight);
 }
 
 /**
@@ -3547,6 +3566,8 @@ let entidadeUltimoInsightNotificado = 0;
 let entidadeBriefingDiarioSolicitado = false;
 let entidadeBriefingExibirAoCarregar = false;
 let entidadeBriefingMensagemExibida = false;
+let entidadeChatAbrindo = false;
+const entidadeTestePrimeiroAcesso = new URLSearchParams(window.location.search).get('testeEntidade') === '1';
 
 window.addEventListener('pointerdown', function habilitarSomEntidade() {
   try {
@@ -3561,24 +3582,26 @@ window.addEventListener('pointerdown', function habilitarSomEntidade() {
 }, { once: true });
 
 function toggleChatEntidade() {
-  entidadeChatAberto = !entidadeChatAberto;
+  if (entidadeChatAberto || entidadeChatAbrindo) {
+    fecharChatEntidade();
+    return;
+  }
+  entidadeChatAbrindo = true;
+  AppState.conviteEntidadePendente = false;
+  atualizarConviteEntidade();
   const chatWindow = document.getElementById('entidade-chat-window');
-  const badge = document.getElementById('entidade-badge');
-  
-  if (entidadeChatAberto) {
+  setTimeout(function() {
+    entidadeChatAbrindo = false;
+    entidadeChatAberto = true;
     chatWindow.style.display = 'flex';
-    badge.style.display = 'none'; // limpa notificação
+    atualizarConviteEntidade();
     document.getElementById('entidade-input').focus();
-    
-    // Se a IA não fez o scan inicial, faz agora
     if (!entidadeVigiaAtivo) {
       entidadeVigiaAtivo = true;
       iniciarVigia();
     }
     solicitarBriefingDiarioEntidade(true);
-  } else {
-    chatWindow.style.display = 'none';
-  }
+  }, 560);
 }
 
 function solicitarBriefingDiarioEntidade(exibirNoChat = false) {
@@ -3599,7 +3622,9 @@ function solicitarBriefingDiarioEntidade(exibirNoChat = false) {
       if (!res || !res.disponivel || !res.resposta) return;
       AppState.briefingDiarioEntidade = res;
       renderizarCardInteligenteDashboard(AppState.insightEntidade);
-      if (res.mostrar) {
+      if (res.mostrar || entidadeTestePrimeiroAcesso) {
+        // Parâmetro temporário de teste: reproduz o convite visual da primeira abertura
+        // sem alterar o marcador diário salvo no servidor.
         exibirBadgeNotificacao();
         // O ticker apresenta o briefing integral; clicar nele continua sendo
         // apenas um atalho opcional para conversar com a Entidade.
@@ -3627,8 +3652,11 @@ function apresentarBriefingDiarioNoChat_() {
 }
 
 function fecharChatEntidade() {
+  entidadeChatAbrindo = false;
   entidadeChatAberto = false;
+  AppState.conviteEntidadePendente = false;
   document.getElementById('entidade-chat-window').style.display = 'none';
+  atualizarConviteEntidade();
 }
 
 function tocarSomNotificacao() {
@@ -3662,26 +3690,45 @@ function tocarSomNotificacao() {
 }
 
 function girarBotaoEntidade(callback) {
-  const fab = document.querySelector('.entidade-fab');
-  if (fab) {
-    fab.classList.remove('rotate');
-    void fab.offsetWidth; // trigger reflow
-    fab.classList.add('rotate');
-    setTimeout(() => {
-      fab.classList.remove('rotate');
-      if (callback) callback();
-    }, 600); // 600ms matching transition time
-  } else {
-    if (callback) callback();
-  }
+  if (callback) callback();
 }
 
 function exibirBadgeNotificacao() {
-  if (!entidadeChatAberto) {
-    girarBotaoEntidade(function() {
-      document.getElementById('entidade-badge').style.display = 'flex';
-      tocarSomNotificacao();
-    });
+  AppState.conviteEntidadePendente = true;
+  atualizarConviteEntidade();
+  if (!entidadeChatAberto) girarBotaoEntidade(tocarSomNotificacao);
+}
+
+function atualizarConviteEntidade() {
+  const convite = document.getElementById('btn-conversar-entidade-convite');
+  const fantasma = document.getElementById('entidade-fab');
+  const temConvite = Boolean(AppState.conviteEntidadePendente && !entidadeChatAberto);
+  const mostrarFantasma = temConvite || entidadeChatAberto || entidadeChatAbrindo;
+  if (convite) convite.style.display = 'inline-flex';
+  if (fantasma) {
+    if (mostrarFantasma) {
+      const estavaOculto = fantasma.style.display === 'none';
+      fantasma.style.display = 'grid';
+      fantasma.classList.remove('leaving');
+      fantasma.classList.remove('exit-left', 'exit-right');
+      if (estavaOculto) {
+        fantasma.classList.remove('enter-left', 'enter-right');
+        fantasma.classList.add(Math.random() < 0.5 ? 'enter-left' : 'enter-right');
+        setTimeout(function() { fantasma.classList.remove('enter-left', 'enter-right'); }, 620);
+      }
+      fantasma.classList.toggle('has-notification', temConvite);
+      fantasma.classList.toggle('chat-open', entidadeChatAberto || entidadeChatAbrindo);
+    } else if (fantasma.style.display !== 'none') {
+      fantasma.classList.remove('has-notification');
+      fantasma.classList.remove('chat-open');
+      fantasma.classList.remove('enter-left', 'enter-right');
+      fantasma.classList.add(Math.random() < 0.5 ? 'exit-left' : 'exit-right');
+      fantasma.classList.add('leaving');
+      setTimeout(function() {
+        if (!AppState.conviteEntidadePendente) fantasma.style.display = 'none';
+        fantasma.classList.remove('leaving', 'exit-left', 'exit-right');
+      }, 680);
+    }
   }
 }
 

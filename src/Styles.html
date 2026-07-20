@@ -1181,8 +1181,12 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 }
 
 .smart-card-header h3 { margin-top: 4px; font-size: 16px; }
+.smart-card-header-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 .smart-card-icon { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 12%, transparent); }
 .smart-card-icon svg { width: 18px; height: 18px; }
+.smart-card-dismiss { width: 30px; height: 30px; padding: 0; border: 1px solid var(--border-color); border-radius: 9px; color: var(--text-secondary); background: transparent; cursor: pointer; place-items: center; transition: 180ms ease; }
+.smart-card-dismiss:hover { color: var(--text-primary); border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 10%, transparent); }
+.smart-card-dismiss svg { width: 15px; height: 15px; }
 .dashboard-location-state, .dashboard-ai-alert-state { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .location-chart-summary { display: flex; align-items: baseline; gap: 8px; padding: 18px 0 13px; }
 .location-chart-summary strong { font-size: 26px; line-height: 1; }
@@ -1590,6 +1594,22 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
   border-bottom-left-radius: 4px;
 }
 
+.entidade-proposta { display: flex; flex-direction: column; gap: 8px; border-color: rgba(52, 211, 153, .34) !important; background: rgba(16, 185, 129, .08) !important; }
+.entidade-proposta > span { color: var(--text-secondary); font-size: 11px; }
+.entidade-proposta p { margin: 0; color: var(--text-secondary); font-size: 11px; }
+.entidade-proposta-change { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 7px; padding: 9px; border: 1px solid rgba(255,255,255,.11); border-radius: 9px; background: rgba(0,0,0,.12); font-size: 11px; }
+.entidade-proposta-change small { grid-column: 1 / -1; color: var(--text-muted); font-weight: 700; text-transform: uppercase; font-size: 9px; }
+.entidade-proposta-change del { color: #fca5a5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entidade-proposta-change ins { color: #6ee7b7; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entidade-proposta-change svg { width: 13px; color: var(--text-muted); }
+.entidade-proposta-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.entidade-proposta-actions .btn { padding: 7px 10px; font-size: 11px; }
+.entidade-proposta.confirmada { border-color: rgba(52, 211, 153, .38) !important; }
+.entidade-proposta-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.entidade-proposta-fields > div { min-width: 0; padding: 8px; border: 1px solid rgba(255,255,255,.09); border-radius: 8px; background: rgba(0,0,0,.12); }
+.entidade-proposta-fields small { display: block; margin-bottom: 2px; color: var(--text-muted); font-size: 9px; text-transform: uppercase; }
+.entidade-proposta-fields strong { display: block; overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
 .entidade-msg.user {
   background: var(--brand-primary);
   color: white;
@@ -1716,6 +1736,15 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
   cursor: pointer;
   max-width: 420px;
 }
+
+.entidade-input-area .entidade-attach { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--border-color); border-radius: 10px; color: var(--text-secondary); background: transparent; cursor: pointer; transition: 180ms ease; }
+.entidade-input-area .entidade-attach:not(:disabled):hover { color: var(--brand-primary); border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 10%, transparent); transform: none; }
+.entidade-file-preview { margin: 0 14px 8px; padding: 8px 9px; display: flex; align-items: center; gap: 7px; border: 1px solid rgba(99, 102, 241, .32); border-radius: 9px; color: var(--text-secondary); background: rgba(99, 102, 241, .08); font-size: 11px; }
+.entidade-file-preview > svg { width: 15px; height: 15px; color: #a5b4fc; flex: 0 0 auto; }
+.entidade-file-preview > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entidade-file-preview button { margin-left: auto; padding: 2px; border: 0; color: var(--text-secondary); background: transparent; cursor: pointer; }
+.entidade-file-preview button:hover { color: var(--text-primary); }
+.entidade-file-preview button svg { width: 14px; height: 14px; }
 .sync-detailed-status.entidade-insight.show {
   width: min(420px, calc(100vw - 180px));
 }
@@ -1724,7 +1753,16 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
   border-color: rgba(99, 102, 241, 0.5) !important;
 }
 .sync-detailed-status.entidade-insight .sync-ticker-content {
-  animation: ticker-slide var(--entidade-ticker-duration, 24s) linear 1 forwards !important;
+  width: max-content;
+  min-width: max-content !important;
+  flex: 0 0 auto;
+  padding-left: 100%;
+  animation: entidade-ticker-slide var(--entidade-ticker-duration, 24s) linear 1 forwards !important;
+}
+
+@keyframes entidade-ticker-slide {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-100%, 0, 0); }
 }
 
 /* Animação de rotação 360 graus para a Entidade */
@@ -1734,6 +1772,98 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 }
 .entidade-fab.rotate {
   animation: fab-rotate 0.6s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Convite da Entidade: o fantasma só surge quando existe um aviso pendente. */
+.entidade-convite-button {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 9px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(129, 140, 248, .45);
+  border-radius: 10px;
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, .10);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 180ms ease;
+}
+.entidade-convite-button:hover { color: #fff; border-color: #818cf8; background: rgba(99, 102, 241, .20); }
+.entidade-convite-button svg { width: 14px; height: 14px; }
+
+.entidade-fab {
+  width: 52px;
+  height: 58px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: #a5b4fc;
+  background: transparent;
+  box-shadow: none;
+  display: grid;
+  place-items: center;
+  animation: ghost-arrive .7s cubic-bezier(.2, .9, .25, 1) both;
+}
+.entidade-fab:hover { transform: scale(1.08); background: transparent; box-shadow: none; color: #e0e7ff; }
+.entidade-fab svg { width: 38px; height: 38px; filter: drop-shadow(0 7px 10px rgba(99, 102, 241, .38)); }
+.entidade-fab.has-notification { animation: ghost-arrive .7s cubic-bezier(.2, .9, .25, 1) both, ghost-float 3.6s ease-in-out .7s infinite; }
+.entidade-fab.chat-open { animation: ghost-arrive .6s cubic-bezier(.2, .9, .25, 1) both, ghost-float 4.2s ease-in-out .6s infinite; }
+.entidade-fab.leaving { animation: ghost-depart .42s ease-in forwards !important; pointer-events: none; }
+.entidade-fab.rotate { animation: ghost-signal .62s ease-in-out !important; }
+.entidade-badge { display: none !important; }
+
+@keyframes ghost-arrive {
+  0% { opacity: 0; transform: translate(38px, 32px) rotate(8deg) scale(.72); }
+  65% { opacity: 1; transform: translate(-4px, -5px) rotate(-3deg) scale(1.04); }
+  100% { opacity: 1; transform: translate(0, 0) rotate(0) scale(1); }
+}
+@keyframes ghost-float {
+  0%, 100% { transform: translate(0, 0) rotate(-2deg); }
+  45% { transform: translate(-5px, -9px) rotate(2deg); }
+  70% { transform: translate(2px, -4px) rotate(-1deg); }
+}
+@keyframes ghost-signal {
+  0% { transform: translate(20px, 15px) rotate(6deg) scale(.88); }
+  55% { transform: translate(-3px, -8px) rotate(-5deg) scale(1.12); }
+  100% { transform: translate(0, 0) rotate(0) scale(1); }
+}
+@keyframes ghost-depart {
+  from { opacity: 1; transform: translate(0, 0) rotate(0) scale(1); }
+  to { opacity: 0; transform: translate(30px, 24px) rotate(8deg) scale(.76); }
+}
+
+/* Movimento contínuo: o fantasma desliza, sem giros ou pulsos bruscos. */
+.entidade-fab.has-notification,
+.entidade-fab.chat-open { animation: ghost-float-smooth 4.6s ease-in-out infinite; }
+.entidade-fab.enter-left { animation: ghost-enter-left .56s cubic-bezier(.22, .78, .28, 1) both !important; }
+.entidade-fab.enter-right { animation: ghost-enter-right .56s cubic-bezier(.22, .78, .28, 1) both !important; }
+.entidade-fab.leaving.exit-left { animation: ghost-exit-left .62s cubic-bezier(.55, 0, .8, .28) both !important; }
+.entidade-fab.leaving.exit-right { animation: ghost-exit-right .62s cubic-bezier(.55, 0, .8, .28) both !important; }
+.entidade-fab.rotate { animation: ghost-float-smooth 4.6s ease-in-out infinite !important; }
+
+@keyframes ghost-float-smooth {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -7px, 0); }
+}
+@keyframes ghost-enter-left {
+  from { opacity: 0; transform: translate3d(-72px, 16px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes ghost-enter-right {
+  from { opacity: 0; transform: translate3d(72px, 16px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes ghost-exit-left {
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 0; transform: translate3d(-84px, 20px, 0); }
+}
+@keyframes ghost-exit-right {
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 0; transform: translate3d(84px, 20px, 0); }
 }
 
 /* Cabeçalho responsivo: o ticker cede espaço antes dos controles e nunca cobre o menu. */

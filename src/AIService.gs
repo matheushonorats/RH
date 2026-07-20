@@ -29,16 +29,24 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
 
     // O servidor consulta a planilha diretamente; o contexto do navegador é apenas complementar.
     const contextoPlanilha = obterContextoEntidadeServidor_();
+    const respostaOperacionalDireta = responderConsultaOperacionalDiretaEntidade_(mensagemUsuario, contextoPlanilha);
+    if (respostaOperacionalDireta) {
+      const interacaoDiretaId = registrarInteracaoEntidade_(mensagemUsuario, respostaOperacionalDireta);
+      return { resposta: respostaOperacionalDireta, interacaoId: interacaoDiretaId, provedor: 'Sistema' };
+    }
     const memoriaRelevante = obterMemoriasEntidadeRelevantes_(mensagemUsuario);
-    const trechosEstatuto = mensagemUsuario ? buscarTrechosEstatuto_(mensagemUsuario, 2) : [];
+    const trechosNormativos = mensagemUsuario ? buscarTrechosNormativos_(mensagemUsuario, 3) : [];
     const dadosContexto = compactarDadosContextoEntidade_({
       dataAtual: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm"),
       planilha: contextoPlanilha,
       interfaceAtual: contextoLocal,
-      estatutoMunicipal: {
-        norma: 'Lei Complementar Municipal nº 146/2011 — Estatuto dos Servidores Públicos de São Sebastião/SP',
-        observacao: 'Base integral fornecida ao sistema. Os trechos abaixo foram selecionados por relevância para a pergunta atual.',
-        trechosRelevantes: trechosEstatuto
+      basesNormativasMunicipais: {
+        normas: [
+          'Lei Complementar Municipal nº 146/2011 — Estatuto dos Servidores Públicos de São Sebastião/SP',
+          'Decreto Municipal nº 6.808/2017 — Regulamentação do registro de ponto'
+        ],
+        observacao: 'As bases normativas locais estão disponíveis no sistema. Os trechos abaixo foram selecionados por relevância para a pergunta atual.',
+        trechosRelevantes: trechosNormativos
       },
       memoriaValidada: memoriaRelevante,
       conversasAnteriores: obterHistoricoConversasEntidade_(6),
@@ -74,9 +82,9 @@ COMO RESPONDER
 7. Prefira até 6 itens por resposta. Se houver mais, mostre os prioritários e informe o total restante.
 8. Use Markdown simples, frases curtas e termine com uma próxima ação útil quando houver.
 9. A memória validada contém exemplos úteis de conversas anteriores. Use-a apenas quando for pertinente; se divergir da planilha atual ou das regras deste prompt, prevalecem a planilha e as regras oficiais.
-10. Para perguntas sobre direitos, deveres, licenças, vantagens, penalidades ou regime funcional, use os trechos do Estatuto Municipal. Cite o artigo utilizado e faça uma paráfrase fiel; nunca invente artigo ou conteúdo ausente.
-11. A ordem de autoridade é: regras deste prompt e dados atuais da planilha; Estatuto Municipal; memória validada. A memória nunca altera a norma nem os fatos atuais.
-12. Se nenhum trecho normativo relevante tiver sido fornecido, diga que não localizou base suficiente no estatuto. A LC nº 146/2011 pode ter alterações posteriores; decisões formais devem ser confirmadas pelo RH ou assessoria jurídica.
+10. Para perguntas sobre direitos, deveres, licenças, vantagens, penalidades, regime funcional, frequência, ponto, horas extras ou compensação, use os trechos das Bases Normativas Municipais. Cite a norma e o artigo utilizado e faça uma paráfrase fiel; nunca invente artigo ou conteúdo ausente.
+11. A ordem de autoridade é: regras deste prompt e dados atuais da planilha; Bases Normativas Municipais; memória validada. A memória nunca altera a norma nem os fatos atuais.
+12. Se nenhum trecho normativo relevante tiver sido fornecido, diga que não localizou base suficiente nas normas cadastradas. A LC nº 146/2011 e o Decreto nº 6.808/2017 podem ter alterações posteriores; decisões formais devem ser confirmadas pelo RH ou assessoria jurídica.
 13. Não seja apenas informativa: identifique relações entre setores, explique o que o responsável talvez não esteja percebendo e proponha uma ação objetiva, proporcional e executável.
 14. Consulte os insights anteriores para não repetir o mesmo aviso como se fosse novo. Quando uma situação persistir, diga que ela continua pendente e destaque o que mudou.
 15. As conversas anteriores servem para lembrar assuntos já discutidos, mas não são fonte oficial. Somente campos chamados respostaValidada ou correcaoValidada podem orientar uma nova resposta; nunca reutilize como fato uma resposta não avaliada. Não repita recomendação antiga sem verificar se os dados atuais ainda a sustentam.
@@ -85,6 +93,10 @@ COMO RESPONDER
 18. Os itens de pendenciasDe1Doc não possuem número 1DOC. Nunca atribua a eles um 1DOC visto em ausenciasHoje, histórico, memória ou outra lista. Identifique a pendência somente pelos campos presentes no próprio objeto: nome, matrícula, tipo e data.
 19. Preserve literalmente o campo tipo de cada registro. Não descreva Férias como Abonada, Abonada Natalícia ou outro documento, nem faça o inverso.
 20. Relações entre setores podem ser sugeridas em nível agregado. Para afirmar algo sobre uma pessoa ou lançamento específico, todas as evidências citadas devem estar no mesmo objeto dos dados atuais.
+21. Entregue apenas a resposta final ao usuário. Nunca exponha rascunho, cadeia de raciocínio, autoavaliação, instruções internas, texto em inglês sobre "the user", "let me check", "rules" ou comentários sobre uma resposta anterior.
+22. Para distribuições, prefira uma lista ordenada no formato "quantidade — lotação". Não use tabela Markdown salvo se o usuário pedir explicitamente uma tabela. Exiba "Sem lotação" no lugar de valores vazios, "-" ou equivalentes.
+23. Em resumos automáticos ou quando a pergunta pedir os principais insights, comece pelos casos concretos: nome, matrícula, motivo e prazo/data presentes no mesmo registro. Em seguida, apresente no máximo um dado agregado que ajude a decisão.
+24. Não repita o mesmo indicador em itens diferentes. Não use percentual, expressão como "nas últimas 24 horas" ou causalidade entre setor e ausência, a menos que esse dado esteja explicitamente calculado no contexto. A atividade do aplicativo representa apenas um recorte dos últimos 500 logs.
 
 COMANDOS DISPONÍVEIS (use no máximo um, apenas quando ele ajudar)
 - [NAVEGAR_DASHBOARD], [NAVEGAR_SERVIDORES], [NAVEGAR_LANCAMENTOS], [NAVEGAR_PROTOCOLOS], [NAVEGAR_RELATORIOS]
@@ -116,7 +128,7 @@ ${JSON.stringify(dadosContexto, null, 2)}
     if (mensagemUsuario) {
       messages.push({ role: "user", content: mensagemUsuario });
     } else {
-      messages.push({ role: "user", content: "Faça uma verificação silenciosa e cruzada de todos os setores presentes no contexto. Destaque somente riscos ou mudanças relevantes, com até 3 casos prioritários. Para cada ponto, diga o que talvez não esteja sendo percebido e recomende uma ação objetiva. Se não houver pendência ou insight novo, responda exatamente: Tudo em ordem" });
+      messages.push({ role: "user", content: "Faça uma verificação silenciosa e cruzada de todos os setores presentes no contexto. Destaque somente riscos ou mudanças relevantes, com até 3 casos prioritários. Cada caso deve citar nome, matrícula, motivo e prazo/data quando existirem no mesmo registro. Não repita indicadores, não use percentuais e não chame o recorte de logs de últimas 24 horas. Use texto natural, preciso e direto. Se não houver pendência ou insight novo, responda exatamente: Tudo em ordem" });
     }
 
     const retornoModelo = chamarProvedorEntidade_(messages, !mensagemUsuario);
@@ -133,6 +145,10 @@ ${JSON.stringify(dadosContexto, null, 2)}
           ? conteudoResposta.map(function(parte) { return parte && (parte.text || parte.content) || ''; }).join('\n')
           : String(conteudoResposta || ''));
     respostaIA = normalizarComandosRespostaEntidade_(respostaIA);
+    respostaIA = removerRaciocinioExpostoEntidade_(respostaIA);
+    if (!respostaIA) {
+      return { erro: 'A Entidade descartou uma resposta incompleta do provedor. Tente novamente.' };
+    }
     
     // Se for varredura silenciosa e tudo estiver em ordem
     if (!mensagemUsuario && respostaIA.trim().toLowerCase().indexOf("tudo em ordem") !== -1) {
@@ -161,7 +177,7 @@ function compactarDadosContextoEntidade_(dados) {
   planilha.ausenciasHoje = reduzir(planilha.ausenciasHoje, 10);
   planilha.servidoresEmFeriasCompulsorias = reduzir(planilha.servidoresEmFeriasCompulsorias, 8);
   planilha.pendenciasDe1Doc = reduzir(planilha.pendenciasDe1Doc, 8);
-  planilha.distribuicaoPorLotacao = reduzir(planilha.distribuicaoPorLotacao, 10);
+  planilha.distribuicaoPorLotacao = reduzir(planilha.distribuicaoPorLotacao, 40);
   planilha.ultimosLancamentos = reduzir(planilha.ultimosLancamentos, 6);
   copia.memoriaValidada = reduzir(copia.memoriaValidada, 2);
   copia.conversasAnteriores = reduzir(copia.conversasAnteriores, 4);
@@ -182,7 +198,9 @@ function compactarDadosContextoEntidade_(dados) {
     planilha.ausenciasHoje = reduzir(planilha.ausenciasHoje, 5);
     planilha.distribuicaoPorLotacao = reduzir(planilha.distribuicaoPorLotacao, 5);
     copia.memoriaValidada = reduzir(copia.memoriaValidada, 1);
-    copia.estatutoMunicipal.trechosRelevantes = reduzir(copia.estatutoMunicipal.trechosRelevantes, 1);
+    if (copia.basesNormativasMunicipais) {
+      copia.basesNormativasMunicipais.trechosRelevantes = reduzir(copia.basesNormativasMunicipais.trechosRelevantes, 1);
+    }
   }
   return copia;
 }
@@ -333,6 +351,48 @@ function textoSemComandoFinal_(texto) {
   return String(texto || '')
     .replace(/(?:para mais detalhes,?\s*)?(?:você pode\s*)?(?:ou\s*)?[.!]?\s*$/i, '')
     .trim();
+}
+
+/** Remove qualquer raciocínio interno que um provedor eventualmente devolva junto da resposta. */
+function removerRaciocinioExpostoEntidade_(resposta) {
+  let texto = String(resposta || '')
+    .replace(/<(?:think|analysis|reasoning)>[\s\S]*?<\/(?:think|analysis|reasoning)>/gi, '')
+    .trim();
+
+  // Estes padrões são meta-comentários de modelos e nunca devem chegar à interface.
+  const raciocinioExposto = /(?:okay,?\s*the user|the user is saying|let me check|looking at the data|according to (?:the )?rules|in my previous response|wait,?\s*the user|i should have)/i;
+  if (raciocinioExposto.test(texto)) return '';
+  return texto;
+}
+
+function rotuloLotacaoEntidade_(valor) {
+  const texto = String(valor == null ? '' : valor).trim();
+  return !texto || texto === '-' || /^n[aã]o informado$/i.test(texto) ? 'Sem lotação' : texto;
+}
+
+/** Respostas factuais recorrentes não consomem cota da IA e preservam a visualização correta. */
+function responderConsultaOperacionalDiretaEntidade_(mensagem, contexto) {
+  const pergunta = String(mensagem || '');
+  const pediuDistribuicao = /(?:distribui.{0,50}lota[cç][aã]o|lota[cç][aã]o.{0,50}(?:distribui|quantidade|n[uú]meros?))/i.test(pergunta);
+  if (!pediuDistribuicao) return '';
+
+  const lista = Array.isArray(contexto && contexto.distribuicaoPorLotacao)
+    ? contexto.distribuicaoPorLotacao.slice()
+    : [];
+  if (!lista.length) return 'Não há dados de lotação disponíveis na leitura atual da planilha.';
+
+  lista.sort(function(a, b) { return Number(b.quantidade || 0) - Number(a.quantidade || 0); });
+  const totalServidores = lista.reduce(function(total, item) { return total + Number(item.quantidade || 0); }, 0);
+  const semLotacao = lista.filter(function(item) { return rotuloLotacaoEntidade_(item.lotacao) === 'Sem lotação'; })
+    .reduce(function(total, item) { return total + Number(item.quantidade || 0); }, 0);
+
+  const linhas = lista.map(function(item) {
+    return '**' + Number(item.quantidade || 0) + '** — ' + rotuloLotacaoEntidade_(item.lotacao);
+  });
+  linhas.push('');
+  linhas.push('**Total listado:** ' + totalServidores + ' servidores em ' + lista.length + ' lotações/valores cadastrados.');
+  if (semLotacao) linhas.push('**Atenção:** ' + semLotacao + ' servidor(es) estão sem lotação e precisam de regularização cadastral.');
+  return '**Distribuição por lotação**\n' + linhas.join('\n');
 }
 
 function obterAbaMemoriaEntidade_() {
@@ -639,7 +699,7 @@ function obterContextoEntidadeServidor_() {
     distribuicaoPorLotacao: Object.keys(lotacoes)
       .map(function(nome) { return { lotacao: nome, quantidade: lotacoes[nome] }; })
       .sort(function(a, b) { return b.quantidade - a.quantidade; })
-      .slice(0, 15),
+      .slice(0, 40),
     sinaisCruzados: {
       lotacoesComMaisAusenciasHoje: Object.keys(ausenciasPorLotacao)
         .map(function(nome) { return { lotacao: nome, ausentes: ausenciasPorLotacao[nome] }; })
@@ -818,8 +878,8 @@ function gerarInsightEntidade_(forcarAnalise) {
   }
   const agora = new Date().getTime();
   const registro = resultado && resultado.silencioso
-    ? { versao: '2.3.1-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
-    : { versao: '2.3.1-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
+    ? { versao: '2.3.2-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
+    : { versao: '2.3.2-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
 
   props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(registro));
   props.setProperty('ENTIDADE_ESTADO_ANALISADO', JSON.stringify(estadoAtual));
@@ -857,42 +917,47 @@ function gerarBriefingDeterministicoEntidade_(contexto) {
   const ausencias = contexto.ausenciasHoje || [];
   const qualidade = (contexto.sinaisCruzados && contexto.sinaisCruzados.qualidadeCadastral) || {};
   const prioridades = [];
+  const lotacaoMaisAfetada = ((contexto.sinaisCruzados || {}).lotacoesComMaisAusenciasHoje || [])[0];
 
   compulsorias.slice(0, 2).forEach(function(item) {
     const prazo = Number(item.diasParaTerceiroPeriodo);
     const quando = isFinite(prazo)
-      ? (prazo < 0 ? Math.abs(prazo) + ' dia(s) em atraso' : prazo + ' dia(s) para o prazo')
-      : (item.dataTerceiroPeriodo ? 'prazo em ' + item.dataTerceiroPeriodo : 'prazo requer conferência');
-    prioridades.push('**Férias:** ' + String(item.nome || 'Servidor') + ' (matrícula ' + String(item.matricula || '-') + ') — ' + quando + ', saldo de ' + Number(item.saldoDisponivelDias || 0) + ' dia(s).');
+      ? (prazo < 0 ? 'vencido há ' + Math.abs(prazo) + ' dia(s)' : 'vence em ' + prazo + ' dia(s)' + (item.dataTerceiroPeriodo ? ' (' + item.dataTerceiroPeriodo + ')' : ''))
+      : (item.dataTerceiroPeriodo ? 'vence em ' + item.dataTerceiroPeriodo : 'prazo precisa de conferência');
+    prioridades.push('**Férias compulsórias:** ' + String(item.nome || 'Servidor') + ' (matrícula ' + String(item.matricula || '-') + ') — ' + quando + '; saldo atual de ' + Number(item.saldoDisponivelDias || 0) + ' dia(s).');
   });
 
-  if (pendencias.length && prioridades.length < 3) {
-    prioridades.push('**1DOC:** há ' + Number(resumo.lancamentosSem1Doc || pendencias.length) + ' lançamento(s) pendente(s) de regularização.');
+  if (pendencias.length) {
+    const nomesPendentes = pendencias.slice(0, 2).map(function(pendencia) {
+      const ha = pendencia.diasPendente == null ? '' : ' há ' + Number(pendencia.diasPendente) + ' dia(s)';
+      return String(pendencia.nome || 'Servidor') + ' (matrícula ' + String(pendencia.matricula || '-') + '): ' + String(pendencia.tipo || 'lançamento') + ', solicitado em ' + String(pendencia.dataSolicitacao || 'data não informada') + ha;
+    });
+    prioridades.push('**1DOC pendente:** ' + nomesPendentes.join('; ') + '.');
   }
-  if (ausencias.length && prioridades.length < 3) {
-    prioridades.push('**Equipe:** ' + Number(resumo.ausentesHoje || ausencias.length) + ' servidor(es) estão ausentes hoje; confira a cobertura das lotações mais afetadas.');
+  if (ausencias.length && !compulsorias.length && !pendencias.length) {
+    prioridades.push('**Ausências de hoje:** ' + Number(resumo.ausentesHoje || ausencias.length) + ' servidor(es) estão afastados' + (lotacaoMaisAfetada ? '; a maior concentração está em ' + lotacaoMaisAfetada.lotacao + ' (' + Number(lotacaoMaisAfetada.ausentes) + ').' : '.'));
   }
   if ((Number(qualidade.servidoresSemLotacao || 0) > 0 || (qualidade.matriculasDuplicadas || []).length > 0) && prioridades.length < 3) {
-    prioridades.push('**Cadastro:** existem inconsistências de lotação ou matrícula que merecem revisão.');
+    prioridades.push('**Cadastro:** ' + Number(qualidade.servidoresSemLotacao || 0) + ' servidor(es) sem lotação e ' + (qualidade.matriculasDuplicadas || []).length + ' matrícula(s) duplicada(s) precisam de conferência.');
   }
   if (!prioridades.length) {
     prioridades.push('Nenhuma pendência crítica foi detectada na leitura atual. Mantenha a conferência dos próximos vencimentos.');
   }
 
   return [
-    '**Visão geral de hoje**',
+    '**Resumo da equipe hoje**',
     Number(resumo.servidoresAtivos || 0) + ' servidores ativos · ' +
       Number(resumo.feriasCompulsorias || 0) + ' férias compulsórias · ' +
       Number(resumo.ausentesHoje || 0) + ' ausentes hoje · ' +
       Number(resumo.lancamentosSem1Doc || 0) + ' sem 1DOC.',
     '',
-    '**Prioridades**',
+    '**Casos que pedem atenção**',
     prioridades.map(function(item, indice) { return (indice + 1) + '. ' + item; }).join('\n'),
     '',
     '**Recomendação**',
     compulsorias.length
-      ? 'Comece pelo vencimento mais próximo; a lista já está ordenada por urgência, não por nome.'
-      : 'Revise as pendências de documentação e a cobertura das ausências antes de novos lançamentos.'
+      ? 'Priorize o primeiro nome da lista: os casos estão ordenados pelo vencimento, do mais próximo para o mais distante.'
+      : (pendencias.length ? 'Regularize primeiro o lançamento sem 1DOC indicado acima.' : 'Confirme a cobertura das ausências antes de novos lançamentos.')
   ].join('\n');
 }
 
@@ -901,17 +966,19 @@ function obterBriefingDiarioEntidade() {
   const props = PropertiesService.getScriptProperties();
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const chaveVisualizacao = obterChaveVisualizacaoBriefingEntidade_(usuario);
-  const jaVisto = props.getProperty(chaveVisualizacao) === hoje;
+  const versaoBriefing = 'briefing-diario-v5';
+  const marcadorVisualizacao = hoje + '|' + versaoBriefing;
+  const jaVisto = props.getProperty(chaveVisualizacao) === marcadorVisualizacao;
 
   let briefing = null;
   try { briefing = JSON.parse(props.getProperty('ENTIDADE_BRIEFING_DIARIO') || 'null'); } catch (e) {}
 
-  if (!briefing || briefing.data !== hoje || briefing.versao !== 'briefing-diario-v3') {
+  if (!briefing || briefing.data !== hoje || briefing.versao !== versaoBriefing) {
     // O briefing inicial não aguarda API externa: abre rápido, é previsível e
     // economiza cota. A vigia horária e o chat continuam usando a IA normalmente.
     const contexto = obterContextoEntidadeServidor_();
     briefing = {
-      versao: 'briefing-diario-v3',
+      versao: versaoBriefing,
       data: hoje,
       geradoEm: Date.now(),
       resposta: gerarBriefingDeterministicoEntidade_(contexto).slice(0, 6500),
@@ -935,7 +1002,7 @@ function obterBriefingDiarioEntidade() {
 function marcarBriefingDiarioEntidadeComoVisto() {
   const usuario = obterDadosUsuarioLogado();
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  PropertiesService.getScriptProperties().setProperty(obterChaveVisualizacaoBriefingEntidade_(usuario), hoje);
+  PropertiesService.getScriptProperties().setProperty(obterChaveVisualizacaoBriefingEntidade_(usuario), hoje + '|briefing-diario-v5');
   return true;
 }
 
@@ -949,7 +1016,7 @@ function obterInsightEntidadeAtual() {
   if (salvo) {
     try {
       const insight = JSON.parse(salvo);
-      if (insight.versao === '2.3.1-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
+      if (insight.versao === '2.3.2-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
     } catch (e) {}
   }
 
@@ -961,7 +1028,7 @@ function obterInsightEntidadeAtual() {
     if (atualizado) {
       try {
         const insightAtual = JSON.parse(atualizado);
-        if (insightAtual.versao === '2.3.1-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
+        if (insightAtual.versao === '2.3.2-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
       } catch (e) {}
     }
     return gerarInsightEntidade_(false);

@@ -184,7 +184,7 @@
 
                   <div id="dashboard-ai-alert-state" class="dashboard-ai-alert-state" style="display: none;">
                     <div class="ai-alert-summary" id="dashboard-ai-alert-content"></div>
-                    <div class="smart-card-footer"><span id="dashboard-ai-alert-date"></span><button class="text-button" onclick="toggleChatEntidade()">Conversar com a Entidade <span data-lucide="arrow-right"></span></button></div>
+                    <div class="smart-card-footer"><span id="dashboard-ai-alert-date"></span></div>
                   </div>
 
                   <div id="dashboard-location-state" class="dashboard-location-state">
@@ -209,6 +209,7 @@
                     <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px;" onclick="enviarMensagemEntidade('Quero ver a distribuição dos servidores por lotação e os números de cada uma.')"><span data-lucide="map-pin" style="width: 12px; height: 12px; margin-right: 4px;"></span> Lotação</button>
                     <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px; color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.05);" onclick="enviarMensagemEntidade('Quais são os seus principais insights sobre a nossa equipe no momento?')"><span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 4px;"></span> Insights IA</button>
                   </div>
+                  <button id="btn-conversar-entidade-convite" class="entidade-convite-button" type="button" onclick="toggleChatEntidade()" style="display: none;"><span data-lucide="ghost"></span> Conversar com a Entidade <span data-lucide="arrow-right"></span></button>
                 </div>
               </aside>
             </div>
@@ -1229,9 +1230,8 @@
       </div>
 
       <!-- Floating Button -->
-      <button id="entidade-fab" class="entidade-fab" onclick="toggleChatEntidade()">
+      <button id="entidade-fab" class="entidade-fab" onclick="toggleChatEntidade()" title="Abrir Entidade" aria-label="Abrir Entidade" style="display: none;">
         <span data-lucide="ghost" id="entidade-fab-icon"></span>
-        <div id="entidade-badge" class="entidade-badge" style="display: none;">!</div>
       </button>
     </div>
 

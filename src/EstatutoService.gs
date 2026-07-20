@@ -81,3 +81,76 @@ function extrairTermosEstatuto_(texto) {
     return termo.length >= 4 && !ignorar[termo];
   });
 }
+
+/**
+ * Decreto Municipal nº 6.808/2017: regulamenta o registro de ponto conforme
+ * o art. 100 da LC nº 146/2011. Mantido como fonte normativa independente
+ * para que a Entidade informe corretamente a origem de cada orientação.
+ */
+const DECRETO_6808_2017_TEXTO = [
+  'DECRETO Nº 6.808/2017 — Dispõe sobre a regulamentação do registro de ponto, conforme artigo 100 da Lei Complementar nº 146/2011.',
+  'Art. 1º Fica regulamentado o controle de frequência quanto à assiduidade e pontualidade dos servidores públicos detentores de cargos de provimento efetivo, em comissão e os admitidos por tempo determinado, conforme artigo 100 da Lei 146/2011. §1º As disposições deste Decreto não se aplicam aos Agentes Políticos. §2º Os servidores municipais de provimento de cargo em comissão poderão ter abonadas faltas ou possíveis atrasos, mediante documento escrito e assinado pelo secretário da pasta ou prefeito, devidamente instruído com justificativa de serviço externo. §3º A possibilidade de dispensa não exime o servidor dos deveres de assiduidade e pontualidade e não impede a Administração de voltar a exigir o registro do ponto.',
+  'Art. 2º Para efeitos deste Decreto, jornada de trabalho é o período diário durante o qual o servidor deve prestar serviço conforme sua carga horária; carga horária é a quantidade de horas a cumprir semanalmente conforme legislação própria.',
+  'Art. 3º O controle de frequência se dará por registro eletrônico mediante identificação biométrica; cartão de ponto para servidores em locais sem registro eletrônico; e planilhas de frequência para profissionais do magistério e demais servidores da Secretaria de Educação até implantação do registro eletrônico.',
+  'Art. 4º Fica estabelecido intervalo mínimo de uma hora e máximo de duas horas para trabalho contínuo cuja duração exceda seis horas consecutivas, não computado como tempo de trabalho. §1º Horários habituais de início, término e intervalos serão previamente estabelecidos entre chefias e servidores conforme as conveniências e peculiaridades de cada setor ou serviço.',
+  'Art. 5º É vedado ao servidor municipal efetuar registro de frequência além dos limites de sua jornada, exceto se previamente autorizada a prestação de serviço extraordinário ou compensação semanal de horários. Parágrafo único: ocupante de cargo em comissão ou função de confiança não pode receber horas extras, pois se submete a regime de integral dedicação ao serviço, podendo ser convocado conforme interesse da Administração.',
+  'Art. 6º O registro eletrônico é responsabilidade do servidor; falta de marcação do ponto e eventuais faltas ou atrasos implicam desconto na folha de pagamento do período não apontado. §1º Ausências de marcação devem ser justificadas em formulário próprio, assinado pelo chefe imediato, no máximo três justificativas mensais. §2º Compensações de horas devem ocorrer dentro do mesmo mês; períodos superiores a duas horas exigem autorização da chefia em formulário próprio. §3º Em serviço externo, o servidor deve comparecer ao local de trabalho para registrar o ponto.',
+  'Art. 7º As folhas de pagamento serão elaboradas exclusivamente à vista dos registros de ponto e do relatório de frequência emitido pelo sistema de registro eletrônico. §1º A frequência será computada entre o primeiro e o último dia do mês anterior à folha de pagamento.',
+  'Art. 8º Não serão descontadas nem computadas como horário extraordinário as variações de horário no sistema de registro eletrônico da efetividade que não excedam cinco minutos, observado o limite máximo de dez minutos diários.',
+  'Art. 9º Compete à chefia imediata acompanhar e controlar a frequência do servidor e adotar medidas administrativas para fiel execução do Decreto. §1º O descumprimento dos deveres de assiduidade e pontualidade deve ser comunicado ao Departamento de Recursos Humanos.',
+  'Art. 10º Cabe aos servidores registrar entradas e saídas por digitais ou cartão de ponto quando não houver relógio eletrônico; apresentar à chefia documentos que justifiquem ausências amparadas por lei, para encaminhamento imediato ao DRH antes do fechamento do ponto; comparecer a cadastramento biométrico quando convocado; acompanhar os registros de frequência; comunicar problemas de leitura biométrica; e zelar pelo cartão, equipamentos e programas de registro eletrônico.',
+  'Art. 11 O servidor que comprovadamente causar dano ao equipamento de registro eletrônico, ao seu funcionamento ou rede de alimentação, ou concorrer para o fato, será responsabilizado na forma da lei.',
+  'Art. 12 O descumprimento dos critérios do Decreto sujeita o servidor e sua chefia imediata, na medida das responsabilidades, às sanções legais.',
+  'Art. 13 A implementação do registro eletrônico de ponto ocorrerá de forma gradativa, sem afastar os deveres de assiduidade e pontualidade e o cumprimento integral da carga horária. Parágrafo único: na indisponibilidade do relógio eletrônico, será adotado o registro manual.',
+  'Art. 14 Este Decreto entra em vigor na data de sua publicação. São Sebastião, 26 de junho de 2017.'
+].join('\n\n');
+
+let _artigosDecreto6808Cache = null;
+
+function carregarArtigosDecreto6808_() {
+  if (_artigosDecreto6808Cache) return _artigosDecreto6808Cache;
+  const blocos = DECRETO_6808_2017_TEXTO.split(/(?=\bArt\.\s*\d+\s*[º°o]?)/gi);
+  _artigosDecreto6808Cache = blocos.map(function(bloco) {
+    const limpo = String(bloco || '').replace(/\s+/g, ' ').trim();
+    const match = limpo.match(/^Art\.\s*(\d+)\s*[º°o]?/i);
+    if (!match) return null;
+    return { artigo: 'Art. ' + match[1] + 'º', texto: limpo.slice(0, 4000) };
+  }).filter(Boolean);
+  return _artigosDecreto6808Cache;
+}
+
+function buscarTrechosDecreto6808_(consulta, limite) {
+  const termos = extrairTermosEstatuto_(consulta);
+  if (!termos.length) return [];
+  const sinonimos = {
+    ponto: ['frequencia', 'biometria', 'marcacao'],
+    frequencia: ['ponto', 'assiduidade', 'pontualidade'],
+    atraso: ['pontualidade', 'desconto', 'marcacao'],
+    falta: ['ausencia', 'justificativa', 'desconto'],
+    horas: ['extraordinario', 'compensacao', 'jornada'],
+    extra: ['extraordinario', 'horas'],
+    compensacao: ['horas', 'jornada'],
+    comissionado: ['comissao', 'integral', 'extraordinario']
+  };
+  let busca = termos.slice();
+  termos.forEach(function(termo) { if (sinonimos[termo]) busca = busca.concat(sinonimos[termo]); });
+  busca = busca.filter(function(termo, indice, lista) { return lista.indexOf(termo) === indice; });
+  return carregarArtigosDecreto6808_().map(function(artigo) {
+    const normalizado = normalizarCabecalho_(artigo.texto).toLowerCase();
+    let score = 0;
+    busca.forEach(function(termo) { score += Math.min(normalizado.split(termo).length - 1, 5); });
+    return score ? { score: score, artigo: artigo.artigo, trecho: artigo.texto } : null;
+  }).filter(Boolean).sort(function(a, b) { return b.score - a.score; }).slice(0, limite || 3).map(function(item) {
+    return { norma: 'Decreto Municipal nº 6.808/2017', artigo: item.artigo, trecho: item.trecho.slice(0, 1800) };
+  });
+}
+
+function buscarTrechosNormativos_(consulta, limite) {
+  const quantidade = Math.max(1, limite || 3);
+  const estatuto = buscarTrechosEstatuto_(consulta, quantidade).map(function(item) {
+    item.norma = 'Lei Complementar Municipal nº 146/2011';
+    return item;
+  });
+  const decreto = buscarTrechosDecreto6808_(consulta, quantidade);
+  return estatuto.concat(decreto).slice(0, quantidade);
+}
