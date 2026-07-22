@@ -4107,7 +4107,10 @@ function parseAFDRep(content, sourceFile) {
 
     if (type === '1') {
       if (line.length > 25) {
-        currentClock = line.substring(10, 24).trim();
+        // O registro 1 traz CNPJ/serial antes do nome configurado do relógio.
+        // Ex.: "PMSS.SETUR" ou "PMSS-SETUR - POLO TOPO".
+        const identificacaoRelogio = line.substring(10).replace(/^\d+\s*/, '').trim();
+        currentClock = (identificacaoRelogio.split(/\s{2,}/)[0] || '').trim() || "Relógio não identificado";
       }
     } else if (type === '5' || type === '4') {
       let actionCharPos = line.indexOf('I', 10);
@@ -4180,6 +4183,18 @@ function getHoursDiffRep(start, end) {
   return (end - start) / (1000 * 60 * 60);
 }
 
+function obterFeriadosRep() {
+  const campo = document.getElementById('rep-feriados');
+  return new Set(String(campo && campo.value || '')
+    .split(/[;,\n]/)
+    .map(valor => valor.trim())
+    .map(valor => {
+      const partes = valor.split('/');
+      return partes.length === 3 ? `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}` : valor;
+    })
+    .filter(valor => /^\d{4}-\d{2}-\d{2}$/.test(valor)));
+}
+
 function formatHoursRep(decimalHours) {
   const isNegative = decimalHours < 0;
   const absHours = Math.abs(decimalHours);
@@ -4193,6 +4208,7 @@ function processDataRep(employees, punches) {
   const dataByPisSeguro = new Map();
   const jornadaInput = document.getElementById('rep-jornada-horas');
   const jornadaReferencia = Number(jornadaInput && jornadaInput.value) || 8;
+  const feriados = obterFeriadosRep();
 
   for (const punch of punches.slice().sort((a, b) => a.datetime - b.datetime)) {
     const pis = normalizarPisRep(punch.pis);
@@ -4228,13 +4244,26 @@ function processDataRep(employees, punches) {
       const batidas = eventos.map(evento => evento.arredondada);
       const isImpar = batidas.length % 2 !== 0;
       const conflitoArredondamento = new Set(batidas.map(d => d.getTime())).size !== batidas.length;
-      const intervaloNaoIdentificado = !isImpar && batidas.length === 2 && getHoursDiffRep(batidas[0], batidas[1]) > 6;
+      const diaSemana = batidas[0].getDay();
+      const diaExtra = diaSemana === 0 || diaSemana === 6 || feriados.has(diaSeguro.data);
+      const intervaloNaoIdentificado = !diaExtra && !isImpar && batidas.length === 2 && getHoursDiffRep(batidas[0], batidas[1]) > 6;
       let totalDia = null;
       let saldoDia = null;
+      let intervaloConsiderado = 0;
+      let descontoIntervalo = 0;
       if (!isImpar && !conflitoArredondamento && !intervaloNaoIdentificado) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
-        saldoDia = totalDia - jornadaReferencia;
+        // Em jornada superior a 6 horas, o intervalo mínimo de uma hora não
+        // gera crédito. Se houve só 30 min, os 30 min restantes não contam como saldo.
+        if (!diaExtra && batidas.length >= 4 && getHoursDiffRep(batidas[0], batidas[batidas.length - 1]) > 6) {
+          for (let i = 1; i < batidas.length - 1; i += 2) {
+            intervaloConsiderado += getHoursDiffRep(batidas[i], batidas[i + 1]);
+          }
+          descontoIntervalo = Math.max(0, 1 - intervaloConsiderado);
+          totalDia = Math.max(0, totalDia - descontoIntervalo);
+        }
+        saldoDia = diaExtra ? totalDia : totalDia - jornadaReferencia;
         empSeguro.resumo.trabalhadas += totalDia;
         empSeguro.resumo.saldo += saldoDia;
         empSeguro.resumo.extras += saldoDia;
@@ -4246,6 +4275,8 @@ function processDataRep(employees, punches) {
       if (isImpar) status = 'impar';
       else if (conflitoArredondamento) status = 'conflito_arredondamento';
       else if (intervaloNaoIdentificado) status = 'intervalo_nao_identificado';
+      else if (descontoIntervalo > 0) status = 'intervalo_inferior_minimo';
+      else if (diaExtra) status = 'extra_dia_nao_util';
       else if (saldoDia > 0) status = 'saldo_positivo';
       dias.push({
         dataOriginal: diaSeguro.data,
@@ -4257,7 +4288,7 @@ function processDataRep(employees, punches) {
         fontes: Array.from(diaSeguro.fontes).join(', '),
         status, isImpar,
         pendencia: isImpar || conflitoArredondamento || intervaloNaoIdentificado,
-        intervaloNaoIdentificado, conflitoArredondamento
+        intervaloNaoIdentificado, conflitoArredondamento, intervaloConsiderado, descontoIntervalo, diaExtra
       });
     }
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
@@ -4552,6 +4583,48 @@ function renderizarListaRep() {
     return;
   }
 
+  let linhas = '';
+  filtered.forEach(emp => {
+    const saldoClasse = emp.resumo.extras > 0 ? 'rep-valor-positivo' : (emp.resumo.extras < 0 ? 'rep-valor-negativo' : '');
+    linhas += `
+      <tr class="rep-grupo-servidor">
+        <td colspan="7">
+          <div class="rep-grupo-cabecalho">
+            <div><strong>${escapeHtml(emp.nome)}</strong><span class="rep-badge-pis">PIS: ${emp.pis}</span></div>
+            <div class="rep-grupo-resumo">
+              <span>Trabalhadas: <b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span>
+              <span>Saldo: <b class="${saldoClasse}">${formatHoursRep(emp.resumo.extras)}h</b></span>
+              <span>Pendências: <b>${emp.resumo.pendencias}</b></span>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+    emp.dias.forEach(dia => {
+      let situacao = 'Conferido';
+      if (dia.status === 'impar') situacao = 'Batida ímpar';
+      else if (dia.status === 'intervalo_nao_identificado') situacao = 'Intervalo não identificado';
+      else if (dia.status === 'intervalo_inferior_minimo') situacao = 'Intervalo < 1h: saldo ajustado';
+      else if (dia.status === 'conflito_arredondamento') situacao = 'Conflito no arredondamento';
+      else if (dia.status === 'nao_conciliado') situacao = 'PIS não conciliado';
+      else if (dia.status === 'extra_dia_nao_util') situacao = 'Extra (sábado/domingo/feriado)';
+      else if (dia.status === 'saldo_positivo') situacao = 'Saldo estimado positivo';
+      linhas += `<tr>
+        <td>${dia.dataFormatada}</td>
+        <td><strong>${dia.batidas.join(' · ')}</strong><small class="rep-original">Original: ${dia.batidasOriginais}</small></td>
+        <td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
+        <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}</td>
+        <td>${escapeHtml(dia.relogios || '-')}</td>
+        <td><span class="rep-status ${dia.status}">${situacao}</span></td>
+        <td>${emp.naoConciliado ? 'Não' : 'Sim'}</td>
+      </tr>`;
+    });
+  });
+  listContainer.innerHTML = `<div class="rep-table-wrap"><table class="custom-table rep-tabela-leitura">
+    <thead><tr><th>Data</th><th>Batidas</th><th>Horas</th><th>Saldo estimado</th><th>Local do relógio</th><th>Situação</th><th>PIS vinculado</th></tr></thead>
+    <tbody>${linhas}</tbody>
+  </table></div>`;
+  return;
+
   filtered.forEach((emp, idx) => {
     const cardId = `rep-card-${idx}`;
     const bodyId = `rep-body-${idx}`;
@@ -4566,6 +4639,8 @@ function renderizarListaRep() {
       let statusHtml = '<span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">OK</span>';
       if (dia.status === 'impar') statusHtml = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Batida impar: conferir</span>';
       else if (dia.status === 'intervalo_nao_identificado') statusHtml = '<span class="status-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Intervalo nao identificado</span>';
+      else if (dia.status === 'intervalo_inferior_minimo') statusHtml = '<span class="status-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Intervalo menor que 1h: saldo ajustado</span>';
+      else if (dia.status === 'extra_dia_nao_util') statusHtml = '<span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Extra: sábado, domingo ou feriado</span>';
       else if (dia.status === 'conflito_arredondamento') statusHtml = '<span class="status-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Conflito apos arredondamento</span>';
       else if (dia.status === 'nao_conciliado') statusHtml = '<span class="status-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">PIS nao conciliado</span>';
       else if (dia.status === 'saldo_positivo') statusHtml = '<span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Saldo estimado positivo</span>';
@@ -4578,7 +4653,7 @@ function renderizarListaRep() {
           <td style="${dia.extraDia > 0 ? 'color: #10b981;' : (dia.extraDia < 0 ? 'color: #ef4444;' : '')}">
             ${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}
           </td>
-          <td style="font-size: 11px; color: var(--text-secondary);">${dia.fontes || '-'}</td>
+          <td style="font-size: 11px; color: var(--text-secondary);">${dia.relogios || '-'}</td>
           <td style="font-size: 11px; color: var(--text-secondary);">${dia.relogios}</td>
           <td>${statusHtml}</td>
         </tr>
@@ -4617,7 +4692,7 @@ function renderizarListaRep() {
                 <th>Batidas Registradas</th>
                 <th>Horas Trabalhadas</th>
                 <th>Saldo estimado</th>
-                <th>Arquivo de origem</th>
+                <th>Local do relógio</th>
                 <th>Relógio / Origem</th>
                 <th>Status</th>
               </tr>
@@ -4671,6 +4746,7 @@ function exportarRepExcel() {
         'Total Horas Dia': dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia),
         'Saldo Estimado (não é hora extra autorizada)': dia.pendencia ? 'Conferir' : formatHoursRep(dia.saldoDia),
         'Relógios Utilizados': dia.relogios,
+        'Local do Relógio': dia.relogios,
         'Arquivo de Origem': dia.fontes,
         'Status': dia.status
       });

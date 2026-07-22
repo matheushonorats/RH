@@ -2267,5 +2267,75 @@ body.dark-mode #view-dashboard .btn-primary {
   font-weight: 600;
   font-size: 14px;
 }
+
+/* Pré-leitura REP: conferência em tabela, sem cartões repetitivos. */
+.rep-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.rep-tabela-leitura {
+  min-width: 980px;
+  margin: 0;
+}
+
+.rep-tabela-leitura th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-tertiary);
+}
+
+.rep-grupo-servidor td {
+  padding: 0 !important;
+  background: color-mix(in srgb, var(--brand-primary) 10%, var(--bg-secondary));
+  border-top: 2px solid var(--border-color);
+}
+
+.rep-grupo-cabecalho {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.rep-grupo-resumo {
+  display: flex;
+  gap: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.rep-original {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.rep-valor-positivo { color: #10b981; }
+.rep-valor-negativo { color: #ef4444; }
+
+.rep-status {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.rep-status.impar, .rep-status.conflito_arredondamento { color: #ef4444; background: rgba(239, 68, 68, .12); }
+.rep-status.intervalo_nao_identificado, .rep-status.intervalo_inferior_minimo, .rep-status.nao_conciliado { color: #f59e0b; background: rgba(245, 158, 11, .12); }
+.rep-status.extra_dia_nao_util, .rep-status.saldo_positivo { color: #10b981; background: rgba(16, 185, 129, .12); }
+
+@media (max-width: 720px) {
+  .rep-grupo-cabecalho { align-items: flex-start; flex-direction: column; }
+  .rep-grupo-resumo { gap: 10px; flex-wrap: wrap; }
+}
 </style>
 
