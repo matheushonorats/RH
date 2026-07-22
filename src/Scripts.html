@@ -449,6 +449,7 @@ function navegarPara(idView) {
     'lancamentos': 'Histórico de Lançamentos',
     'protocolos': 'Controle de Protocolos',
     'relatorios': 'Relatórios & Emissão',
+    'pre-leitura-rep': 'Pré-Leitura de Relógio de Ponto (REP)',
     'admin': 'Painel Administrativo'
   };
   document.getElementById('view-title').innerText = titulos[idView] || 'RH Central';
@@ -4057,8 +4058,6 @@ function mensagemEntidadeEhValida_(texto) {
 }
 
 function exibirInsightStatus(texto) {
-  // Converte o conteúdo completo para uma única linha contínua do ticker.
-  // Remove apenas formatação/comandos, sem resumir nem cortar a mensagem.
   let textoLimpo = String(limparComandosEntidade(texto || ''))
     .replace(/^#{1,6}\s*/gm, '')
     .replace(/\*\*/g, '')
@@ -4071,9 +4070,411 @@ function exibirInsightStatus(texto) {
   if (!textoLimpo) return;
   
   let prefix = `<span data-lucide="ghost" style="width: 12px; height: 12px; margin-right: 6px; color: #a5b4fc; flex-shrink: 0;"></span> `;
-  
-  // Adiciona na fila e tenta mostrar
   filaStatusInsights.push(prefix + escapeHtml(textoLimpo));
   tentarMostrarInsight();
 }
-</script>
+
+// ==========================================
+// MÓDULO PRÉ-LEITURA REP (100% LOCAL / CLIENT-SIDE)
+// ==========================================
+let dadosRepProcessados = [];
+
+function parseAFDRep(content) {
+  const lines = content.split(/\r?\n/);
+  const employees = new Map();
+  const punches = [];
+  let currentClock = "Desconhecido";
+
+  for (const line of lines) {
+    if (!line || line.length < 10) continue;
+    const type = line.charAt(9);
+
+    if (type === '1') {
+      if (line.length > 25) {
+        currentClock = line.substring(10, 24).trim();
+      }
+    } else if (type === '5' || type === '4') {
+      let actionCharPos = line.indexOf('I', 10);
+      if (actionCharPos === -1) actionCharPos = line.indexOf('A', 10);
+      
+      if (actionCharPos !== -1) {
+        const pis = line.substring(actionCharPos + 1, actionCharPos + 13).trim();
+        const name = line.substring(actionCharPos + 13, actionCharPos + 65).trim();
+        if (pis && name && name.toLowerCase() !== 'teste') {
+          employees.set(pis, name);
+        }
+      }
+    } else if (type === '3') {
+      const isRepC = line.substring(10, 14).includes('-');
+      let pis = "";
+      let datetime = null;
+
+      if (isRepC) {
+        const dateStr = line.substring(10, 34);
+        pis = line.substring(34, 46).trim();
+        datetime = new Date(dateStr);
+      } else {
+        const day = line.substring(10, 12);
+        const month = line.substring(12, 14);
+        const year = line.substring(14, 18);
+        const hour = line.substring(18, 20);
+        const min = line.substring(20, 22);
+        pis = line.substring(22, 34).trim();
+        datetime = new Date(`${year}-${month}-${day}T${hour}:${min}:00`);
+      }
+
+      if (pis && datetime && !isNaN(datetime.getTime())) {
+        punches.push({ pis, datetime, clock: currentClock });
+      }
+    }
+  }
+  return { employees, punches };
+}
+
+function roundTimeRep(dateObj) {
+  const min = dateObj.getMinutes();
+  const rounded = new Date(dateObj.getTime());
+  if (min <= 15) {
+    rounded.setMinutes(0);
+  } else if (min <= 45) {
+    rounded.setMinutes(30);
+  } else {
+    rounded.setHours(rounded.getHours() + 1);
+    rounded.setMinutes(0);
+  }
+  rounded.setSeconds(0);
+  rounded.setMilliseconds(0);
+  return rounded;
+}
+
+function toDateStringRep(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const d = String(dateObj.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getHoursDiffRep(start, end) {
+  return (end - start) / (1000 * 60 * 60);
+}
+
+function formatHoursRep(decimalHours) {
+  const isNegative = decimalHours < 0;
+  const absHours = Math.abs(decimalHours);
+  const h = Math.floor(absHours);
+  const m = Math.round((absHours - h) * 60);
+  const sign = isNegative ? '-' : '';
+  return `${sign}${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
+
+function processDataRep(employees, punches) {
+  const dataByPis = new Map();
+  punches.sort((a, b) => a.datetime - b.datetime);
+
+  for (const punch of punches) {
+    const pis = punch.pis;
+    if (!employees.has(pis)) continue;
+
+    if (!dataByPis.has(pis)) {
+      dataByPis.set(pis, {
+        pis: pis,
+        nome: employees.get(pis),
+        dias: new Map(),
+        resumo: { trabalhadas: 0, extras: 0, vr: 0, pendencias: 0 }
+      });
+    }
+
+    const employeeData = dataByPis.get(pis);
+    const roundedTime = roundTimeRep(punch.datetime);
+    const dateStr = toDateStringRep(roundedTime);
+
+    if (!employeeData.dias.has(dateStr)) {
+      employeeData.dias.set(dateStr, { data: dateStr, batidas: [], relogios: new Set() });
+    }
+
+    const dayData = employeeData.dias.get(dateStr);
+    dayData.batidas.push(roundedTime);
+    if (punch.clock) dayData.relogios.add(punch.clock);
+  }
+
+  const resultList = [];
+  const JORNADA_PADRAO = 8;
+  const HORAS_VR = 6;
+
+  for (const emp of dataByPis.values()) {
+    const diasArr = Array.from(emp.dias.values());
+    diasArr.sort((a, b) => a.data.localeCompare(b.data));
+    const diasProcessados = [];
+
+    for (const dia of diasArr) {
+      const batidas = dia.batidas;
+      batidas.sort((a, b) => a - b);
+      const isImpar = batidas.length % 2 !== 0;
+
+      if (isImpar) {
+        emp.resumo.pendencias++;
+      }
+
+      let horasTrabalhadas = 0;
+      for (let i = 0; i < batidas.length - 1; i += 2) {
+        horasTrabalhadas += getHoursDiffRep(batidas[i], batidas[i+1]);
+      }
+
+      let extraDia = 0;
+      if (!isImpar) {
+        extraDia = horasTrabalhadas - JORNADA_PADRAO;
+        emp.resumo.trabalhadas += horasTrabalhadas;
+        emp.resumo.extras += extraDia;
+        if (horasTrabalhadas >= HORAS_VR) {
+          emp.resumo.vr += 1;
+        }
+      }
+
+      let status = 'ok';
+      if (isImpar) status = 'pendencia';
+      else if (extraDia > 0) status = 'extra';
+
+      diasProcessados.push({
+        dataOriginal: dia.data,
+        dataFormatada: dia.data.split('-').reverse().join('/'),
+        batidas: batidas.map(d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`),
+        totalDia: horasTrabalhadas,
+        extraDia: extraDia,
+        relogios: Array.from(dia.relogios).join(', '),
+        status: status,
+        isImpar: isImpar
+      });
+    }
+
+    resultList.push({
+      pis: emp.pis,
+      nome: emp.nome,
+      dias: diasProcessados,
+      resumo: emp.resumo
+    });
+  }
+
+  resultList.sort((a, b) => a.nome.localeCompare(b.nome));
+  return resultList;
+}
+
+async function processarArquivosRep(files) {
+  if (!files || files.length === 0) return;
+
+  let allEmployees = new Map();
+  let allPunches = [];
+
+  for (const file of files) {
+    const text = await file.text();
+    const { employees, punches } = parseAFDRep(text);
+    for (const [pis, nome] of employees.entries()) {
+      allEmployees.set(pis, nome);
+    }
+    allPunches.push(...punches);
+  }
+
+  dadosRepProcessados = processDataRep(allEmployees, allPunches);
+  updateDashboardRep();
+  renderizarListaRep();
+
+  const zone = document.getElementById('rep-upload-zone');
+  const res = document.getElementById('rep-results-container');
+  const btn = document.getElementById('rep-btn-export');
+  if (zone) zone.style.display = 'none';
+  if (res) res.style.display = 'block';
+  if (btn) btn.style.display = 'inline-flex';
+}
+
+function updateDashboardRep() {
+  document.getElementById('rep-total-servidores').textContent = dadosRepProcessados.length;
+  let totaisMarcacoes = 0;
+  let totaisPendencias = 0;
+  let totaisVR = 0;
+
+  dadosRepProcessados.forEach(emp => {
+    totaisMarcacoes += emp.dias.reduce((sum, dia) => sum + dia.batidas.length, 0);
+    totaisPendencias += emp.resumo.pendencias;
+    totaisVR += emp.resumo.vr;
+  });
+
+  document.getElementById('rep-total-marcacoes').textContent = totaisMarcacoes;
+  document.getElementById('rep-total-pendencias').textContent = totaisPendencias;
+  document.getElementById('rep-total-vr').textContent = totaisVR;
+}
+
+function renderizarListaRep() {
+  const searchInput = document.getElementById('rep-search-input');
+  const filterStatus = document.getElementById('rep-filter-status');
+  const listContainer = document.getElementById('rep-servidores-list');
+  if (!listContainer) return;
+
+  const searchTerm = (searchInput?.value || '').toLowerCase();
+  const statusFilter = filterStatus?.value || 'all';
+
+  listContainer.innerHTML = '';
+
+  const filtered = dadosRepProcessados.filter(emp => {
+    const matchesSearch = emp.nome.toLowerCase().includes(searchTerm) || emp.pis.includes(searchTerm);
+    let matchesStatus = true;
+    if (statusFilter === 'pending') {
+      matchesStatus = emp.resumo.pendencias > 0;
+    } else if (statusFilter === 'extra') {
+      matchesStatus = emp.resumo.extras > 0;
+    }
+    return matchesSearch && matchesStatus;
+  });
+
+  if (filtered.length === 0) {
+    listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary);">Nenhum servidor encontrado com os filtros atuais.</div>';
+    return;
+  }
+
+  filtered.forEach((emp, idx) => {
+    const cardId = `rep-card-${idx}`;
+    const bodyId = `rep-body-${idx}`;
+
+    let extrasClass = '';
+    if (emp.resumo.extras > 0) extrasClass = 'color: #10b981;';
+    if (emp.resumo.extras < 0) extrasClass = 'color: #ef4444;';
+    const borderColor = emp.resumo.pendencias > 0 ? 'border-color: #ef4444;' : '';
+
+    let rowsHtml = '';
+    emp.dias.forEach(dia => {
+      let statusHtml = '<span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">OK</span>';
+      if (dia.isImpar) statusHtml = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Batida Ímpar (Verificar)</span>';
+      else if (dia.extraDia > 0) statusHtml = '<span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Hora Extra</span>';
+      else if (dia.extraDia < 0) statusHtml = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Falta/Atraso</span>';
+
+      rowsHtml += `
+        <tr>
+          <td>${dia.dataFormatada}</td>
+          <td><strong>${dia.batidas.join(' - ')}</strong></td>
+          <td>${dia.isImpar ? '-' : formatHoursRep(dia.totalDia) + 'h'}</td>
+          <td style="${dia.extraDia > 0 ? 'color: #10b981;' : (dia.extraDia < 0 ? 'color: #ef4444;' : '')}">
+            ${dia.isImpar ? '-' : formatHoursRep(dia.extraDia) + 'h'}
+          </td>
+          <td>${dia.isImpar ? '-' : (dia.totalDia >= 6 ? '1 VR' : '0')}</td>
+          <td style="font-size: 11px; color: var(--text-secondary);">${dia.relogios}</td>
+          <td>${statusHtml}</td>
+        </tr>
+      `;
+    });
+
+    const cardHtml = `
+      <div class="rep-servidor-card" id="${cardId}" style="${borderColor}">
+        <div class="rep-servidor-header" onclick="toggleRepCard('${bodyId}')">
+          <div>
+            <h3 style="font-size: 15px; font-weight: 600; margin: 0; display: flex; align-items: center;">
+              ${escapeHtml(emp.nome)}
+              <span class="rep-badge-pis">PIS: ${emp.pis}</span>
+            </h3>
+          </div>
+          <div class="rep-servidor-resumo">
+            <div class="rep-resumo-item">
+              <span class="rep-resumo-label">Horas Trab.</span>
+              <span class="rep-resumo-valor">${formatHoursRep(emp.resumo.trabalhadas)}h</span>
+            </div>
+            <div class="rep-resumo-item">
+              <span class="rep-resumo-label">Extras</span>
+              <span class="rep-resumo-valor" style="${extrasClass}">${formatHoursRep(emp.resumo.extras)}h</span>
+            </div>
+            <div class="rep-resumo-item">
+              <span class="rep-resumo-label">VRs</span>
+              <span class="rep-resumo-valor" style="color: #f59e0b;">${emp.resumo.vr}</span>
+            </div>
+          </div>
+        </div>
+        <div id="${bodyId}" style="display: none; padding: 16px; border-top: 1px solid var(--border-color);">
+          <table class="custom-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Batidas (Arredondadas)</th>
+                <th>Horas Trabalhadas</th>
+                <th>Saldo Extra / Débito</th>
+                <th>Vale Refeição</th>
+                <th>Relógio / Origem</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    listContainer.insertAdjacentHTML('beforeend', cardHtml);
+  });
+}
+
+function toggleRepCard(bodyId) {
+  const body = document.getElementById(bodyId);
+  if (body) {
+    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+function resetarLeituraRep() {
+  dadosRepProcessados = [];
+  const zone = document.getElementById('rep-upload-zone');
+  const res = document.getElementById('rep-results-container');
+  const btn = document.getElementById('rep-btn-export');
+  const input = document.getElementById('rep-file-input');
+  if (input) input.value = '';
+  if (zone) zone.style.display = 'block';
+  if (res) res.style.display = 'none';
+  if (btn) btn.style.display = 'none';
+}
+
+function exportarRepExcel() {
+  if (!dadosRepProcessados.length) return alert('Não há dados para exportar.');
+  if (typeof XLSX === 'undefined') return alert('Biblioteca de Excel (SheetJS) não carregada.');
+
+  const rows = [];
+  for (const emp of dadosRepProcessados) {
+    for (const dia of emp.dias) {
+      rows.push({
+        'Nome': emp.nome,
+        'PIS': emp.pis,
+        'Data': dia.dataFormatada,
+        'Batidas': dia.batidas.join(' - '),
+        'Total Horas Dia': dia.isImpar ? 'Pendência' : formatHoursRep(dia.totalDia),
+        'Horas Extras/Débito': dia.isImpar ? 'Pendência' : formatHoursRep(dia.extraDia),
+        'Vale Refeição': dia.isImpar ? 'Pendência' : (dia.totalDia >= 6 ? 1 : 0),
+        'Relógios Utilizados': dia.relogios,
+        'Status': dia.isImpar ? 'Ímpar' : 'Completo'
+      });
+    }
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Pré-Leitura Ponto");
+  ws['!cols'] = [
+    {wch: 40}, {wch: 15}, {wch: 12}, {wch: 25}, {wch: 15}, {wch: 20}, {wch: 15}, {wch: 20}, {wch: 10}
+  ];
+  XLSX.writeFile(wb, "Pre_Leitura_Ponto_RH.xlsx");
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const zone = document.getElementById('rep-upload-zone');
+  if (zone) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      window.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }, false);
+    });
+
+    zone.addEventListener('dragover', () => zone.classList.add('dragover'));
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+      zone.classList.remove('dragover');
+      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+        processarArquivosRep(e.dataTransfer.files);
+      }
+    });
+  }
+});

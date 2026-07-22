@@ -5,6 +5,7 @@
     <!-- Lucide Icons para ícones modernos e limpos (sem emojis) -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <script>if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
     <?!= incluir("Styles"); ?>
   </head>
@@ -61,6 +62,7 @@
           <a class="menu-link" data-view="lancamentos" onclick="navegarPara('lancamentos')"><span data-lucide="file-text"></span>Lançamentos</a>
           <a class="menu-link" data-view="protocolos" onclick="navegarPara('protocolos')"><span data-lucide="clipboard-list"></span>Protocolos</a>
           <a class="menu-link" data-view="relatorios" onclick="navegarPara('relatorios')"><span data-lucide="bar-chart-3"></span>Relatórios</a>
+          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Pré-Leitura REP</a>
           <a class="menu-link admin-only" data-view="admin" style="display: none;" onclick="navegarPara('admin')"><span data-lucide="settings"></span>Administração</a>
         </nav>
 
@@ -105,6 +107,7 @@
           <a class="menu-link" data-view="lancamentos" onclick="navegarPara('lancamentos')"><span data-lucide="file-text"></span>Lançamentos</a>
           <a class="menu-link" data-view="protocolos" onclick="navegarPara('protocolos')"><span data-lucide="clipboard-list"></span>Protocolos</a>
           <a class="menu-link" data-view="relatorios" onclick="navegarPara('relatorios')"><span data-lucide="bar-chart-3"></span>Relatórios</a>
+          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Pré-Leitura REP</a>
           <a class="menu-link admin-only" data-view="admin" style="display: none;" onclick="navegarPara('admin')"><span data-lucide="settings"></span>Administração</a>
         </nav>
       </aside>
@@ -447,6 +450,68 @@
                   <thead id="tabela-relatorio-head"></thead>
                   <tbody id="tabela-relatorio-body"></tbody>
                 </table>
+              </div>
+            </div>
+          </section>
+          
+          <!-- View: Pré-Leitura REP -->
+          <section id="view-pre-leitura-rep" class="view-section">
+            <div class="dashboard-welcome" style="margin-bottom: 20px;">
+              <div>
+                <span class="page-eyebrow">PRÉ-PROCESSAMENTO 100% LOCAL (OFFLINE)</span>
+                <h2>Pré-Leitura de Arquivos de Ponto (REP / AFD)</h2>
+                <p>Antecipe a conferência de horas extras, faltas e vales-refeição sem salvar nenhum dado na nuvem.</p>
+              </div>
+              <button id="rep-btn-export" class="btn btn-primary" style="display: none;" onclick="exportarRepExcel()">
+                <span data-lucide="file-spreadsheet"></span> Exportar Excel (.xlsx)
+              </button>
+            </div>
+
+            <div class="upload-zone" id="rep-upload-zone" onclick="document.getElementById('rep-file-input').click()">
+              <input type="file" id="rep-file-input" multiple accept=".txt" hidden onchange="processarArquivosRep(this.files)">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                <span data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--brand-primary);"></span>
+                <h3 style="font-size: 18px; font-weight: 600;">Arraste os arquivos de ponto (.txt / AFD) aqui</h3>
+                <p style="font-size: 13px; color: var(--text-secondary);">ou clique para selecionar os arquivos brutos colhidos dos relógios</p>
+              </div>
+            </div>
+
+            <div id="rep-results-container" style="display: none;">
+              <div class="dashboard-grid" style="margin-bottom: 20px;">
+                <div class="card metric-card">
+                  <div class="metric-icon metric-blue"><span data-lucide="users"></span></div>
+                  <div><div class="card-title">Servidores</div><div class="card-value" id="rep-total-servidores">0</div></div>
+                </div>
+                <div class="card metric-card">
+                  <div class="metric-icon metric-green"><span data-lucide="clock"></span></div>
+                  <div><div class="card-title">Total Marcações</div><div class="card-value" id="rep-total-marcacoes">0</div></div>
+                </div>
+                <div class="card metric-card">
+                  <div class="metric-icon metric-red"><span data-lucide="triangle-alert"></span></div>
+                  <div><div class="card-title">Batidas Ímpares</div><div class="card-value status-danger" id="rep-total-pendencias">0</div></div>
+                </div>
+                <div class="card metric-card">
+                  <div class="metric-icon metric-amber"><span data-lucide="utensils"></span></div>
+                  <div><div class="card-title">Total Vales Refeição</div><div class="card-value status-warning" id="rep-total-vr">0</div></div>
+                </div>
+              </div>
+
+              <div class="filters-bar" style="display: flex; gap: 16px; margin-bottom: 20px; align-items: center;">
+                <div style="flex: 1;">
+                  <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar servidor por nome ou PIS..." oninput="renderizarListaRep()">
+                </div>
+                <div style="width: 220px;">
+                  <select id="rep-filter-status" class="form-control" onchange="renderizarListaRep()">
+                    <option value="all">Todos os Status</option>
+                    <option value="pending">Com Pendências (Ímpares)</option>
+                    <option value="extra">Com Horas Extras</option>
+                  </select>
+                </div>
+                <button class="btn btn-secondary" onclick="resetarLeituraRep()"><span data-lucide="rotate-ccw"></span> Limpar & Recarregar</button>
+              </div>
+
+              <div id="rep-servidores-list" style="display: flex; flex-direction: column; gap: 16px;">
+                <!-- Cards de Servidores injetados via JS -->
               </div>
             </div>
           </section>

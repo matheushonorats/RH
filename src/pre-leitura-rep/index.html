@@ -6,7 +6,6 @@
     <title>Pré-Leitura REP | RH</title>
     <link rel="stylesheet" href="css/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- SheetJS para Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
@@ -20,7 +19,7 @@
             </div>
             <div class="actions">
                 <button id="btnExport" class="btn btn-primary" style="display: none;">
-                    <i class="bi bi-file-earmark-excel"></i> Exportar
+                    <i class="bi bi-file-earmark-excel"></i> Exportar (.xlsx)
                 </button>
             </div>
         </header>
@@ -60,7 +59,7 @@
                     </div>
                     <div class="filter-box">
                         <select id="filterStatus">
-                            <option value="all">Todos</option>
+                            <option value="all">Todos os Status</option>
                             <option value="pending">Com Pendências</option>
                             <option value="extra">Com Horas Extras</option>
                         </select>
@@ -119,6 +118,361 @@
         </div>
     </template>
 
-    <script src="js/app.js" type="module"></script>
+    <script>
+    // --- PARSER AFD ---
+    function parseAFD(content) {
+        const lines = content.split(/\r?\n/);
+        const employees = new Map();
+        const punches = [];
+        let currentClock = "Desconhecido";
+
+        for (const line of lines) {
+            if (!line || line.length < 10) continue;
+            const type = line.charAt(9);
+
+            if (type === '1') {
+                if (line.length > 25) {
+                    currentClock = line.substring(10, 24).trim();
+                }
+            } else if (type === '5' || type === '4') {
+                let actionCharPos = line.indexOf('I', 10);
+                if (actionCharPos === -1) actionCharPos = line.indexOf('A', 10);
+                
+                if (actionCharPos !== -1) {
+                    const pis = line.substring(actionCharPos + 1, actionCharPos + 13).trim();
+                    const name = line.substring(actionCharPos + 13, actionCharPos + 65).trim();
+                    if (pis && name && name.toLowerCase() !== 'teste') {
+                        employees.set(pis, name);
+                    }
+                }
+            } else if (type === '3') {
+                const isRepC = line.substring(10, 14).includes('-');
+                let pis = "";
+                let datetime = null;
+
+                if (isRepC) {
+                    const dateStr = line.substring(10, 34);
+                    pis = line.substring(34, 46).trim();
+                    datetime = new Date(dateStr);
+                } else {
+                    const day = line.substring(10, 12);
+                    const month = line.substring(12, 14);
+                    const year = line.substring(14, 18);
+                    const hour = line.substring(18, 20);
+                    const min = line.substring(20, 22);
+                    pis = line.substring(22, 34).trim();
+                    datetime = new Date(`${year}-${month}-${day}T${hour}:${min}:00`);
+                }
+
+                if (pis && datetime && !isNaN(datetime.getTime())) {
+                    punches.push({ pis, datetime, clock: currentClock });
+                }
+            }
+        }
+        return { employees, punches };
+    }
+
+    // --- CALCULATOR ---
+    function roundTime(dateObj) {
+        const min = dateObj.getMinutes();
+        const rounded = new Date(dateObj.getTime());
+        if (min <= 15) {
+            rounded.setMinutes(0);
+        } else if (min <= 45) {
+            rounded.setMinutes(30);
+        } else {
+            rounded.setHours(rounded.getHours() + 1);
+            rounded.setMinutes(0);
+        }
+        rounded.setSeconds(0);
+        rounded.setMilliseconds(0);
+        return rounded;
+    }
+
+    function toDateString(dateObj) {
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dateObj.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    function getHoursDiff(start, end) {
+        return (end - start) / (1000 * 60 * 60);
+    }
+
+    function formatHours(decimalHours) {
+        const isNegative = decimalHours < 0;
+        const absHours = Math.abs(decimalHours);
+        const h = Math.floor(absHours);
+        const m = Math.round((absHours - h) * 60);
+        const sign = isNegative ? '-' : '';
+        return `${sign}${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    }
+
+    function processData(employees, punches) {
+        const dataByPis = new Map();
+        punches.sort((a, b) => a.datetime - b.datetime);
+
+        for (const punch of punches) {
+            const pis = punch.pis;
+            if (!employees.has(pis)) continue;
+
+            if (!dataByPis.has(pis)) {
+                dataByPis.set(pis, {
+                    pis: pis,
+                    nome: employees.get(pis),
+                    dias: new Map(),
+                    resumo: { trabalhadas: 0, extras: 0, vr: 0, pendencias: 0 }
+                });
+            }
+
+            const employeeData = dataByPis.get(pis);
+            const roundedTime = roundTime(punch.datetime);
+            const dateStr = toDateString(roundedTime);
+
+            if (!employeeData.dias.has(dateStr)) {
+                employeeData.dias.set(dateStr, { data: dateStr, batidas: [], relogios: new Set() });
+            }
+
+            const dayData = employeeData.dias.get(dateStr);
+            dayData.batidas.push(roundedTime);
+            if (punch.clock) dayData.relogios.add(punch.clock);
+        }
+
+        const resultList = [];
+        const JORNADA_PADRAO = 8;
+        const HORAS_VR = 6;
+
+        for (const emp of dataByPis.values()) {
+            const diasArr = Array.from(emp.dias.values());
+            diasArr.sort((a, b) => a.data.localeCompare(b.data));
+            const diasProcessados = [];
+
+            for (const dia of diasArr) {
+                const batidas = dia.batidas;
+                batidas.sort((a, b) => a - b);
+                const isImpar = batidas.length % 2 !== 0;
+
+                if (isImpar) {
+                    emp.resumo.pendencias++;
+                }
+
+                let horasTrabalhadas = 0;
+                for (let i = 0; i < batidas.length - 1; i += 2) {
+                    horasTrabalhadas += getHoursDiff(batidas[i], batidas[i+1]);
+                }
+
+                let extraDia = 0;
+                if (!isImpar) {
+                    extraDia = horasTrabalhadas - JORNADA_PADRAO;
+                    emp.resumo.trabalhadas += horasTrabalhadas;
+                    emp.resumo.extras += extraDia;
+                    if (horasTrabalhadas >= HORAS_VR) {
+                        emp.resumo.vr += 1;
+                    }
+                }
+
+                let status = 'ok';
+                if (isImpar) status = 'pendencia';
+                else if (extraDia > 0) status = 'extra';
+
+                diasProcessados.push({
+                    dataOriginal: dia.data,
+                    dataFormatada: dia.data.split('-').reverse().join('/'),
+                    batidas: batidas.map(d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`),
+                    totalDia: horasTrabalhadas,
+                    extraDia: extraDia,
+                    relogios: Array.from(dia.relogios).join(', '),
+                    status: status,
+                    isImpar: isImpar
+                });
+            }
+
+            resultList.push({
+                pis: emp.pis,
+                nome: emp.nome,
+                dias: diasProcessados,
+                resumo: emp.resumo
+            });
+        }
+
+        resultList.sort((a, b) => a.nome.localeCompare(b.nome));
+        return resultList;
+    }
+
+    // --- APP / UI LOGIC ---
+    let processedData = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const servidoresList = document.getElementById('servidoresList');
+        const searchInput = document.getElementById('searchInput');
+        const filterStatus = document.getElementById('filterStatus');
+        const btnExport = document.getElementById('btnExport');
+
+        // Impede que o navegador abra o arquivo .txt solto na janela
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            window.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        uploadZone.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('dragover', () => uploadZone.classList.add('dragover'));
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+        uploadZone.addEventListener('drop', (e) => {
+            uploadZone.classList.remove('dragover');
+            if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+                handleFiles(e.dataTransfer.files);
+            }
+        });
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFiles(e.target.files);
+            }
+        });
+
+        searchInput.addEventListener('input', renderList);
+        filterStatus.addEventListener('change', renderList);
+        btnExport.addEventListener('click', exportToExcel);
+
+        async function handleFiles(files) {
+            let allEmployees = new Map();
+            let allPunches = [];
+
+            for (const file of files) {
+                const text = await file.text();
+                const { employees, punches } = parseAFD(text);
+                for (const [pis, nome] of employees.entries()) {
+                    allEmployees.set(pis, nome);
+                }
+                allPunches.push(...punches);
+            }
+
+            processedData = processData(allEmployees, allPunches);
+            updateDashboard();
+            renderList();
+
+            uploadZone.style.display = 'none';
+            resultsContainer.style.display = 'block';
+            btnExport.style.display = 'inline-flex';
+        }
+
+        function updateDashboard() {
+            document.getElementById('totalServidores').textContent = processedData.length;
+            let totaisMarcacoes = 0;
+            let totaisPendencias = 0;
+            let totaisVR = 0;
+
+            processedData.forEach(emp => {
+                totaisMarcacoes += emp.dias.reduce((sum, dia) => sum + dia.batidas.length, 0);
+                totaisPendencias += emp.resumo.pendencias;
+                totaisVR += emp.resumo.vr;
+            });
+
+            document.getElementById('totalMarcacoes').textContent = totaisMarcacoes;
+            document.getElementById('totalPendencias').textContent = totaisPendencias;
+            document.getElementById('totalVR').textContent = totaisVR;
+        }
+
+        function renderList() {
+            const searchTerm = searchInput.value.toLowerCase();
+            const statusFilter = filterStatus.value;
+            servidoresList.innerHTML = '';
+            const template = document.getElementById('servidorTemplate');
+
+            const filtered = processedData.filter(emp => {
+                const matchesSearch = emp.nome.toLowerCase().includes(searchTerm) || emp.pis.includes(searchTerm);
+                let matchesStatus = true;
+                if (statusFilter === 'pending') {
+                    matchesStatus = emp.resumo.pendencias > 0;
+                } else if (statusFilter === 'extra') {
+                    matchesStatus = emp.resumo.extras > 0;
+                }
+                return matchesSearch && matchesStatus;
+            });
+
+            filtered.forEach(emp => {
+                const clone = template.content.cloneNode(true);
+                const card = clone.querySelector('.servidor-card');
+                
+                clone.querySelector('.nome').textContent = emp.nome;
+                clone.querySelector('.pis-badge').textContent = `PIS: ${emp.pis}`;
+                clone.querySelector('.trabalhadas').textContent = formatHours(emp.resumo.trabalhadas) + 'h';
+                clone.querySelector('.extras').textContent = formatHours(emp.resumo.extras) + 'h';
+                clone.querySelector('.vr').textContent = emp.resumo.vr;
+
+                if (emp.resumo.extras > 0) clone.querySelector('.extras').classList.add('text-success');
+                if (emp.resumo.extras < 0) clone.querySelector('.extras').classList.add('text-error');
+                if (emp.resumo.pendencias > 0) card.style.borderColor = 'var(--error)';
+
+                const header = clone.querySelector('.servidor-header');
+                const body = clone.querySelector('.servidor-body');
+                header.addEventListener('click', () => {
+                    const isExpanded = card.classList.contains('expanded');
+                    card.classList.toggle('expanded');
+                    body.style.display = isExpanded ? 'none' : 'block';
+                });
+
+                const tbody = clone.querySelector('tbody');
+                emp.dias.forEach(dia => {
+                    const tr = document.createElement('tr');
+                    let statusHtml = '<span class="status-badge status-ok">OK</span>';
+                    if (dia.isImpar) statusHtml = '<span class="status-badge status-pendencia">Batida Ímpar (Verificar)</span>';
+                    else if (dia.extraDia > 0) statusHtml = '<span class="status-badge status-extra">Hora Extra</span>';
+                    else if (dia.extraDia < 0) statusHtml = '<span class="status-badge status-pendencia">Falta/Atraso</span>';
+
+                    tr.innerHTML = `
+                        <td>${dia.dataFormatada}</td>
+                        <td>${dia.batidas.join(' - ')}</td>
+                        <td>${dia.isImpar ? '-' : formatHours(dia.totalDia) + 'h'}</td>
+                        <td class="${dia.extraDia > 0 ? 'text-success' : (dia.extraDia < 0 ? 'text-error' : '')}">
+                            ${dia.isImpar ? '-' : formatHours(dia.extraDia) + 'h'}
+                        </td>
+                        <td>${dia.isImpar ? '-' : (dia.totalDia >= 6 ? '1' : '0')}</td>
+                        <td style="font-size: 0.75rem; color: var(--text-secondary)">${dia.relogios}</td>
+                        <td>${statusHtml}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                servidoresList.appendChild(clone);
+            });
+        }
+
+        function exportToExcel() {
+            if (!processedData.length) return alert('Não há dados para exportar.');
+            if (typeof XLSX === 'undefined') return alert('Biblioteca de Excel não carregada.');
+
+            const rows = [];
+            for (const emp of processedData) {
+                for (const dia of emp.dias) {
+                    rows.push({
+                        'Nome': emp.nome,
+                        'PIS': emp.pis,
+                        'Data': dia.dataFormatada,
+                        'Batidas': dia.batidas.join(' - '),
+                        'Total Horas Dia': dia.isImpar ? 'Pendência' : formatHours(dia.totalDia),
+                        'Horas Extras/Débito': dia.isImpar ? 'Pendência' : formatHours(dia.extraDia),
+                        'Vale Refeição': dia.isImpar ? 'Pendência' : (dia.totalDia >= 6 ? 1 : 0),
+                        'Relógios Utilizados': dia.relogios,
+                        'Status': dia.isImpar ? 'Ímpar' : 'Completo'
+                    });
+                }
+            }
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Pré-Leitura Ponto");
+            ws['!cols'] = [
+                {wch: 40}, {wch: 15}, {wch: 12}, {wch: 25}, {wch: 15}, {wch: 20}, {wch: 15}, {wch: 20}, {wch: 10}
+            ];
+            XLSX.writeFile(wb, "Pre_Leitura_Ponto_RH.xlsx");
+        }
+    });
+    </script>
 </body>
 </html>

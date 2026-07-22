@@ -2195,5 +2195,71 @@ body.dark-mode #view-dashboard .btn-primary {
   background: linear-gradient(135deg, #0ea978, #078d67);
   box-shadow: 0 12px 26px rgba(5, 150, 105, .22);
 }
+
+/* --- Pré-Leitura REP --- */
+.upload-zone {
+  border: 2px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  background-color: var(--bg-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  margin-bottom: 24px;
+}
+.upload-zone:hover, .upload-zone.dragover {
+  border-color: var(--brand-primary);
+  background-color: var(--bg-tertiary);
+}
+
+.rep-servidor-card {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.rep-servidor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.rep-servidor-header:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.rep-badge-pis {
+  font-size: 11px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+.rep-servidor-resumo {
+  display: flex;
+  gap: 24px;
+}
+
+.rep-resumo-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.rep-resumo-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.rep-resumo-valor {
+  font-weight: 600;
+  font-size: 14px;
+}
 </style>
 
