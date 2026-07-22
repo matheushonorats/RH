@@ -540,7 +540,10 @@
                 </div>
                 <div style="min-width: 245px;">
                   <label class="rep-filter-label" for="rep-feriados">Feriados</label>
-                  <input type="text" id="rep-feriados" class="form-control" placeholder="Feriados: DD/MM/AAAA, ..." title="Datas consideradas como hora extra" oninput="atualizarProcessamentoRep()" aria-label="Feriados separados por vírgula">
+                  <div style="display:flex; gap:6px;">
+                    <input type="text" id="rep-feriados" class="form-control" placeholder="DD/MM/AAAA, ..." title="Datas consideradas como hora extra" aria-label="Feriados separados por vírgula" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); aplicarFeriadosRep(); }">
+                    <button type="button" class="btn btn-secondary" onclick="aplicarFeriadosRep()">Aplicar</button>
+                  </div>
                 </div>
                 <button class="btn btn-secondary" onclick="resetarLeituraRep()"><span data-lucide="rotate-ccw"></span> Limpar & Recarregar</button>
               </div>
@@ -550,6 +553,29 @@
               </div>
             </div>
           </section>
+
+          <div class="modal-overlay" id="modal-ajuste-rep">
+            <div class="modal-content rep-ajuste-modal">
+              <div class="modal-header">
+                <div><span class="page-eyebrow">AJUSTE MANUAL DA PRÉ-LEITURA</span><h3 class="modal-title" id="rep-ajuste-titulo">Ajustar marcações</h3></div>
+                <button class="modal-close" onclick="fecharModal('modal-ajuste-rep')"><span data-lucide="x"></span></button>
+              </div>
+              <div class="modal-body">
+                <p class="form-help">O AFD original não será alterado. Toda inclusão, correção ou desconsideração ficará registrada com a justificativa abaixo.</p>
+                <div id="rep-ajuste-eventos" class="rep-ajuste-eventos"></div>
+                <button type="button" class="btn btn-secondary" onclick="adicionarLinhaAjusteRep()"><span data-lucide="plus"></span> Adicionar marcação</button>
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label" for="rep-ajuste-justificativa">Justificativa obrigatória</label>
+                  <textarea id="rep-ajuste-justificativa" class="form-control" rows="3" placeholder="Ex.: justificativa entregue por escrito pelo servidor"></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="restaurarAjustesDiaRep()">Restaurar dados originais</button>
+                <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-ajuste-rep')">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarAjustesDiaRep()">Aplicar ajuste</button>
+              </div>
+            </div>
+          </div>
           
           <!-- View 6: Administração -->
           <section id="view-admin" class="view-section">

@@ -4083,6 +4083,7 @@ let dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arqu
 let dadosRepProcessados = [];
 let paginaRepAtual = 1;
 let pisSelecionadoRep = '';
+let ajusteRepAtual = null;
 const ITENS_POR_PAGINA_REP = 250;
 
 function normalizarPisRep(valor) {
@@ -4215,6 +4216,7 @@ function parseAFDRep(content, sourceFile) {
     punches.push({
       pis, datetime, clock: localEfetivo, deviceSerial: deviceSerial || 'REP desconhecido',
       employerName, nsr: line.slice(0, 9), lineNumber: index + 1,
+      eventId: `${sourceFile || 'arquivo'}|${deviceSerial || 'REP'}|${line.slice(0, 9)}|${index + 1}`,
       nomeNoMomento: cadastro && cadastro.nome || '', sourceFile: sourceFile || 'Arquivo sem nome',
       rawTimestamp: datetime.getTime()
     });
@@ -4292,7 +4294,7 @@ function processDataRep(employees, punches) {
         naoConciliado: !nomeConhecido,
         dias: new Map(),
         // extras/vr permanecem apenas como compatibilidade com a visualização antiga.
-        resumo: { trabalhadas: 0, saldo: 0, extras: 0, vr: 0, pendencias: 0 }
+        resumo: { trabalhadas: 0, saldo: 0, extras: 0, horasExtras: 0, valeRefeicao: 0, vr: 0, pendencias: 0 }
       });
     }
     const empSeguro = dataByPisSeguro.get(pis);
@@ -4310,6 +4312,9 @@ function processDataRep(employees, punches) {
       nsr: punch.nsr,
       linha: punch.lineNumber,
       arquivo: punch.sourceFile
+      , eventId: punch.eventId,
+      manual: Boolean(punch.manual),
+      justificativa: punch.justificativa || ''
     });
     if (punch.clock) diaSeguro.relogios.add(punch.clock);
     if (punch.deviceSerial) diaSeguro.reps.add(punch.deviceSerial);
@@ -4323,6 +4328,7 @@ function processDataRep(employees, punches) {
       const eventos = diaSeguro.eventos.sort((a, b) => a.original - b.original);
       const batidas = eventos.map(evento => evento.arredondada);
       const isImpar = batidas.length % 2 !== 0;
+      const batidasExcedentes = batidas.length > 4;
       const conflitoArredondamento = new Set(batidas.map(d => d.getTime())).size !== batidas.length;
       const chavesMomento = new Map();
       eventos.forEach(evento => {
@@ -4338,7 +4344,7 @@ function processDataRep(employees, punches) {
       let saldoDia = null;
       let intervaloConsiderado = 0;
       let descontoIntervalo = 0;
-      if (!isImpar && !conflitoArredondamento && !intervaloNaoIdentificado && !colisaoReps) {
+      if (!isImpar && !batidasExcedentes && !conflitoArredondamento && !intervaloNaoIdentificado && !colisaoReps) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
         // Em jornada superior a 6 horas, o intervalo mínimo de uma hora não
@@ -4354,12 +4360,15 @@ function processDataRep(employees, punches) {
         empSeguro.resumo.trabalhadas += totalDia;
         empSeguro.resumo.saldo += saldoDia;
         empSeguro.resumo.extras += saldoDia;
+        if (saldoDia > 0) empSeguro.resumo.horasExtras += saldoDia;
+        if (diaExtra && totalDia > 6) empSeguro.resumo.valeRefeicao++;
       } else {
         empSeguro.resumo.pendencias++;
       }
       let status = 'ok';
       if (empSeguro.naoConciliado) status = 'nao_conciliado';
       if (isImpar) status = 'impar';
+      else if (batidasExcedentes) status = 'batidas_excedentes';
       else if (colisaoReps) status = 'colisao_reps';
       else if (conflitoArredondamento) status = 'conflito_arredondamento';
       else if (intervaloNaoIdentificado) status = 'intervalo_nao_identificado';
@@ -4369,20 +4378,22 @@ function processDataRep(employees, punches) {
       dias.push({
         dataOriginal: diaSeguro.data,
         dataFormatada: diaSeguro.data.split('-').reverse().join('/'),
+        diaSemana: ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'][eventos[0].original.getDay()],
         batidas: batidas.map(d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`),
         batidasOriginais: eventos.map(evento => `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`).join(' - '),
         batidasDetalhadas: eventos.map(evento => ({
           horarioOriginal: `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`,
           horarioArredondado: `${String(evento.arredondada.getHours()).padStart(2, '0')}:${String(evento.arredondada.getMinutes()).padStart(2, '0')}`,
           local: evento.local, rep: evento.rep, nsr: evento.nsr, linha: evento.linha, arquivo: evento.arquivo
+          , eventId: evento.eventId, manual: evento.manual, justificativa: evento.justificativa
         })),
         totalDia, saldoDia, extraDia: saldoDia,
         relogios: Array.from(diaSeguro.relogios).join(', '),
         reps: Array.from(diaSeguro.reps).join(', '),
         fontes: Array.from(diaSeguro.fontes).join(', '),
         status, isImpar,
-        pendencia: isImpar || conflitoArredondamento || intervaloNaoIdentificado || colisaoReps,
-        intervaloNaoIdentificado, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra
+        pendencia: isImpar || batidasExcedentes || conflitoArredondamento || intervaloNaoIdentificado || colisaoReps,
+        intervaloNaoIdentificado, batidasExcedentes, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra
       });
     }
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
@@ -4674,6 +4685,10 @@ function renderizarAuditoriaArquivosRep() {
     <summary><strong>${arquivos.length} arquivos/relógios carregados</strong><span>${totalEncontradas.toLocaleString('pt-BR')} marcações brutas · ${repetidas.toLocaleString('pt-BR')} repetições exatas agrupadas · <b class="${conciliado ? 'rep-valor-positivo' : 'rep-valor-negativo'}">${conciliado ? 'Conciliação OK' : 'Conciliação divergente'}</b></span></summary>
     <div class="rep-table-wrap"><table class="custom-table rep-tabela-auditoria"><thead><tr><th>Local / arquivo</th><th>Encontradas</th><th>Válidas</th><th>Inválidas</th><th>Período disponível</th></tr></thead><tbody>${linhas}</tbody></table></div>
   </details>`;
+  const detalhes = container.querySelector('details');
+  setTimeout(() => {
+    if (detalhes && detalhes.isConnected) detalhes.removeAttribute('open');
+  }, 5000);
 }
 
 function atualizarProcessamentoRep() {
@@ -4684,6 +4699,7 @@ function atualizarProcessamentoRep() {
   const localSel = document.getElementById('rep-filter-local') ? document.getElementById('rep-filter-local').value : 'all';
 
   const punchesFiltrados = dadosRepCache.punches.filter(p => {
+    if (p.desconsiderada) return false;
     const y = String(p.datetime.getFullYear());
     const m = String(p.datetime.getMonth() + 1).padStart(2, '0');
 
@@ -4697,6 +4713,103 @@ function atualizarProcessamentoRep() {
   paginaRepAtual = 1;
   updateDashboardRep();
   renderizarListaRep();
+}
+
+function aplicarFeriadosRep() {
+  atualizarProcessamentoRep();
+  mostrarToast('Feriados aplicados à pré-leitura.', 'success');
+}
+
+function criarLinhaAjusteRep(evento) {
+  const linha = document.createElement('div');
+  linha.className = 'rep-ajuste-linha';
+  linha.dataset.eventId = evento?.eventId || '';
+  linha.innerHTML = `<div><label>Horário</label><input type="time" class="form-control rep-ajuste-hora" value="${escapeHtml(evento?.horarioOriginal || '')}"></div>
+    <div class="rep-ajuste-local"><label>Local</label><input type="text" class="form-control rep-ajuste-local-input" value="${escapeHtml(evento?.local || '')}" placeholder="Local informado na justificativa"></div>
+    <label class="rep-ajuste-remover"><input type="checkbox" class="rep-ajuste-desconsiderar"> Desconsiderar</label>`;
+  return linha;
+}
+
+function abrirAjusteDiaRep(pis, data) {
+  const emp = dadosRepProcessados.find(item => item.pis === String(pis));
+  const dia = emp && emp.dias.find(item => item.dataOriginal === data);
+  if (!emp || !dia) return mostrarToast('Dia não encontrado para ajuste.', 'error');
+  ajusteRepAtual = { pis: String(pis), data };
+  document.getElementById('rep-ajuste-titulo').textContent = `${emp.nome} · ${dia.dataFormatada} (${dia.diaSemana})`;
+  const container = document.getElementById('rep-ajuste-eventos');
+  container.innerHTML = '';
+  (dia.batidasDetalhadas || []).forEach(evento => container.appendChild(criarLinhaAjusteRep(evento)));
+  document.getElementById('rep-ajuste-justificativa').value = '';
+  abrirModal('modal-ajuste-rep');
+}
+
+function adicionarLinhaAjusteRep() {
+  document.getElementById('rep-ajuste-eventos').appendChild(criarLinhaAjusteRep(null));
+}
+
+function criarDataAjusteRep(dataIso, hora) {
+  const data = String(dataIso).split('-').map(Number);
+  const horario = String(hora).split(':').map(Number);
+  if (data.length !== 3 || horario.length !== 2) return null;
+  return new Date(data[0], data[1] - 1, data[2], horario[0], horario[1], 0, 0);
+}
+
+function salvarAjustesDiaRep() {
+  if (!ajusteRepAtual) return;
+  const justificativa = document.getElementById('rep-ajuste-justificativa').value.trim();
+  if (!justificativa) return mostrarToast('Informe a justificativa do ajuste.', 'warning');
+  const linhas = Array.from(document.querySelectorAll('#rep-ajuste-eventos .rep-ajuste-linha'));
+  let alteracoes = 0;
+  const novos = [];
+  linhas.forEach((linha, indice) => {
+    const eventId = linha.dataset.eventId;
+    const hora = linha.querySelector('.rep-ajuste-hora').value;
+    const local = linha.querySelector('.rep-ajuste-local-input').value.trim() || 'Local informado manualmente';
+    const remover = linha.querySelector('.rep-ajuste-desconsiderar').checked;
+    const existente = eventId ? dadosRepCache.punches.find(p => p.eventId === eventId) : null;
+    if (existente && remover) {
+      existente.desconsiderada = true;
+      existente.ajusteJustificativa = justificativa;
+      alteracoes++;
+      return;
+    }
+    if (!hora) return;
+    const novaData = criarDataAjusteRep(ajusteRepAtual.data, hora);
+    if (!novaData) return;
+    const horaExistente = existente ? `${String(existente.datetime.getHours()).padStart(2, '0')}:${String(existente.datetime.getMinutes()).padStart(2, '0')}` : '';
+    if (existente && horaExistente === hora && existente.clock === local) return;
+    if (existente) {
+      existente.desconsiderada = true;
+      existente.ajusteJustificativa = justificativa;
+    }
+    novos.push({
+      pis: ajusteRepAtual.pis, datetime: novaData, clock: local,
+      deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '',
+      eventId: `MANUAL|${Date.now()}|${indice}|${Math.random().toString(36).slice(2)}`,
+      nomeNoMomento: dadosRepCache.employees.get(ajusteRepAtual.pis) || '',
+      sourceFile: 'Ajuste manual', rawTimestamp: novaData.getTime(), manual: true, justificativa
+    });
+    alteracoes++;
+  });
+  if (!alteracoes) return mostrarToast('Nenhuma alteração foi informada.', 'warning');
+  dadosRepCache.punches.push(...novos);
+  fecharModal('modal-ajuste-rep');
+  atualizarProcessamentoRep();
+  mostrarToast('Ajuste aplicado sem alterar o AFD original.', 'success');
+}
+
+function restaurarAjustesDiaRep() {
+  if (!ajusteRepAtual) return;
+  dadosRepCache.punches.forEach(p => {
+    if (!p.manual && p.pis === ajusteRepAtual.pis && toDateStringRep(p.datetime) === ajusteRepAtual.data) {
+      p.desconsiderada = false;
+      delete p.ajusteJustificativa;
+    }
+  });
+  dadosRepCache.punches = dadosRepCache.punches.filter(p => !(p.manual && p.pis === ajusteRepAtual.pis && toDateStringRep(p.datetime) === ajusteRepAtual.data));
+  fecharModal('modal-ajuste-rep');
+  atualizarProcessamentoRep();
+  mostrarToast('Dados originais restaurados para o dia.', 'success');
 }
 
 function updateDashboardRep() {
@@ -4721,7 +4834,7 @@ function textoSituacaoRep(status) {
   const textos = {
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
     intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
-    colisao_reps: 'Mesmo horário em REPs diferentes', nao_conciliado: 'Identificador não conciliado',
+    colisao_reps: 'Mesmo horário em REPs diferentes', batidas_excedentes: 'Mais de 4 marcações: conferir', nao_conciliado: 'Identificador não conciliado',
     extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', ok: 'Conferido'
   };
   return textos[status] || status;
@@ -4737,17 +4850,17 @@ function renderizarPainelRep(servidores, container) {
   const selecionado = servidores.find(emp => emp.pis === pisSelecionadoRep);
   const resumo = servidores.map(emp => `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
     <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis}</small></span>
-    <span><b>${emp.dias.length} dias</b><small>${emp.resumo.pendencias} alertas</small></span>
+    <span><b>HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small>${emp.resumo.valeRefeicao} VR · ${emp.resumo.pendencias} alertas</small></span>
   </button>`).join('');
 
   const dias = selecionado.dias.map(dia => {
     const eventos = (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
-      <span>Local gravado no AFD: ${escapeHtml(evento.local || 'não informado')}</span>
-      <small>REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}</small>
+      <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
+      <small>${evento.manual ? 'AJUSTE MANUAL' : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
     </div>`).join('');
     return `<tr>
-      <td><strong>${dia.dataFormatada}</strong></td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button></td>
       <td><div class="rep-linha-tempo">${eventos}</div></td>
       <td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}</td>
@@ -4759,7 +4872,7 @@ function renderizarPainelRep(servidores, container) {
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
       <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis}</small></div>
-        <div class="rep-grupo-resumo"><span>Horas: <b>${formatHoursRep(selecionado.resumo.trabalhadas)}h</b></span><span>Saldo estimado: <b>${formatHoursRep(selecionado.resumo.saldo)}h</b></span><span>Alertas: <b>${selecionado.resumo.pendencias}</b></span></div>
+        <div class="rep-grupo-resumo"><span>Horas extras: <b class="rep-valor-positivo">${formatHoursRep(selecionado.resumo.horasExtras)}h</b></span><span title="Somente sábado, domingo ou feriado com mais de 6 horas">VR não útil &gt; 6h: <b>${selecionado.resumo.valeRefeicao}</b></span><span>Saldo líquido: <b>${formatHoursRep(selecionado.resumo.saldo)}h</b></span><span>Alertas: <b>${selecionado.resumo.pendencias}</b></span></div>
       </header>
       <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>
@@ -4828,7 +4941,7 @@ function renderizarListaRep() {
     } else if (statusFilter === 'unmatched') {
       matchesStatus = emp.naoConciliado;
     } else if (statusFilter === 'saldo') {
-      matchesStatus = emp.resumo.extras > 0;
+      matchesStatus = emp.resumo.horasExtras > 0;
     }
     return matchesSearch && matchesStatus;
   });
@@ -4996,16 +5109,19 @@ function exportarRepPdf() {
   if (!emp) return alert('Selecione um servidor para gerar o PDF.');
   const linhas = emp.dias.map(dia => {
     const eventos = (dia.batidasDetalhadas || []).map(evento =>
-      `<div><b>${escapeHtml(evento.horarioOriginal)}</b> (${escapeHtml(evento.horarioArredondado)}) - Local gravado no AFD: ${escapeHtml(evento.local || 'não informado')}<br><small>REP ${escapeHtml(evento.rep || '-')} | NSR ${escapeHtml(evento.nsr || '-')}</small></div>`
+      `<div class="evento"><b>${escapeHtml(evento.horarioOriginal)}</b>${evento.horarioOriginal !== evento.horarioArredondado ? `<span>Arred. ${escapeHtml(evento.horarioArredondado)}</span>` : ''}<span>Local: ${escapeHtml(evento.local || 'não informado')}</span><small>${evento.manual ? `AJUSTE MANUAL · ${escapeHtml(evento.justificativa || '')}` : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small></div>`
     ).join('');
-    return `<tr><td>${dia.dataFormatada}</td><td>${eventos}</td><td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td><td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.saldoDia) + 'h'}</td><td>${escapeHtml(textoSituacaoRep(dia.status))}</td></tr>`;
+    return `<section class="dia"><div class="dia-head"><div><b>${dia.dataFormatada}</b><span>${dia.diaSemana}</span></div><em class="status">${escapeHtml(textoSituacaoRep(dia.status))}</em></div><div class="eventos">${eventos}</div><div class="dia-total"><span>Horas <b>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</b></span><span>Saldo <b>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.saldoDia) + 'h'}</b></span></div></section>`;
   }).join('');
+  const ajustesPdf = (dadosRepCache.punches || []).filter(p => p.pis === emp.pis && (p.manual || p.desconsiderada)).map(p =>
+    `<li><b>${toDateStringRep(p.datetime).split('-').reverse().join('/')} ${String(p.datetime.getHours()).padStart(2, '0')}:${String(p.datetime.getMinutes()).padStart(2, '0')}</b> - ${p.manual ? 'marcação incluída/corrigida' : 'marcação original desconsiderada'}: ${escapeHtml(p.justificativa || p.ajusteJustificativa || 'Sem justificativa')}</li>`
+  ).join('');
   const janela = window.open('', '_blank', 'width=1100,height=800');
   if (!janela) return alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este Web App.');
   janela.document.open();
   janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pré-leitura REP - ${escapeHtml(emp.nome)}</title><style>
-    @page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#172033;margin:0;font-size:10px}header{display:flex;justify-content:space-between;border-bottom:2px solid #087f5b;padding-bottom:9px;margin-bottom:12px}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:0}.muted{color:#687386}.resumo{display:flex;gap:18px;margin:10px 0 14px;padding:9px;background:#f3f7f5;border-radius:6px}.resumo b{display:block;font-size:13px}table{width:100%;border-collapse:collapse}thead{display:table-header-group}th{background:#e8f3ef;text-align:left}th,td{border:1px solid #cfd8d4;padding:6px;vertical-align:top}td div+div{margin-top:5px;padding-top:5px;border-top:1px dotted #cfd8d4}footer{margin-top:12px;color:#687386;font-size:9px}.acoes{position:fixed;right:14px;top:12px}@media print{.acoes{display:none}}
-  </style></head><body><button class="acoes" onclick="window.print()">Salvar / Imprimir PDF</button><header><div><h1>SETUR - Pré-leitura de Registro de Ponto</h1><div class="muted">Conferência preliminar baseada no AFD original</div></div><div><h2>${escapeHtml(emp.nome)}</h2><div>Identificador: ${escapeHtml(emp.pis)}</div></div></header><div class="resumo"><span>Horas apuradas<b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Saldo estimado<b>${formatHoursRep(emp.resumo.saldo)}h</b></span><span>Alertas<b>${emp.resumo.pendencias}</b></span><span>Dias analisados<b>${emp.dias.length}</b></span></div><table><thead><tr><th>Data</th><th>Marcações, local e REP</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${linhas}</tbody></table><footer>Documento de pré-leitura. Horas extras dependem de autorização e validação administrativa. Horários entre parênteses correspondem ao arredondamento aplicado.</footer></body></html>`);
+    @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#172033;margin:0;font-size:10px;background:#fff}.topo{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #087f5b;padding-bottom:10px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:5px 8px;border-radius:4px;margin-bottom:6px}h1{font-size:18px;margin:0 0 3px}h2{font-size:15px;margin:0 0 3px}.muted{color:#687386}.pessoa{text-align:right}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}.resumo span{padding:10px;border:1px solid #d8e2de;border-radius:7px;color:#687386}.resumo b{display:block;margin-top:4px;color:#172033;font-size:16px}.resumo span:nth-child(1) b{color:#087f5b}.dia{page-break-inside:avoid;border:1px solid #d8e2de;border-radius:8px;margin:0 0 10px;overflow:hidden}.dia-head{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#edf6f2}.dia-head div{display:flex;gap:8px;align-items:center}.dia-head span{color:#687386}.status{font-style:normal;font-size:9px;padding:4px 7px;border-radius:12px;background:#fff;color:#53615c}.eventos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px}.evento{display:grid;grid-template-columns:55px 1fr;gap:2px 8px;padding:7px;border-left:3px solid #087f5b;background:#f7f9f8}.evento b{grid-row:1/4;font-size:13px}.evento span{color:#45524d}.evento small{color:#7a8681}.dia-total{display:flex;justify-content:flex-end;gap:18px;padding:7px 10px;border-top:1px solid #e4e9e7;background:#fbfcfc}.dia-total span{color:#687386}.dia-total b{color:#172033;margin-left:4px}.observacao{margin-top:16px;padding:10px;border:1px solid #d8e2de;border-radius:7px;min-height:50px}.assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:45px;margin-top:38px}.assinaturas div{border-top:1px solid #687386;padding-top:5px;text-align:center;color:#687386}footer{margin-top:14px;color:#687386;font-size:8px}.acoes{position:fixed;right:14px;top:12px;padding:8px 12px;background:#087f5b;color:#fff;border:0;border-radius:5px;cursor:pointer}@media print{.acoes{display:none}}@media(max-width:700px){.eventos{grid-template-columns:1fr}}
+  </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><header class="topo"><div><span class="marca">SETUR</span><h1>Espelho de Pré-leitura de Ponto</h1><div class="muted">Conferência auxiliar baseada nos registros originais do AFD</div></div><div class="pessoa"><h2>${escapeHtml(emp.nome)}</h2><div>PIS/CPF: ${escapeHtml(emp.pis)}</div><div class="muted">Emitido em ${new Date().toLocaleString('pt-BR')}</div></div></header><div class="resumo"><span>Horas extras<b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>VR em dia não útil &gt; 6h<b>${emp.resumo.valeRefeicao}</b></span><span>Horas apuradas<b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Alertas<b>${emp.resumo.pendencias}</b></span></div>${linhas}${ajustesPdf ? `<div class="observacao"><b>Ajustes manuais realizados</b><ul>${ajustesPdf}</ul></div>` : ''}<div class="observacao"><b>Observações da conferência</b></div><div class="assinaturas"><div>Responsável pela conferência</div><div>Servidor</div></div><footer>Documento auxiliar. Ajustes manuais aparecem identificados e não alteram o AFD original. Horas extras dependem da validação e autorização administrativa aplicável.</footer></body></html>`);
   janela.document.close();
   janela.focus();
 }
@@ -5067,6 +5183,17 @@ function exportarRepExcel() {
     'Início': item.inicio, 'Fim': item.fim
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arquivos), "Auditoria dos Arquivos");
+  const ajustes = (dadosRepCache.punches || []).filter(p => p.manual || p.desconsiderada).map(p => ({
+    'PIS/CPF': p.pis,
+    'Data': toDateStringRep(p.datetime).split('-').reverse().join('/'),
+    'Hora': `${String(p.datetime.getHours()).padStart(2, '0')}:${String(p.datetime.getMinutes()).padStart(2, '0')}`,
+    'Ação': p.manual ? 'Marcação incluída/corrigida' : 'Marcação original desconsiderada',
+    'Local': p.clock,
+    'REP/Origem': p.deviceSerial,
+    'NSR': p.nsr,
+    'Justificativa': p.justificativa || p.ajusteJustificativa || ''
+  }));
+  if (ajustes.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ajustes), "Ajustes Manuais");
   XLSX.writeFile(wb, "Pre_Leitura_Ponto_RH.xlsx");
 }
 

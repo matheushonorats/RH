@@ -2409,12 +2409,41 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-evento b { font-size: 12px; }
 .rep-evento span { font-size: 11px; color: var(--text-secondary); }
 .rep-evento small { font-size: 9px; color: var(--text-muted); }
+.rep-dia-semana { display: block; margin-top: 3px; color: var(--text-muted); font-size: 10px; }
+.rep-ajustar-dia {
+  margin-top: 7px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+}
+.rep-ajustar-dia:hover { color: var(--brand-primary); border-color: var(--brand-primary); }
+.rep-ajuste-modal { max-width: 780px; }
+.rep-ajuste-eventos { display: grid; gap: 8px; margin: 14px 0; }
+.rep-ajuste-linha {
+  display: grid;
+  grid-template-columns: 130px minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--bg-tertiary);
+}
+.rep-ajuste-linha label { display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px; }
+.rep-ajuste-remover { padding: 9px 4px; white-space: nowrap; }
 .rep-status.colisao_reps { color: #ef4444; background: rgba(239, 68, 68, .12); }
 
 @media (max-width: 980px) {
   .rep-painel-pessoas { grid-template-columns: 1fr; }
   .rep-pessoas { max-height: 280px; }
   .rep-detalhe-cabecalho { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 640px) {
+  .rep-ajuste-linha { grid-template-columns: 1fr; }
 }
 
 .rep-tabela-leitura {
@@ -2470,7 +2499,7 @@ body.dark-mode #view-dashboard .btn-primary {
   color: var(--text-secondary);
 }
 
-.rep-status.impar, .rep-status.conflito_arredondamento { color: #ef4444; background: rgba(239, 68, 68, .12); }
+.rep-status.impar, .rep-status.batidas_excedentes, .rep-status.conflito_arredondamento { color: #ef4444; background: rgba(239, 68, 68, .12); }
 .rep-status.intervalo_nao_identificado, .rep-status.intervalo_inferior_minimo, .rep-status.nao_conciliado { color: #f59e0b; background: rgba(245, 158, 11, .12); }
 .rep-status.extra_dia_nao_util, .rep-status.saldo_positivo { color: #10b981; background: rgba(16, 185, 129, .12); }
 
