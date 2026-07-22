@@ -4260,29 +4260,64 @@ function processDataRep(employees, punches) {
   return resultList;
 }
 
+function deduplicarBatidasRep(punches) {
+  if (!punches || punches.length === 0) return [];
+
+  // Ordena por PIS e depois por timestamp
+  punches.sort((a, b) => {
+    if (a.pis !== b.pis) return a.pis.localeCompare(b.pis);
+    return a.datetime - b.datetime;
+  });
+
+  const deduplicados = [];
+  for (const punch of punches) {
+    if (deduplicados.length === 0) {
+      deduplicados.push(punch);
+      continue;
+    }
+
+    const ultimo = deduplicados[deduplicados.length - 1];
+    const mesmaPessoa = ultimo.pis === punch.pis;
+    const diffSegundos = Math.abs(punch.datetime - ultimo.datetime) / 1000;
+
+    // Se for a mesma pessoa e a diferença for menor que 2 minutos (120s), considera batida duplicada/simultânea
+    if (mesmaPessoa && diffSegundos < 120) {
+      if (punch.clock && ultimo.clock && !ultimo.clock.includes(punch.clock)) {
+        ultimo.clock += `, ${punch.clock}`;
+      }
+      continue; // Ignora duplicata
+    }
+
+    deduplicados.push(punch);
+  }
+
+  return deduplicados;
+}
+
 async function processarArquivosRep(files) {
   if (!files || files.length === 0) return;
 
-  let allEmployees = new Map();
-  let allPunches = [];
+  if (!dadosRepCache.employees) dadosRepCache.employees = new Map();
+  if (!dadosRepCache.punches) dadosRepCache.punches = [];
 
   for (const file of files) {
     const text = await file.text();
     const { employees, punches } = parseAFDRep(text);
     for (const [pis, nome] of employees.entries()) {
-      allEmployees.set(pis, nome);
+      dadosRepCache.employees.set(pis, nome);
     }
-    allPunches.push(...punches);
+    dadosRepCache.punches.push(...punches);
   }
 
-  dadosRepCache = { employees: allEmployees, punches: allPunches };
+  // Unifica e remove batidas duplicadas entre relógios e arquivos
+  dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punches);
 
   // Popula seletor de Anos dinamicamente
   const anosSet = new Set();
   let anoMaisRecente = "";
   let mesMaisRecente = "";
 
-  allPunches.forEach(p => {
+  dadosRepCache.punches.forEach(p => {
     const y = String(p.datetime.getFullYear());
     const m = String(p.datetime.getMonth() + 1).padStart(2, '0');
     anosSet.add(y);
