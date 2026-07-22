@@ -2276,6 +2276,40 @@ body.dark-mode #view-dashboard .btn-primary {
   background: var(--bg-secondary);
 }
 
+.rep-auditoria-arquivos { margin-bottom: 18px; }
+.rep-auditoria {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+.rep-auditoria summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  color: var(--text-primary);
+}
+.rep-auditoria summary span { color: var(--text-secondary); font-size: 12px; }
+.rep-tabela-auditoria td:first-child small {
+  display: block;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.rep-paginacao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.rep-paginacao > div { display: flex; align-items: center; gap: 10px; }
+.rep-paginacao .btn { padding: 6px 10px; }
+
 .rep-tabela-leitura {
   min-width: 980px;
   margin: 0;

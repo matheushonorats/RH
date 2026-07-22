@@ -4079,8 +4079,10 @@ function exibirInsightStatus(texto) {
 // ==========================================
 // MÓDULO PRÉ-LEITURA REP (100% LOCAL / CLIENT-SIDE)
 // ==========================================
-let dadosRepCache = { employees: new Map(), punches: [] };
+let dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [] };
 let dadosRepProcessados = [];
+let paginaRepAtual = 1;
+const ITENS_POR_PAGINA_REP = 250;
 
 function normalizarPisRep(valor) {
   return String(valor || '').replace(/\D/g, '');
@@ -4093,16 +4095,29 @@ function nomeValidoRep(nome) {
   return !/(^teste$|biometr|^bio$|^prox|mifare|smart.?card|facial|relógio|relogio|fabricante)/i.test(normalizado);
 }
 
+function identificarRelogioRep(local, sourceFile) {
+  const nome = String(local || '').trim();
+  if (nome && !/^PMSS[.]?$/i.test(nome)) return nome;
+  const arquivo = String(sourceFile || '');
+  const repC = /REP[_-]?C/i.test(arquivo);
+  const digitos = arquivo.replace(/\D/g, '');
+  const identificador = repC ? digitos.slice(-6) : digitos.slice(-5);
+  return `${nome || 'PMSS'} · ${repC ? 'REP-C' : 'relógio'} ${identificador || 'sem identificação'}`;
+}
+
 function parseAFDRep(content, sourceFile) {
   // Alguns REP-C usam CR isolado como separador de registros.
   const lines = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   const employees = new Map();
   const punches = [];
   let currentClock = "Desconhecido";
+  const clocks = new Set();
+  const audit = { linhasLidas: 0, marcacoesEncontradas: 0, marcacoesValidas: 0, marcacoesInvalidas: 0 };
 
   for (let line of lines) {
     line = line.trim();
     if (!line || line.length < 10) continue;
+    audit.linhasLidas++;
     const type = line.charAt(9);
 
     if (type === '1') {
@@ -4110,7 +4125,9 @@ function parseAFDRep(content, sourceFile) {
         // O registro 1 traz CNPJ/serial antes do nome configurado do relógio.
         // Ex.: "PMSS.SETUR" ou "PMSS-SETUR - POLO TOPO".
         const identificacaoRelogio = line.substring(10).replace(/^\d+\s*/, '').trim();
-        currentClock = (identificacaoRelogio.split(/\s{2,}/)[0] || '').trim() || "Relógio não identificado";
+        const localCabecalho = (identificacaoRelogio.split(/\s{2,}/)[0] || '').trim();
+        currentClock = identificarRelogioRep(localCabecalho, sourceFile);
+        clocks.add(currentClock);
       }
     } else if (type === '5' || type === '4') {
       let actionCharPos = line.indexOf('I', 10);
@@ -4124,6 +4141,7 @@ function parseAFDRep(content, sourceFile) {
         }
       }
     } else if (type === '3') {
+      audit.marcacoesEncontradas++;
       const isRepC = /^\d{4}-\d{2}-\d{2}T/.test(line.substring(10, 35));
       let pis = "";
       let datetime = null;
@@ -4150,10 +4168,13 @@ function parseAFDRep(content, sourceFile) {
           sourceFile: sourceFile || 'Arquivo sem nome',
           rawTimestamp: datetime.getTime()
         });
+        audit.marcacoesValidas++;
+      } else {
+        audit.marcacoesInvalidas++;
       }
     }
   }
-  return { employees, punches };
+  return { employees, punches, clocks: Array.from(clocks), audit };
 }
 
 function roundTimeRep(dateObj) {
@@ -4455,6 +4476,8 @@ async function processarArquivosRep(files) {
 
   if (!dadosRepCache.employees) dadosRepCache.employees = new Map();
   if (!dadosRepCache.punches) dadosRepCache.punches = [];
+  if (!dadosRepCache.punchesBrutos) dadosRepCache.punchesBrutos = [];
+  if (!dadosRepCache.arquivos) dadosRepCache.arquivos = [];
 
   // O cadastro de Servidores é a fonte oficial do nome; o AFD só complementa
   // nomes quando o PIS ainda não foi cadastrado no sistema.
@@ -4465,10 +4488,27 @@ async function processarArquivosRep(files) {
 
   for (const file of files) {
     const text = await file.text();
-    const { employees, punches } = parseAFDRep(text, file.name);
+    const { employees, punches, clocks, audit } = parseAFDRep(text, file.name);
     for (const [pis, nome] of employees.entries()) {
       if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
     }
+    let dataInicial = null;
+    let dataFinal = null;
+    punches.forEach(p => {
+      if (!dataInicial || p.datetime < dataInicial) dataInicial = p.datetime;
+      if (!dataFinal || p.datetime > dataFinal) dataFinal = p.datetime;
+    });
+    dadosRepCache.arquivos.push({
+      nome: file.name,
+      locais: clocks.length ? clocks : ['Relógio não identificado'],
+      linhasLidas: audit.linhasLidas,
+      marcacoesEncontradas: audit.marcacoesEncontradas,
+      marcacoesValidas: audit.marcacoesValidas,
+      marcacoesInvalidas: audit.marcacoesInvalidas,
+      inicio: dataInicial ? toDateStringRep(dataInicial) : '',
+      fim: dataFinal ? toDateStringRep(dataFinal) : ''
+    });
+    dadosRepCache.punchesBrutos.push(...punches);
     dadosRepCache.punches.push(...punches);
   }
 
@@ -4492,6 +4532,7 @@ async function processarArquivosRep(files) {
 
   const selectAno = document.getElementById('rep-filter-ano');
   const selectMes = document.getElementById('rep-filter-mes');
+  const selectLocal = document.getElementById('rep-filter-local');
 
   if (selectAno) {
     selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
@@ -4499,13 +4540,21 @@ async function processarArquivosRep(files) {
     anosSorted.forEach(a => {
       selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
     });
-    if (anoMaisRecente) selectAno.value = anoMaisRecente;
+    selectAno.value = 'all';
   }
 
-  if (selectMes && mesMaisRecente) {
-    selectMes.value = mesMaisRecente;
+  // Não seleciona o último mês automaticamente: arquivos com período anterior
+  // continuariam carregados, mas desapareceriam da tela.
+  if (selectMes) selectMes.value = 'all';
+
+  if (selectLocal) {
+    const locais = Array.from(new Set(dadosRepCache.punches.map(p => p.clock).filter(Boolean))).sort();
+    selectLocal.innerHTML = '<option value="all">Todos os locais/relógios</option>';
+    locais.forEach(local => selectLocal.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(local)}">${escapeHtml(local)}</option>`));
+    selectLocal.value = 'all';
   }
 
+  renderizarAuditoriaArquivosRep();
   atualizarProcessamentoRep();
 
   const zone = document.getElementById('rep-upload-zone');
@@ -4516,11 +4565,35 @@ async function processarArquivosRep(files) {
   if (btn) btn.style.display = 'inline-flex';
 }
 
+function renderizarAuditoriaArquivosRep() {
+  const container = document.getElementById('rep-auditoria-arquivos');
+  if (!container) return;
+  const arquivos = dadosRepCache.arquivos || [];
+  const totalEncontradas = arquivos.reduce((soma, item) => soma + item.marcacoesEncontradas, 0);
+  const totalValidas = arquivos.reduce((soma, item) => soma + item.marcacoesValidas, 0);
+  const totalInvalidas = arquivos.reduce((soma, item) => soma + item.marcacoesInvalidas, 0);
+  const consolidadas = (dadosRepCache.punches || []).length;
+  const repetidas = Math.max(0, totalValidas - consolidadas);
+  const conciliado = totalEncontradas === totalValidas + totalInvalidas;
+  const linhas = arquivos.map(item => `<tr>
+    <td><strong>${escapeHtml(item.locais.join(', '))}</strong><small>${escapeHtml(item.nome)}</small></td>
+    <td>${item.marcacoesEncontradas.toLocaleString('pt-BR')}</td>
+    <td>${item.marcacoesValidas.toLocaleString('pt-BR')}</td>
+    <td class="${item.marcacoesInvalidas ? 'rep-valor-negativo' : ''}">${item.marcacoesInvalidas.toLocaleString('pt-BR')}</td>
+    <td>${item.inicio && item.fim ? `${item.inicio.split('-').reverse().join('/')} a ${item.fim.split('-').reverse().join('/')}` : '-'}</td>
+  </tr>`).join('');
+  container.innerHTML = `<details class="rep-auditoria" open>
+    <summary><strong>${arquivos.length} arquivos/relógios carregados</strong><span>${totalEncontradas.toLocaleString('pt-BR')} marcações brutas · ${repetidas.toLocaleString('pt-BR')} repetições exatas agrupadas · <b class="${conciliado ? 'rep-valor-positivo' : 'rep-valor-negativo'}">${conciliado ? 'Conciliação OK' : 'Conciliação divergente'}</b></span></summary>
+    <div class="rep-table-wrap"><table class="custom-table rep-tabela-auditoria"><thead><tr><th>Local / arquivo</th><th>Encontradas</th><th>Válidas</th><th>Inválidas</th><th>Período disponível</th></tr></thead><tbody>${linhas}</tbody></table></div>
+  </details>`;
+}
+
 function atualizarProcessamentoRep() {
   if (!dadosRepCache || !dadosRepCache.punches) return;
 
   const anoSel = document.getElementById('rep-filter-ano') ? document.getElementById('rep-filter-ano').value : 'all';
   const mesSel = document.getElementById('rep-filter-mes') ? document.getElementById('rep-filter-mes').value : 'all';
+  const localSel = document.getElementById('rep-filter-local') ? document.getElementById('rep-filter-local').value : 'all';
 
   const punchesFiltrados = dadosRepCache.punches.filter(p => {
     const y = String(p.datetime.getFullYear());
@@ -4528,10 +4601,12 @@ function atualizarProcessamentoRep() {
 
     if (anoSel !== 'all' && y !== anoSel) return false;
     if (mesSel !== 'all' && m !== mesSel) return false;
+    if (localSel !== 'all' && !String(p.clock || '').split(', ').includes(localSel)) return false;
     return true;
   });
 
   dadosRepProcessados = processDataRep(dadosRepCache.employees, punchesFiltrados);
+  paginaRepAtual = 1;
   updateDashboardRep();
   renderizarListaRep();
 }
@@ -4552,6 +4627,49 @@ function updateDashboardRep() {
   document.getElementById('rep-total-pendencias').textContent = totaisPendencias;
   const indicadorNaoConciliados = document.getElementById('rep-total-nao-conciliados');
   if (indicadorNaoConciliados) indicadorNaoConciliados.textContent = totalNaoConciliados;
+}
+
+function mudarPaginaRep(delta) {
+  paginaRepAtual = Math.max(1, paginaRepAtual + delta);
+  renderizarListaRep();
+}
+
+function renderizarTabelaPaginadaRep(servidores, container) {
+  const registros = [];
+  servidores.forEach(emp => emp.dias.forEach(dia => registros.push({ emp, dia })));
+  const totalPaginas = Math.max(1, Math.ceil(registros.length / ITENS_POR_PAGINA_REP));
+  paginaRepAtual = Math.min(paginaRepAtual, totalPaginas);
+  const inicio = (paginaRepAtual - 1) * ITENS_POR_PAGINA_REP;
+  const pagina = registros.slice(inicio, inicio + ITENS_POR_PAGINA_REP);
+  let linhas = '';
+  let ultimoPis = null;
+  pagina.forEach(({ emp, dia }) => {
+    if (emp.pis !== ultimoPis) {
+      ultimoPis = emp.pis;
+      const saldoClasse = emp.resumo.extras > 0 ? 'rep-valor-positivo' : (emp.resumo.extras < 0 ? 'rep-valor-negativo' : '');
+      linhas += `<tr class="rep-grupo-servidor"><td colspan="7"><div class="rep-grupo-cabecalho">
+        <div><strong>${escapeHtml(emp.nome)}</strong><span class="rep-badge-pis">PIS: ${emp.pis}</span></div>
+        <div class="rep-grupo-resumo"><span>Trabalhadas: <b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Saldo: <b class="${saldoClasse}">${formatHoursRep(emp.resumo.extras)}h</b></span><span>Pendências: <b>${emp.resumo.pendencias}</b></span></div>
+      </div></td></tr>`;
+    }
+    const situacoes = {
+      impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
+      intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
+      nao_conciliado: 'PIS não conciliado', extra_dia_nao_util: 'Extra (sábado/domingo/feriado)',
+      saldo_positivo: 'Saldo estimado positivo', ok: 'Conferido'
+    };
+    linhas += `<tr>
+      <td>${dia.dataFormatada}</td>
+      <td><strong>${dia.batidas.join(' · ')}</strong><small class="rep-original">Original: ${dia.batidasOriginais}</small></td>
+      <td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
+      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}</td>
+      <td>${escapeHtml(dia.relogios || '-')}</td>
+      <td><span class="rep-status ${dia.status}">${situacoes[dia.status] || dia.status}</span></td>
+      <td>${emp.naoConciliado ? 'Não' : 'Sim'}</td>
+    </tr>`;
+  });
+  container.innerHTML = `<div class="rep-paginacao"><span>Exibindo ${registros.length ? inicio + 1 : 0}–${Math.min(inicio + ITENS_POR_PAGINA_REP, registros.length)} de ${registros.length.toLocaleString('pt-BR')} dias processados</span><div><button class="btn btn-secondary" onclick="mudarPaginaRep(-1)" ${paginaRepAtual === 1 ? 'disabled' : ''}>Anterior</button><span>Página ${paginaRepAtual} de ${totalPaginas}</span><button class="btn btn-secondary" onclick="mudarPaginaRep(1)" ${paginaRepAtual === totalPaginas ? 'disabled' : ''}>Próxima</button></div></div>
+    <div class="rep-table-wrap"><table class="custom-table rep-tabela-leitura"><thead><tr><th>Data</th><th>Batidas</th><th>Horas</th><th>Saldo estimado</th><th>Local do relógio</th><th>Situação</th><th>PIS vinculado</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
 }
 
 function renderizarListaRep() {
@@ -4582,6 +4700,9 @@ function renderizarListaRep() {
     listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary);">Nenhum servidor encontrado com os filtros atuais.</div>';
     return;
   }
+
+  renderizarTabelaPaginadaRep(filtered, listContainer);
+  return;
 
   let linhas = '';
   filtered.forEach(emp => {
@@ -4717,8 +4838,9 @@ function toggleRepCard(bodyId) {
 }
 
 function resetarLeituraRep() {
-  dadosRepCache = { employees: new Map(), punches: [] };
+  dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [] };
   dadosRepProcessados = [];
+  paginaRepAtual = 1;
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');

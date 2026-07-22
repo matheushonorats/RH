@@ -477,6 +477,7 @@
             </div>
 
             <div id="rep-results-container" style="display: none;">
+              <div id="rep-auditoria-arquivos" class="rep-auditoria-arquivos" aria-live="polite"></div>
               <div class="dashboard-grid" style="margin-bottom: 20px;">
                 <div class="card metric-card">
                   <div class="metric-icon metric-blue"><span data-lucide="users"></span></div>
@@ -528,6 +529,11 @@
                     <option value="pending">Com pendências</option>
                     <option value="unmatched">PIS não conciliado</option>
                     <option value="saldo">Com saldo estimado positivo</option>
+                  </select>
+                </div>
+                <div style="min-width: 220px;">
+                  <select id="rep-filter-local" class="form-control" onchange="atualizarProcessamentoRep()">
+                    <option value="all">Todos os locais/relógios</option>
                   </select>
                 </div>
                 <div style="width: 185px;">
