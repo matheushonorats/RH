@@ -460,11 +460,16 @@
               <div>
                 <span class="page-eyebrow">PRÉ-PROCESSAMENTO 100% LOCAL (OFFLINE)</span>
                 <h2>Pré-Leitura de Arquivos de Ponto (REP / AFD)</h2>
-                <p>Antecipe a conferência de horas extras, faltas e vales-refeição sem salvar nenhum dado na nuvem.</p>
+                <p>Carregue os AFDs, escolha o período e selecione um servidor para conferir cada marcação, seu local histórico e o REP de origem.</p>
               </div>
-              <button id="rep-btn-export" class="btn btn-primary" style="display: none;" onclick="exportarRepExcel()">
-                <span data-lucide="file-spreadsheet"></span> Exportar Excel (.xlsx)
-              </button>
+              <div style="display:flex; gap:8px;">
+                <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="exportarRepPdf()">
+                  <span data-lucide="file-down"></span> PDF do servidor
+                </button>
+                <button id="rep-btn-export" class="btn btn-primary" style="display: none;" onclick="exportarRepExcel()">
+                  <span data-lucide="file-spreadsheet"></span> Exportar auditoria (.xlsx)
+                </button>
+              </div>
             </div>
 
             <div class="upload-zone" id="rep-upload-zone" onclick="document.getElementById('rep-file-input').click()">
@@ -478,35 +483,26 @@
 
             <div id="rep-results-container" style="display: none;">
               <div id="rep-auditoria-arquivos" class="rep-auditoria-arquivos" aria-live="polite"></div>
-              <div class="dashboard-grid" style="margin-bottom: 20px;">
-                <div class="card metric-card">
-                  <div class="metric-icon metric-blue"><span data-lucide="users"></span></div>
-                  <div><div class="card-title">Servidores</div><div class="card-value" id="rep-total-servidores">0</div></div>
-                </div>
-                <div class="card metric-card">
-                  <div class="metric-icon metric-green"><span data-lucide="clock"></span></div>
-                  <div><div class="card-title">Total Marcações</div><div class="card-value" id="rep-total-marcacoes">0</div></div>
-                </div>
-                <div class="card metric-card">
-                  <div class="metric-icon metric-red"><span data-lucide="triangle-alert"></span></div>
-                  <div><div class="card-title">Batidas Ímpares</div><div class="card-value status-danger" id="rep-total-pendencias">0</div></div>
-                </div>
-                <div class="card metric-card">
-                  <div class="metric-icon metric-amber"><span data-lucide="utensils"></span></div>
-                  <div><div class="card-title">PIS não conciliado</div><div class="card-value status-warning" id="rep-total-nao-conciliados">0</div></div>
-                </div>
+              <div class="rep-resumo-processamento">
+                <span>Servidores <b id="rep-total-servidores">0</b></span>
+                <span>Marcações <b id="rep-total-marcacoes">0</b></span>
+                <span>Alertas <b id="rep-total-pendencias">0</b></span>
+                <span>Não conciliados <b id="rep-total-nao-conciliados">0</b></span>
               </div>
 
               <div class="filters-bar" style="display: flex; gap: 12px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
                 <div style="flex: 2; min-width: 200px;">
-                  <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar servidor por nome ou PIS..." oninput="renderizarListaRep()">
+                  <label class="rep-filter-label" for="rep-search-input">Servidor</label>
+                  <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar por nome ou PIS/CPF..." oninput="renderizarListaRep()">
                 </div>
                 <div style="width: 140px;">
+                  <label class="rep-filter-label" for="rep-filter-ano">Ano</label>
                   <select id="rep-filter-ano" class="form-control" onchange="atualizarProcessamentoRep()">
                     <option value="all">Todos os Anos</option>
                   </select>
                 </div>
                 <div style="width: 150px;">
+                  <label class="rep-filter-label" for="rep-filter-mes">Mês</label>
                   <select id="rep-filter-mes" class="form-control" onchange="atualizarProcessamentoRep()">
                     <option value="all">Todos os Meses</option>
                     <option value="01">Janeiro</option>
@@ -524,22 +520,26 @@
                   </select>
                 </div>
                 <div style="width: 190px;">
+                  <label class="rep-filter-label" for="rep-filter-status">Situação</label>
                   <select id="rep-filter-status" class="form-control" onchange="renderizarListaRep()">
                     <option value="all">Todos os Status</option>
                     <option value="pending">Com pendências</option>
-                    <option value="unmatched">PIS não conciliado</option>
+                    <option value="unmatched">PIS/CPF não conciliado</option>
                     <option value="saldo">Com saldo estimado positivo</option>
                   </select>
                 </div>
                 <div style="min-width: 220px;">
+                  <label class="rep-filter-label" for="rep-filter-local">Local histórico</label>
                   <select id="rep-filter-local" class="form-control" onchange="atualizarProcessamentoRep()">
                     <option value="all">Todos os locais/relógios</option>
                   </select>
                 </div>
                 <div style="width: 185px;">
+                  <label class="rep-filter-label" for="rep-jornada-horas">Jornada de referência</label>
                   <input type="number" id="rep-jornada-horas" class="form-control" min="1" max="12" step="0.5" value="8" title="Jornada de referência (horas)" onchange="atualizarProcessamentoRep()" aria-label="Jornada de referência em horas">
                 </div>
                 <div style="min-width: 245px;">
+                  <label class="rep-filter-label" for="rep-feriados">Feriados</label>
                   <input type="text" id="rep-feriados" class="form-control" placeholder="Feriados: DD/MM/AAAA, ..." title="Datas consideradas como hora extra" oninput="atualizarProcessamentoRep()" aria-label="Feriados separados por vírgula">
                 </div>
                 <button class="btn btn-secondary" onclick="resetarLeituraRep()"><span data-lucide="rotate-ccw"></span> Limpar & Recarregar</button>
@@ -684,7 +684,7 @@
                 <input type="text" id="serv-matricula" class="form-control" required placeholder="Ex: 00000">
               </div>
               <div class="form-group">
-                <label class="form-label">PIS</label>
+                <label class="form-label">PIS/CPF usado no REP</label>
                 <input type="text" id="serv-pis" class="form-control" inputmode="numeric" maxlength="12" placeholder="Somente números">
               </div>
               <div class="form-group">

@@ -25,7 +25,7 @@ function obterListaServidores() {
   const idxAdmissao = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
   const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
   const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
-  const idxPis = indiceCabecalho_(cabecalho, ["PIS"]);
+  const idxPis = indiceCabecalho_(cabecalho, ["PIS", "CPF", "PIS CPF", "PIS_CPF"]);
   const idxSaldoHoje = indiceCabecalho_(cabecalho, ["FERIAS SALDO HOJE", "SALDO HOJE", "SALDO FERIAS"]);
   const idxProjetado = indiceCabecalho_(cabecalho, ["FERIAS PROJETADO ESTE ANO", "PROJETADO ESTE ANO", "PROJETADO"]);
   const idxInfoFerias = indiceCabecalho_(cabecalho, ["INFO FERIAS"]);
@@ -209,7 +209,7 @@ function salvarServidor(dadosServidor) {
   const idxAdmissao = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
   const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
   const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
-  let idxPis = indiceCabecalho_(cabecalho, ["PIS"]);
+  let idxPis = indiceCabecalho_(cabecalho, ["PIS", "CPF", "PIS CPF", "PIS_CPF"]);
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
 
   let idxPenF = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);

@@ -4082,6 +4082,7 @@ function exibirInsightStatus(texto) {
 let dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [] };
 let dadosRepProcessados = [];
 let paginaRepAtual = 1;
+let pisSelecionadoRep = '';
 const ITENS_POR_PAGINA_REP = 250;
 
 function normalizarPisRep(valor) {
@@ -4095,86 +4096,135 @@ function nomeValidoRep(nome) {
   return !/(^teste$|biometr|^bio$|^prox|mifare|smart.?card|facial|relógio|relogio|fabricante)/i.test(normalizado);
 }
 
-function identificarRelogioRep(local, sourceFile) {
-  const nome = String(local || '').trim();
-  if (nome && !/^PMSS[.]?$/i.test(nome)) return nome;
-  const arquivo = String(sourceFile || '');
-  const repC = /REP[_-]?C/i.test(arquivo);
-  const digitos = arquivo.replace(/\D/g, '');
-  const identificador = repC ? digitos.slice(-6) : digitos.slice(-5);
-  return `${nome || 'PMSS'} · ${repC ? 'REP-C' : 'relógio'} ${identificador || 'sem identificação'}`;
+function parseDataHoraLegadaRep(valor) {
+  const texto = String(valor || '');
+  if (!/^\d{12}$/.test(texto)) return null;
+  const data = new Date(Number(texto.slice(4, 8)), Number(texto.slice(2, 4)) - 1, Number(texto.slice(0, 2)), Number(texto.slice(8, 10)), Number(texto.slice(10, 12)), 0, 0);
+  return isNaN(data.getTime()) ? null : data;
+}
+
+function parseDataHoraAfdRep(valor, moderno) {
+  const texto = String(valor || '');
+  let data = null;
+  if (moderno) {
+    const partes = texto.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (partes) data = new Date(Number(partes[1]), Number(partes[2]) - 1, Number(partes[3]), Number(partes[4]), Number(partes[5]), 0, 0);
+  } else {
+    data = parseDataHoraLegadaRep(texto);
+  }
+  return data && !isNaN(data.getTime()) ? data : null;
 }
 
 function parseAFDRep(content, sourceFile) {
-  // Alguns REP-C usam CR isolado como separador de registros.
   const lines = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   const employees = new Map();
+  const cadastroNoMomento = new Map();
   const punches = [];
-  let currentClock = "Desconhecido";
-  const clocks = new Set();
-  const audit = { linhasLidas: 0, marcacoesEncontradas: 0, marcacoesValidas: 0, marcacoesInvalidas: 0 };
+  const locations = new Set();
+  const locationHistory = [];
+  let deviceSerial = '';
+  let employerName = '';
+  let currentLocation = '';
+  let modernLayout = /REP[_-]?C/i.test(String(sourceFile || ''));
+  let previousNsr = null;
+  const audit = {
+    linhasLidas: 0, marcacoesEncontradas: 0, marcacoesValidas: 0, marcacoesInvalidas: 0,
+    cadastrosEmpregado: 0, alteracoesLocal: 0, ajustesRelogio: 0, eventosTecnicos: 0,
+    quebrasNsr: 0, registrosPorTipo: {}
+  };
 
-  for (let line of lines) {
-    line = line.trim();
-    if (!line || line.length < 10) continue;
+  // Primeira passagem, de baixo para cima: o primeiro cadastro válido encontrado
+  // é o nome mais recente daquele identificador no log.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line.length < 10 || line.charAt(9) !== '5') continue;
+    const moderno = /^\d{4}-\d{2}-\d{2}T/.test(line.slice(10, 35));
+    const pis = normalizarPisRep(moderno ? line.slice(35, 47) : line.slice(23, 35));
+    const nome = (moderno ? line.slice(47, 99) : line.slice(35, 87)).trim();
+    if (pis && !employees.has(pis) && nomeValidoRep(nome)) employees.set(pis, nome);
+  }
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line || line.length < 10) return;
     audit.linhasLidas++;
     const type = line.charAt(9);
+    audit.registrosPorTipo[type] = (audit.registrosPorTipo[type] || 0) + 1;
+
+    if (/^\d{9}$/.test(line.slice(0, 9)) && line.slice(0, 9) !== '999999999' && type !== '1') {
+      const nsrAtual = Number(line.slice(0, 9));
+      if (previousNsr !== null && nsrAtual !== previousNsr + 1) audit.quebrasNsr++;
+      previousNsr = nsrAtual;
+    }
 
     if (type === '1') {
-      if (line.length > 25) {
-        // O registro 1 traz CNPJ/serial antes do nome configurado do relógio.
-        // Ex.: "PMSS.SETUR" ou "PMSS-SETUR - POLO TOPO".
-        const identificacaoRelogio = line.substring(10).replace(/^\d+\s*/, '').trim();
-        const localCabecalho = (identificacaoRelogio.split(/\s{2,}/)[0] || '').trim();
-        currentClock = identificarRelogioRep(localCabecalho, sourceFile);
-        clocks.add(currentClock);
-      }
-    } else if (type === '5' || type === '4') {
-      let actionCharPos = line.indexOf('I', 10);
-      if (actionCharPos === -1) actionCharPos = line.indexOf('A', 10);
-      
-      if (actionCharPos !== -1) {
-        const pis = normalizarPisRep(line.substring(actionCharPos + 1, actionCharPos + 13));
-        const name = line.substring(actionCharPos + 13, actionCharPos + 65).trim();
-        if (pis && nomeValidoRep(name)) {
-          employees.set(pis, name);
-        }
-      }
-    } else if (type === '3') {
-      audit.marcacoesEncontradas++;
-      const isRepC = /^\d{4}-\d{2}-\d{2}T/.test(line.substring(10, 35));
-      let pis = "";
-      let datetime = null;
-
-      if (isRepC) {
-        const dateStr = line.substring(10, 34);
-        pis = normalizarPisRep(line.substring(34, 46));
-        datetime = new Date(dateStr);
-      } else {
-        const day = line.substring(10, 12);
-        const month = line.substring(12, 14);
-        const year = line.substring(14, 18);
-        const hour = line.substring(18, 20);
-        const min = line.substring(20, 22);
-        pis = normalizarPisRep(line.substring(22, 34));
-        datetime = new Date(`${year}-${month}-${day}T${hour}:${min}:00`);
-      }
-
-      if (pis && datetime && !isNaN(datetime.getTime())) {
-        punches.push({
-          pis,
-          datetime,
-          clock: currentClock,
-          sourceFile: sourceFile || 'Arquivo sem nome',
-          rawTimestamp: datetime.getTime()
-        });
-        audit.marcacoesValidas++;
-      } else {
-        audit.marcacoesInvalidas++;
-      }
+      modernLayout = modernLayout || line.length >= 298;
+      deviceSerial = (modernLayout ? line.slice(189, 206) : line.slice(187, 204)).trim();
+      employerName = (modernLayout ? line.slice(39, 189) : line.slice(37, 187)).trim();
+      return;
     }
-  }
-  return { employees, punches, clocks: Array.from(clocks), audit };
+
+    const moderno = /^\d{4}-\d{2}-\d{2}T/.test(line.slice(10, 35));
+    if (type === '2') {
+      const dataEvento = parseDataHoraAfdRep(moderno ? line.slice(10, 34) : line.slice(10, 22), moderno);
+      const novoEmpregador = (moderno ? line.slice(77, 227) : line.slice(63, 213)).trim();
+      const novoLocal = (moderno ? line.slice(227, 327) : line.slice(213, 313)).trim();
+      if (novoEmpregador) employerName = novoEmpregador;
+      currentLocation = novoLocal || 'Local não informado no registro tipo 2';
+      locations.add(currentLocation);
+      locationHistory.push({ nsr: line.slice(0, 9), datetime: dataEvento, local: currentLocation, empregador: employerName });
+      audit.alteracoesLocal++;
+      return;
+    }
+
+    if (type === '5') {
+      const operacao = moderno ? line.charAt(34) : line.charAt(22);
+      const pis = normalizarPisRep(moderno ? line.slice(35, 47) : line.slice(23, 35));
+      const nome = (moderno ? line.slice(47, 99) : line.slice(35, 87)).trim();
+      const dataEvento = parseDataHoraAfdRep(moderno ? line.slice(10, 34) : line.slice(10, 22), moderno);
+      if (pis) {
+        const anterior = cadastroNoMomento.get(pis) || {};
+        const nomeEfetivo = nomeValidoRep(nome) ? nome : (anterior.nome || '');
+        cadastroNoMomento.set(pis, { nome: nomeEfetivo, ativo: operacao !== 'E', datetime: dataEvento, operacao });
+        if (nomeEfetivo && !employees.has(pis)) employees.set(pis, nomeEfetivo);
+      }
+      audit.cadastrosEmpregado++;
+      return;
+    }
+
+    if (type === '4') {
+      audit.ajustesRelogio++;
+      return;
+    }
+    if (type === '6') {
+      audit.eventosTecnicos++;
+      return;
+    }
+    if (type !== '3') return;
+
+    audit.marcacoesEncontradas++;
+    const datetime = parseDataHoraAfdRep(moderno ? line.slice(10, 34) : line.slice(10, 22), moderno);
+    const pis = normalizarPisRep(moderno ? line.slice(34, 46) : line.slice(22, 34));
+    if (!datetime || !pis) {
+      audit.marcacoesInvalidas++;
+      return;
+    }
+    const cadastro = cadastroNoMomento.get(pis);
+    const localEfetivo = currentLocation || `Local ainda não informado · REP ${deviceSerial || 'desconhecido'}`;
+    locations.add(localEfetivo);
+    punches.push({
+      pis, datetime, clock: localEfetivo, deviceSerial: deviceSerial || 'REP desconhecido',
+      employerName, nsr: line.slice(0, 9), lineNumber: index + 1,
+      nomeNoMomento: cadastro && cadastro.nome || '', sourceFile: sourceFile || 'Arquivo sem nome',
+      rawTimestamp: datetime.getTime()
+    });
+    audit.marcacoesValidas++;
+  });
+
+  return {
+    employees, punches, clocks: Array.from(locations), audit,
+    metadata: { deviceSerial, employerName, modernLayout, locationHistory }
+  };
 }
 
 function roundTimeRep(dateObj) {
@@ -4249,11 +4299,20 @@ function processDataRep(employees, punches) {
     // A data pertence ao momento original: arredondar 23:46 não a move para o dia seguinte.
     const dataOriginal = toDateStringRep(punch.datetime);
     if (!empSeguro.dias.has(dataOriginal)) {
-      empSeguro.dias.set(dataOriginal, { data: dataOriginal, eventos: [], relogios: new Set(), fontes: new Set() });
+      empSeguro.dias.set(dataOriginal, { data: dataOriginal, eventos: [], relogios: new Set(), reps: new Set(), fontes: new Set() });
     }
     const diaSeguro = empSeguro.dias.get(dataOriginal);
-    diaSeguro.eventos.push({ original: punch.datetime, arredondada: roundTimeRep(punch.datetime) });
+    diaSeguro.eventos.push({
+      original: punch.datetime,
+      arredondada: roundTimeRep(punch.datetime),
+      local: punch.clock,
+      rep: punch.deviceSerial,
+      nsr: punch.nsr,
+      linha: punch.lineNumber,
+      arquivo: punch.sourceFile
+    });
     if (punch.clock) diaSeguro.relogios.add(punch.clock);
+    if (punch.deviceSerial) diaSeguro.reps.add(punch.deviceSerial);
     if (punch.sourceFile) diaSeguro.fontes.add(punch.sourceFile);
   }
 
@@ -4265,6 +4324,13 @@ function processDataRep(employees, punches) {
       const batidas = eventos.map(evento => evento.arredondada);
       const isImpar = batidas.length % 2 !== 0;
       const conflitoArredondamento = new Set(batidas.map(d => d.getTime())).size !== batidas.length;
+      const chavesMomento = new Map();
+      eventos.forEach(evento => {
+        const chave = evento.original.getTime();
+        if (!chavesMomento.has(chave)) chavesMomento.set(chave, new Set());
+        chavesMomento.get(chave).add(evento.rep);
+      });
+      const colisaoReps = Array.from(chavesMomento.values()).some(reps => reps.size > 1);
       const diaSemana = batidas[0].getDay();
       const diaExtra = diaSemana === 0 || diaSemana === 6 || feriados.has(diaSeguro.data);
       const intervaloNaoIdentificado = !diaExtra && !isImpar && batidas.length === 2 && getHoursDiffRep(batidas[0], batidas[1]) > 6;
@@ -4272,7 +4338,7 @@ function processDataRep(employees, punches) {
       let saldoDia = null;
       let intervaloConsiderado = 0;
       let descontoIntervalo = 0;
-      if (!isImpar && !conflitoArredondamento && !intervaloNaoIdentificado) {
+      if (!isImpar && !conflitoArredondamento && !intervaloNaoIdentificado && !colisaoReps) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
         // Em jornada superior a 6 horas, o intervalo mínimo de uma hora não
@@ -4294,6 +4360,7 @@ function processDataRep(employees, punches) {
       let status = 'ok';
       if (empSeguro.naoConciliado) status = 'nao_conciliado';
       if (isImpar) status = 'impar';
+      else if (colisaoReps) status = 'colisao_reps';
       else if (conflitoArredondamento) status = 'conflito_arredondamento';
       else if (intervaloNaoIdentificado) status = 'intervalo_nao_identificado';
       else if (descontoIntervalo > 0) status = 'intervalo_inferior_minimo';
@@ -4304,12 +4371,18 @@ function processDataRep(employees, punches) {
         dataFormatada: diaSeguro.data.split('-').reverse().join('/'),
         batidas: batidas.map(d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`),
         batidasOriginais: eventos.map(evento => `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`).join(' - '),
+        batidasDetalhadas: eventos.map(evento => ({
+          horarioOriginal: `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`,
+          horarioArredondado: `${String(evento.arredondada.getHours()).padStart(2, '0')}:${String(evento.arredondada.getMinutes()).padStart(2, '0')}`,
+          local: evento.local, rep: evento.rep, nsr: evento.nsr, linha: evento.linha, arquivo: evento.arquivo
+        })),
         totalDia, saldoDia, extraDia: saldoDia,
         relogios: Array.from(diaSeguro.relogios).join(', '),
+        reps: Array.from(diaSeguro.reps).join(', '),
         fontes: Array.from(diaSeguro.fontes).join(', '),
         status, isImpar,
-        pendencia: isImpar || conflitoArredondamento || intervaloNaoIdentificado,
-        intervaloNaoIdentificado, conflitoArredondamento, intervaloConsiderado, descontoIntervalo, diaExtra
+        pendencia: isImpar || conflitoArredondamento || intervaloNaoIdentificado || colisaoReps,
+        intervaloNaoIdentificado, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra
       });
     }
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
@@ -4424,7 +4497,9 @@ function deduplicarBatidasRep(punches) {
   const porEvento = new Map();
   for (const punch of punches) {
     const pis = normalizarPisRep(punch.pis);
-    const chave = `${pis}|${punch.datetime.getTime()}`;
+    // Uma marcação só é repetida quando pertence ao mesmo REP e ao mesmo NSR.
+    // Mesmo PIS/horário em equipamentos distintos continua sendo evento distinto.
+    const chave = `${punch.deviceSerial || punch.sourceFile}|${punch.nsr || ''}|${pis}|${punch.datetime.getTime()}`;
     if (!porEvento.has(chave)) {
       porEvento.set(chave, { ...punch, pis, fontes: new Set([punch.sourceFile]), relogios: new Set([punch.clock]), repeticoes: 1 });
       continue;
@@ -4473,6 +4548,7 @@ function deduplicarBatidasRep(punches) {
 
 async function processarArquivosRep(files) {
   if (!files || files.length === 0) return;
+  exibirLoader(true, `Lendo ${files.length} arquivo(s) AFD...`);
 
   if (!dadosRepCache.employees) dadosRepCache.employees = new Map();
   if (!dadosRepCache.punches) dadosRepCache.punches = [];
@@ -4486,9 +4562,12 @@ async function processarArquivosRep(files) {
     if (pis && servidor.nome) dadosRepCache.employees.set(pis, servidor.nome);
   });
 
+  let indiceArquivo = 0;
   for (const file of files) {
+    indiceArquivo++;
+    exibirLoader(true, `Interpretando ${indiceArquivo}/${files.length}: ${file.name}`);
     const text = await file.text();
-    const { employees, punches, clocks, audit } = parseAFDRep(text, file.name);
+    const { employees, punches, clocks, audit, metadata } = parseAFDRep(text, file.name);
     for (const [pis, nome] of employees.entries()) {
       if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
     }
@@ -4505,11 +4584,17 @@ async function processarArquivosRep(files) {
       marcacoesEncontradas: audit.marcacoesEncontradas,
       marcacoesValidas: audit.marcacoesValidas,
       marcacoesInvalidas: audit.marcacoesInvalidas,
+      numeroRep: metadata.deviceSerial,
+      alteracoesLocal: audit.alteracoesLocal,
+      quebrasNsr: audit.quebrasNsr,
+      historicoLocais: metadata.locationHistory,
       inicio: dataInicial ? toDateStringRep(dataInicial) : '',
       fim: dataFinal ? toDateStringRep(dataFinal) : ''
     });
     dadosRepCache.punchesBrutos.push(...punches);
     dadosRepCache.punches.push(...punches);
+    // Libera a interface entre arquivos grandes.
+    await new Promise(resolve => setTimeout(resolve, 0));
   }
 
   // Unifica e remove batidas duplicadas entre relógios e arquivos
@@ -4540,7 +4625,7 @@ async function processarArquivosRep(files) {
     anosSorted.forEach(a => {
       selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
     });
-    selectAno.value = 'all';
+    if (anoMaisRecente) selectAno.value = anoMaisRecente;
   }
 
   // Não seleciona o último mês automaticamente: arquivos com período anterior
@@ -4560,9 +4645,12 @@ async function processarArquivosRep(files) {
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
+  const btnPdf = document.getElementById('rep-btn-pdf');
   if (zone) zone.style.display = 'none';
   if (res) res.style.display = 'block';
   if (btn) btn.style.display = 'inline-flex';
+  if (btnPdf) btnPdf.style.display = 'inline-flex';
+  exibirLoader(false);
 }
 
 function renderizarAuditoriaArquivosRep() {
@@ -4576,10 +4664,10 @@ function renderizarAuditoriaArquivosRep() {
   const repetidas = Math.max(0, totalValidas - consolidadas);
   const conciliado = totalEncontradas === totalValidas + totalInvalidas;
   const linhas = arquivos.map(item => `<tr>
-    <td><strong>${escapeHtml(item.locais.join(', '))}</strong><small>${escapeHtml(item.nome)}</small></td>
+    <td><strong>REP ${escapeHtml(item.numeroRep || 'não identificado')}</strong><small>${escapeHtml(item.locais.join(' → '))}</small><small>${escapeHtml(item.nome)}</small></td>
     <td>${item.marcacoesEncontradas.toLocaleString('pt-BR')}</td>
     <td>${item.marcacoesValidas.toLocaleString('pt-BR')}</td>
-    <td class="${item.marcacoesInvalidas ? 'rep-valor-negativo' : ''}">${item.marcacoesInvalidas.toLocaleString('pt-BR')}</td>
+    <td class="${item.marcacoesInvalidas || item.quebrasNsr ? 'rep-valor-negativo' : ''}">${item.marcacoesInvalidas.toLocaleString('pt-BR')}${item.quebrasNsr ? ` · ${item.quebrasNsr} quebra(s) NSR` : ''}</td>
     <td>${item.inicio && item.fim ? `${item.inicio.split('-').reverse().join('/')} a ${item.fim.split('-').reverse().join('/')}` : '-'}</td>
   </tr>`).join('');
   container.innerHTML = `<details class="rep-auditoria" open>
@@ -4627,6 +4715,55 @@ function updateDashboardRep() {
   document.getElementById('rep-total-pendencias').textContent = totaisPendencias;
   const indicadorNaoConciliados = document.getElementById('rep-total-nao-conciliados');
   if (indicadorNaoConciliados) indicadorNaoConciliados.textContent = totalNaoConciliados;
+}
+
+function textoSituacaoRep(status) {
+  const textos = {
+    impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
+    intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
+    colisao_reps: 'Mesmo horário em REPs diferentes', nao_conciliado: 'Identificador não conciliado',
+    extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', ok: 'Conferido'
+  };
+  return textos[status] || status;
+}
+
+function selecionarServidorRep(pis) {
+  pisSelecionadoRep = String(pis || '');
+  renderizarListaRep();
+}
+
+function renderizarPainelRep(servidores, container) {
+  if (!servidores.some(emp => emp.pis === pisSelecionadoRep)) pisSelecionadoRep = servidores[0].pis;
+  const selecionado = servidores.find(emp => emp.pis === pisSelecionadoRep);
+  const resumo = servidores.map(emp => `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
+    <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis}</small></span>
+    <span><b>${emp.dias.length} dias</b><small>${emp.resumo.pendencias} alertas</small></span>
+  </button>`).join('');
+
+  const dias = selecionado.dias.map(dia => {
+    const eventos = (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
+      <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
+      <span>Local gravado no AFD: ${escapeHtml(evento.local || 'não informado')}</span>
+      <small>REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}</small>
+    </div>`).join('');
+    return `<tr>
+      <td><strong>${dia.dataFormatada}</strong></td>
+      <td><div class="rep-linha-tempo">${eventos}</div></td>
+      <td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
+      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}</td>
+      <td><span class="rep-status ${dia.status}">${textoSituacaoRep(dia.status)}</span></td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `<div class="rep-painel-pessoas">
+    <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
+    <section class="rep-detalhe">
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis}</small></div>
+        <div class="rep-grupo-resumo"><span>Horas: <b>${formatHoursRep(selecionado.resumo.trabalhadas)}h</b></span><span>Saldo estimado: <b>${formatHoursRep(selecionado.resumo.saldo)}h</b></span><span>Alertas: <b>${selecionado.resumo.pendencias}</b></span></div>
+      </header>
+      <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
+    </section>
+  </div>`;
 }
 
 function mudarPaginaRep(delta) {
@@ -4701,7 +4838,7 @@ function renderizarListaRep() {
     return;
   }
 
-  renderizarTabelaPaginadaRep(filtered, listContainer);
+  renderizarPainelRep(filtered, listContainer);
   return;
 
   let linhas = '';
@@ -4841,14 +4978,36 @@ function resetarLeituraRep() {
   dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [] };
   dadosRepProcessados = [];
   paginaRepAtual = 1;
+  pisSelecionadoRep = '';
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
+  const btnPdf = document.getElementById('rep-btn-pdf');
   const input = document.getElementById('rep-file-input');
   if (input) input.value = '';
   if (zone) zone.style.display = 'block';
   if (res) res.style.display = 'none';
   if (btn) btn.style.display = 'none';
+  if (btnPdf) btnPdf.style.display = 'none';
+}
+
+function exportarRepPdf() {
+  const emp = dadosRepProcessados.find(item => item.pis === pisSelecionadoRep);
+  if (!emp) return alert('Selecione um servidor para gerar o PDF.');
+  const linhas = emp.dias.map(dia => {
+    const eventos = (dia.batidasDetalhadas || []).map(evento =>
+      `<div><b>${escapeHtml(evento.horarioOriginal)}</b> (${escapeHtml(evento.horarioArredondado)}) - Local gravado no AFD: ${escapeHtml(evento.local || 'não informado')}<br><small>REP ${escapeHtml(evento.rep || '-')} | NSR ${escapeHtml(evento.nsr || '-')}</small></div>`
+    ).join('');
+    return `<tr><td>${dia.dataFormatada}</td><td>${eventos}</td><td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td><td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.saldoDia) + 'h'}</td><td>${escapeHtml(textoSituacaoRep(dia.status))}</td></tr>`;
+  }).join('');
+  const janela = window.open('', '_blank', 'width=1100,height=800');
+  if (!janela) return alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este Web App.');
+  janela.document.open();
+  janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pré-leitura REP - ${escapeHtml(emp.nome)}</title><style>
+    @page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#172033;margin:0;font-size:10px}header{display:flex;justify-content:space-between;border-bottom:2px solid #087f5b;padding-bottom:9px;margin-bottom:12px}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:0}.muted{color:#687386}.resumo{display:flex;gap:18px;margin:10px 0 14px;padding:9px;background:#f3f7f5;border-radius:6px}.resumo b{display:block;font-size:13px}table{width:100%;border-collapse:collapse}thead{display:table-header-group}th{background:#e8f3ef;text-align:left}th,td{border:1px solid #cfd8d4;padding:6px;vertical-align:top}td div+div{margin-top:5px;padding-top:5px;border-top:1px dotted #cfd8d4}footer{margin-top:12px;color:#687386;font-size:9px}.acoes{position:fixed;right:14px;top:12px}@media print{.acoes{display:none}}
+  </style></head><body><button class="acoes" onclick="window.print()">Salvar / Imprimir PDF</button><header><div><h1>SETUR - Pré-leitura de Registro de Ponto</h1><div class="muted">Conferência preliminar baseada no AFD original</div></div><div><h2>${escapeHtml(emp.nome)}</h2><div>Identificador: ${escapeHtml(emp.pis)}</div></div></header><div class="resumo"><span>Horas apuradas<b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Saldo estimado<b>${formatHoursRep(emp.resumo.saldo)}h</b></span><span>Alertas<b>${emp.resumo.pendencias}</b></span><span>Dias analisados<b>${emp.dias.length}</b></span></div><table><thead><tr><th>Data</th><th>Marcações, local e REP</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${linhas}</tbody></table><footer>Documento de pré-leitura. Horas extras dependem de autorização e validação administrativa. Horários entre parênteses correspondem ao arredondamento aplicado.</footer></body></html>`);
+  janela.document.close();
+  janela.focus();
 }
 
 function exportarRepExcel() {
@@ -4867,20 +5026,47 @@ function exportarRepExcel() {
         'Batidas Arredondadas': dia.batidas.join(' - '),
         'Total Horas Dia': dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia),
         'Saldo Estimado (não é hora extra autorizada)': dia.pendencia ? 'Conferir' : formatHoursRep(dia.saldoDia),
-        'Relógios Utilizados': dia.relogios,
-        'Local do Relógio': dia.relogios,
+        'REPs Utilizados': dia.reps,
+        'Locais Históricos': dia.relogios,
         'Arquivo de Origem': dia.fontes,
         'Status': dia.status
       });
     }
   }
 
-  const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Pré-Leitura Ponto");
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, "Resumo Diário");
   ws['!cols'] = [
     {wch: 40}, {wch: 15}, {wch: 14}, {wch: 12}, {wch: 28}, {wch: 28}, {wch: 18}, {wch: 36}, {wch: 20}, {wch: 30}, {wch: 24}
   ];
+  const anoSel = document.getElementById('rep-filter-ano')?.value || 'all';
+  const mesSel = document.getElementById('rep-filter-mes')?.value || 'all';
+  const localSel = document.getElementById('rep-filter-local')?.value || 'all';
+  const brutas = (dadosRepCache.punchesBrutos || []).filter(p => {
+    const ano = String(p.datetime.getFullYear());
+    const mes = String(p.datetime.getMonth() + 1).padStart(2, '0');
+    return (anoSel === 'all' || ano === anoSel) && (mesSel === 'all' || mes === mesSel) && (localSel === 'all' || p.clock === localSel);
+  }).map(p => ({
+    'Nome': dadosRepCache.employees.get(p.pis) || p.nomeNoMomento || 'Não conciliado',
+    'PIS/CPF': p.pis,
+    'Data': toDateStringRep(p.datetime).split('-').reverse().join('/'),
+    'Hora original': `${String(p.datetime.getHours()).padStart(2, '0')}:${String(p.datetime.getMinutes()).padStart(2, '0')}`,
+    'Local vigente no AFD': p.clock,
+    'Número do REP': p.deviceSerial,
+    'NSR': p.nsr,
+    'Arquivo': p.sourceFile,
+    'Linha': p.lineNumber
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(brutas), "Marcações Brutas");
+
+  const arquivos = (dadosRepCache.arquivos || []).map(item => ({
+    'Arquivo': item.nome, 'Número do REP': item.numeroRep, 'Histórico de locais': item.locais.join(' → '),
+    'Marcações encontradas': item.marcacoesEncontradas, 'Marcações válidas': item.marcacoesValidas,
+    'Marcações inválidas': item.marcacoesInvalidas, 'Quebras de NSR': item.quebrasNsr,
+    'Início': item.inicio, 'Fim': item.fim
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arquivos), "Auditoria dos Arquivos");
   XLSX.writeFile(wb, "Pre_Leitura_Ponto_RH.xlsx");
 }
 
