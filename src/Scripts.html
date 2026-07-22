@@ -1276,6 +1276,7 @@ function abrirModalServidor(matricula) {
     const s = AppState.servidores.find(serv => serv.matricula === matricula);
     if (s) {
       document.getElementById('serv-matricula').value = s.matricula;
+      document.getElementById('serv-pis').value = s.pis || '';
       document.getElementById('serv-nome').value = s.nome;
       document.getElementById('serv-cargo').value = s.cargo;
       document.getElementById('serv-lotacao').value = s.lotacao;
@@ -1331,6 +1332,7 @@ function salvarDadosServidor(event) {
   
   const dados = {
     matricula: document.getElementById('serv-matricula').value.trim(),
+    pis: document.getElementById('serv-pis').value.replace(/\D/g, ''),
     nome: document.getElementById('serv-nome').value.trim().toUpperCase(),
     cargo: document.getElementById('serv-cargo').value.trim().toUpperCase(),
     lotacao: document.getElementById('serv-lotacao').value,
@@ -4080,13 +4082,26 @@ function exibirInsightStatus(texto) {
 let dadosRepCache = { employees: new Map(), punches: [] };
 let dadosRepProcessados = [];
 
-function parseAFDRep(content) {
-  const lines = content.split(/\r?\n/);
+function normalizarPisRep(valor) {
+  return String(valor || '').replace(/\D/g, '');
+}
+
+function nomeValidoRep(nome) {
+  const texto = String(nome || '').trim();
+  const normalizado = texto.toLowerCase();
+  if (texto.length < 4 || !/[a-záàâãéêíóôõúç]/i.test(texto)) return false;
+  return !/(^teste$|biometr|^bio$|^prox|mifare|smart.?card|facial|relógio|relogio|fabricante)/i.test(normalizado);
+}
+
+function parseAFDRep(content, sourceFile) {
+  // Alguns REP-C usam CR isolado como separador de registros.
+  const lines = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   const employees = new Map();
   const punches = [];
   let currentClock = "Desconhecido";
 
-  for (const line of lines) {
+  for (let line of lines) {
+    line = line.trim();
     if (!line || line.length < 10) continue;
     const type = line.charAt(9);
 
@@ -4099,20 +4114,20 @@ function parseAFDRep(content) {
       if (actionCharPos === -1) actionCharPos = line.indexOf('A', 10);
       
       if (actionCharPos !== -1) {
-        const pis = line.substring(actionCharPos + 1, actionCharPos + 13).trim();
+        const pis = normalizarPisRep(line.substring(actionCharPos + 1, actionCharPos + 13));
         const name = line.substring(actionCharPos + 13, actionCharPos + 65).trim();
-        if (pis && name && name.toLowerCase() !== 'teste') {
+        if (pis && nomeValidoRep(name)) {
           employees.set(pis, name);
         }
       }
     } else if (type === '3') {
-      const isRepC = line.substring(10, 14).includes('-');
+      const isRepC = /^\d{4}-\d{2}-\d{2}T/.test(line.substring(10, 35));
       let pis = "";
       let datetime = null;
 
       if (isRepC) {
         const dateStr = line.substring(10, 34);
-        pis = line.substring(34, 46).trim();
+        pis = normalizarPisRep(line.substring(34, 46));
         datetime = new Date(dateStr);
       } else {
         const day = line.substring(10, 12);
@@ -4120,12 +4135,18 @@ function parseAFDRep(content) {
         const year = line.substring(14, 18);
         const hour = line.substring(18, 20);
         const min = line.substring(20, 22);
-        pis = line.substring(22, 34).trim();
+        pis = normalizarPisRep(line.substring(22, 34));
         datetime = new Date(`${year}-${month}-${day}T${hour}:${min}:00`);
       }
 
       if (pis && datetime && !isNaN(datetime.getTime())) {
-        punches.push({ pis, datetime, clock: currentClock });
+        punches.push({
+          pis,
+          datetime,
+          clock: currentClock,
+          sourceFile: sourceFile || 'Arquivo sem nome',
+          rawTimestamp: datetime.getTime()
+        });
       }
     }
   }
@@ -4169,6 +4190,80 @@ function formatHoursRep(decimalHours) {
 }
 
 function processDataRep(employees, punches) {
+  const dataByPisSeguro = new Map();
+  const jornadaInput = document.getElementById('rep-jornada-horas');
+  const jornadaReferencia = Number(jornadaInput && jornadaInput.value) || 8;
+
+  for (const punch of punches.slice().sort((a, b) => a.datetime - b.datetime)) {
+    const pis = normalizarPisRep(punch.pis);
+    if (!pis) continue;
+    if (!dataByPisSeguro.has(pis)) {
+      const nomeConhecido = employees.get(pis);
+      dataByPisSeguro.set(pis, {
+        pis,
+        nome: nomeConhecido || `PIS nao conciliado (${pis})`,
+        naoConciliado: !nomeConhecido,
+        dias: new Map(),
+        // extras/vr permanecem apenas como compatibilidade com a visualização antiga.
+        resumo: { trabalhadas: 0, saldo: 0, extras: 0, vr: 0, pendencias: 0 }
+      });
+    }
+    const empSeguro = dataByPisSeguro.get(pis);
+    // A data pertence ao momento original: arredondar 23:46 não a move para o dia seguinte.
+    const dataOriginal = toDateStringRep(punch.datetime);
+    if (!empSeguro.dias.has(dataOriginal)) {
+      empSeguro.dias.set(dataOriginal, { data: dataOriginal, eventos: [], relogios: new Set(), fontes: new Set() });
+    }
+    const diaSeguro = empSeguro.dias.get(dataOriginal);
+    diaSeguro.eventos.push({ original: punch.datetime, arredondada: roundTimeRep(punch.datetime) });
+    if (punch.clock) diaSeguro.relogios.add(punch.clock);
+    if (punch.sourceFile) diaSeguro.fontes.add(punch.sourceFile);
+  }
+
+  const resultadoSeguro = [];
+  for (const empSeguro of dataByPisSeguro.values()) {
+    const dias = [];
+    for (const diaSeguro of Array.from(empSeguro.dias.values()).sort((a, b) => a.data.localeCompare(b.data))) {
+      const eventos = diaSeguro.eventos.sort((a, b) => a.original - b.original);
+      const batidas = eventos.map(evento => evento.arredondada);
+      const isImpar = batidas.length % 2 !== 0;
+      const conflitoArredondamento = new Set(batidas.map(d => d.getTime())).size !== batidas.length;
+      const intervaloNaoIdentificado = !isImpar && batidas.length === 2 && getHoursDiffRep(batidas[0], batidas[1]) > 6;
+      let totalDia = null;
+      let saldoDia = null;
+      if (!isImpar && !conflitoArredondamento && !intervaloNaoIdentificado) {
+        totalDia = 0;
+        for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
+        saldoDia = totalDia - jornadaReferencia;
+        empSeguro.resumo.trabalhadas += totalDia;
+        empSeguro.resumo.saldo += saldoDia;
+        empSeguro.resumo.extras += saldoDia;
+      } else {
+        empSeguro.resumo.pendencias++;
+      }
+      let status = 'ok';
+      if (empSeguro.naoConciliado) status = 'nao_conciliado';
+      if (isImpar) status = 'impar';
+      else if (conflitoArredondamento) status = 'conflito_arredondamento';
+      else if (intervaloNaoIdentificado) status = 'intervalo_nao_identificado';
+      else if (saldoDia > 0) status = 'saldo_positivo';
+      dias.push({
+        dataOriginal: diaSeguro.data,
+        dataFormatada: diaSeguro.data.split('-').reverse().join('/'),
+        batidas: batidas.map(d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`),
+        batidasOriginais: eventos.map(evento => `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`).join(' - '),
+        totalDia, saldoDia, extraDia: saldoDia,
+        relogios: Array.from(diaSeguro.relogios).join(', '),
+        fontes: Array.from(diaSeguro.fontes).join(', '),
+        status, isImpar,
+        pendencia: isImpar || conflitoArredondamento || intervaloNaoIdentificado,
+        intervaloNaoIdentificado, conflitoArredondamento
+      });
+    }
+    resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
+  }
+  return resultadoSeguro.sort((a, b) => a.nome.localeCompare(b.nome));
+
   const dataByPis = new Map();
   punches.sort((a, b) => a.datetime - b.datetime);
 
@@ -4272,6 +4367,27 @@ function processDataRep(employees, punches) {
 function deduplicarBatidasRep(punches) {
   if (!punches || punches.length === 0) return [];
 
+  // Só consolida cópias exatamente idênticas do mesmo evento. Marcações próximas
+  // (por exemplo, 08:14 e 08:15) continuam visíveis para conferência humana.
+  const porEvento = new Map();
+  for (const punch of punches) {
+    const pis = normalizarPisRep(punch.pis);
+    const chave = `${pis}|${punch.datetime.getTime()}`;
+    if (!porEvento.has(chave)) {
+      porEvento.set(chave, { ...punch, pis, fontes: new Set([punch.sourceFile]), relogios: new Set([punch.clock]), repeticoes: 1 });
+      continue;
+    }
+    const existente = porEvento.get(chave);
+    existente.repeticoes++;
+    if (punch.sourceFile) existente.fontes.add(punch.sourceFile);
+    if (punch.clock) existente.relogios.add(punch.clock);
+  }
+  return Array.from(porEvento.values()).map(punch => ({
+    ...punch,
+    sourceFile: Array.from(punch.fontes).filter(Boolean).join(', '),
+    clock: Array.from(punch.relogios).filter(Boolean).join(', ')
+  })).sort((a, b) => a.pis.localeCompare(b.pis) || a.datetime - b.datetime);
+
   // Ordena por PIS e depois por timestamp
   punches.sort((a, b) => {
     if (a.pis !== b.pis) return a.pis.localeCompare(b.pis);
@@ -4309,11 +4425,18 @@ async function processarArquivosRep(files) {
   if (!dadosRepCache.employees) dadosRepCache.employees = new Map();
   if (!dadosRepCache.punches) dadosRepCache.punches = [];
 
+  // O cadastro de Servidores é a fonte oficial do nome; o AFD só complementa
+  // nomes quando o PIS ainda não foi cadastrado no sistema.
+  (AppState.servidores || []).forEach(servidor => {
+    const pis = normalizarPisRep(servidor.pis);
+    if (pis && servidor.nome) dadosRepCache.employees.set(pis, servidor.nome);
+  });
+
   for (const file of files) {
     const text = await file.text();
-    const { employees, punches } = parseAFDRep(text);
+    const { employees, punches } = parseAFDRep(text, file.name);
     for (const [pis, nome] of employees.entries()) {
-      dadosRepCache.employees.set(pis, nome);
+      if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
     }
     dadosRepCache.punches.push(...punches);
   }
@@ -4386,17 +4509,18 @@ function updateDashboardRep() {
   document.getElementById('rep-total-servidores').textContent = dadosRepProcessados.length;
   let totaisMarcacoes = 0;
   let totaisPendencias = 0;
-  let totaisVR = 0;
+  let totalNaoConciliados = 0;
 
   dadosRepProcessados.forEach(emp => {
     totaisMarcacoes += emp.dias.reduce((sum, dia) => sum + dia.batidas.length, 0);
     totaisPendencias += emp.resumo.pendencias;
-    totaisVR += emp.resumo.vr;
+    if (emp.naoConciliado) totalNaoConciliados++;
   });
 
   document.getElementById('rep-total-marcacoes').textContent = totaisMarcacoes;
   document.getElementById('rep-total-pendencias').textContent = totaisPendencias;
-  document.getElementById('rep-total-vr').textContent = totaisVR;
+  const indicadorNaoConciliados = document.getElementById('rep-total-nao-conciliados');
+  if (indicadorNaoConciliados) indicadorNaoConciliados.textContent = totalNaoConciliados;
 }
 
 function renderizarListaRep() {
@@ -4415,7 +4539,9 @@ function renderizarListaRep() {
     let matchesStatus = true;
     if (statusFilter === 'pending') {
       matchesStatus = emp.resumo.pendencias > 0;
-    } else if (statusFilter === 'extra') {
+    } else if (statusFilter === 'unmatched') {
+      matchesStatus = emp.naoConciliado;
+    } else if (statusFilter === 'saldo') {
       matchesStatus = emp.resumo.extras > 0;
     }
     return matchesSearch && matchesStatus;
@@ -4438,19 +4564,21 @@ function renderizarListaRep() {
     let rowsHtml = '';
     emp.dias.forEach(dia => {
       let statusHtml = '<span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">OK</span>';
-      if (dia.isImpar) statusHtml = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Batida Ímpar (Verificar)</span>';
-      else if (dia.extraDia > 0) statusHtml = '<span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Hora Extra</span>';
-      else if (dia.extraDia < 0) statusHtml = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Falta/Atraso</span>';
+      if (dia.status === 'impar') statusHtml = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Batida impar: conferir</span>';
+      else if (dia.status === 'intervalo_nao_identificado') statusHtml = '<span class="status-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Intervalo nao identificado</span>';
+      else if (dia.status === 'conflito_arredondamento') statusHtml = '<span class="status-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Conflito apos arredondamento</span>';
+      else if (dia.status === 'nao_conciliado') statusHtml = '<span class="status-badge" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">PIS nao conciliado</span>';
+      else if (dia.status === 'saldo_positivo') statusHtml = '<span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">Saldo estimado positivo</span>';
 
       rowsHtml += `
         <tr>
           <td>${dia.dataFormatada}</td>
           <td><strong>${dia.batidas.join(' - ')}</strong></td>
-          <td>${dia.isImpar ? '-' : formatHoursRep(dia.totalDia) + 'h'}</td>
+          <td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
           <td style="${dia.extraDia > 0 ? 'color: #10b981;' : (dia.extraDia < 0 ? 'color: #ef4444;' : '')}">
-            ${dia.isImpar ? '-' : formatHoursRep(dia.extraDia) + 'h'}
+            ${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}
           </td>
-          <td>${dia.isImpar ? '-' : (dia.totalDia >= 6 ? '1 VR' : '0')}</td>
+          <td style="font-size: 11px; color: var(--text-secondary);">${dia.fontes || '-'}</td>
           <td style="font-size: 11px; color: var(--text-secondary);">${dia.relogios}</td>
           <td>${statusHtml}</td>
         </tr>
@@ -4472,12 +4600,12 @@ function renderizarListaRep() {
               <span class="rep-resumo-valor">${formatHoursRep(emp.resumo.trabalhadas)}h</span>
             </div>
             <div class="rep-resumo-item">
-              <span class="rep-resumo-label">Extras</span>
+              <span class="rep-resumo-label">Saldo estimado</span>
               <span class="rep-resumo-valor" style="${extrasClass}">${formatHoursRep(emp.resumo.extras)}h</span>
             </div>
             <div class="rep-resumo-item">
-              <span class="rep-resumo-label">VRs</span>
-              <span class="rep-resumo-valor" style="color: #f59e0b;">${emp.resumo.vr}</span>
+              <span class="rep-resumo-label">Pendências</span>
+              <span class="rep-resumo-valor" style="color: #f59e0b;">${emp.resumo.pendencias}</span>
             </div>
           </div>
         </div>
@@ -4488,8 +4616,8 @@ function renderizarListaRep() {
                 <th>Data</th>
                 <th>Batidas Registradas</th>
                 <th>Horas Trabalhadas</th>
-                <th>Saldo Extra / Débito</th>
-                <th>Vale Refeição</th>
+                <th>Saldo estimado</th>
+                <th>Arquivo de origem</th>
                 <th>Relógio / Origem</th>
                 <th>Status</th>
               </tr>
@@ -4536,13 +4664,15 @@ function exportarRepExcel() {
       rows.push({
         'Nome': emp.nome,
         'PIS': emp.pis,
+        'PIS Conciliado': emp.naoConciliado ? 'Não' : 'Sim',
         'Data': dia.dataFormatada,
-        'Batidas': dia.batidas.join(' - '),
-        'Total Horas Dia': dia.isImpar ? 'Pendência' : formatHoursRep(dia.totalDia),
-        'Horas Extras/Débito': dia.isImpar ? 'Pendência' : formatHoursRep(dia.extraDia),
-        'Vale Refeição': dia.isImpar ? 'Pendência' : (dia.totalDia >= 6 ? 1 : 0),
+        'Batidas Originais': dia.batidasOriginais,
+        'Batidas Arredondadas': dia.batidas.join(' - '),
+        'Total Horas Dia': dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia),
+        'Saldo Estimado (não é hora extra autorizada)': dia.pendencia ? 'Conferir' : formatHoursRep(dia.saldoDia),
         'Relógios Utilizados': dia.relogios,
-        'Status': dia.isImpar ? 'Ímpar' : 'Completo'
+        'Arquivo de Origem': dia.fontes,
+        'Status': dia.status
       });
     }
   }
@@ -4551,7 +4681,7 @@ function exportarRepExcel() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Pré-Leitura Ponto");
   ws['!cols'] = [
-    {wch: 40}, {wch: 15}, {wch: 12}, {wch: 25}, {wch: 15}, {wch: 20}, {wch: 15}, {wch: 20}, {wch: 10}
+    {wch: 40}, {wch: 15}, {wch: 14}, {wch: 12}, {wch: 28}, {wch: 28}, {wch: 18}, {wch: 36}, {wch: 20}, {wch: 30}, {wch: 24}
   ];
   XLSX.writeFile(wb, "Pre_Leitura_Ponto_RH.xlsx");
 }

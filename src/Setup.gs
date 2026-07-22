@@ -70,7 +70,7 @@ const CONFIG_SETUP = {
   },
   abasExistentesModificadas: {
     "Servidores": {
-      "colunasNovas": ["Ativo"],
+      "colunasNovas": ["Ativo", "PIS"],
       "valoresPadrao": {
         "Ativo": "Sim"
       }

@@ -25,6 +25,7 @@ function obterListaServidores() {
   const idxAdmissao = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
   const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
   const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
+  const idxPis = indiceCabecalho_(cabecalho, ["PIS"]);
   const idxSaldoHoje = indiceCabecalho_(cabecalho, ["FERIAS SALDO HOJE", "SALDO HOJE", "SALDO FERIAS"]);
   const idxProjetado = indiceCabecalho_(cabecalho, ["FERIAS PROJETADO ESTE ANO", "PROJETADO ESTE ANO", "PROJETADO"]);
   const idxInfoFerias = indiceCabecalho_(cabecalho, ["INFO FERIAS"]);
@@ -93,6 +94,7 @@ function obterListaServidores() {
         admissaoBruta: idxAdmissao !== -1 && linha[idxAdmissao] instanceof Date ? linha[idxAdmissao].getTime() : (idxAdmissao !== -1 ? linha[idxAdmissao] : null),
         situacao: idxSituacao !== -1 ? String(linha[idxSituacao]).trim() : "",
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
+        pis: idxPis !== -1 ? String(linha[idxPis]).replace(/\D/g, "") : "",
         saldoHoje: saldoHojeCalculado,
         feriasCompulsorias: avaliacaoCompulsoria.emRisco,
         dataTerceiroPeriodo: avaliacaoCompulsoria.dataTerceiroPeriodo,
@@ -207,6 +209,7 @@ function salvarServidor(dadosServidor) {
   const idxAdmissao = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
   const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
   const idxEmail = indiceCabecalho_(cabecalho, ["E MAIL", "EMAIL"]);
+  let idxPis = indiceCabecalho_(cabecalho, ["PIS"]);
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
 
   let idxPenF = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
@@ -222,6 +225,11 @@ function salvarServidor(dadosServidor) {
     idxPenA = cabecalho.length;
     aba.getRange(1, idxPenA + 1).setValue("PENALIDADE ABONOS");
     cabecalho.push("PENALIDADE ABONOS");
+  }
+  if (idxPis === -1) {
+    idxPis = cabecalho.length;
+    aba.getRange(1, idxPis + 1).setValue("PIS");
+    cabecalho.push("PIS");
   }
 
   const matriculaBusca = normalizarChaveMatricula_(dadosServidor.matricula);
@@ -254,6 +262,7 @@ function salvarServidor(dadosServidor) {
     if (idxAdmissao !== -1 && dataAdmissao) aba.getRange(linhaEdit, idxAdmissao + 1).setValue(dataAdmissao);
     if (idxSituacao !== -1) aba.getRange(linhaEdit, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(linhaEdit, idxEmail + 1).setValue(dadosServidor.email);
+    aba.getRange(linhaEdit, idxPis + 1).setValue(String(dadosServidor.pis || "").replace(/\D/g, ""));
     if (idxAtivo !== -1) aba.getRange(linhaEdit, idxAtivo + 1).setValue(dadosServidor.ativo || "Sim");
     
     aba.getRange(linhaEdit, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);
@@ -289,6 +298,7 @@ function salvarServidor(dadosServidor) {
     if (idxAdmissao !== -1 && dataAdmissao) aba.getRange(novaLinhaIndex, idxAdmissao + 1).setValue(dataAdmissao);
     if (idxSituacao !== -1) aba.getRange(novaLinhaIndex, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(novaLinhaIndex, idxEmail + 1).setValue(dadosServidor.email);
+    aba.getRange(novaLinhaIndex, idxPis + 1).setValue(String(dadosServidor.pis || "").replace(/\D/g, ""));
     if (idxAtivo !== -1) aba.getRange(novaLinhaIndex, idxAtivo + 1).setValue("Sim");
     
     aba.getRange(novaLinhaIndex, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);

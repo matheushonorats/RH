@@ -492,7 +492,7 @@
                 </div>
                 <div class="card metric-card">
                   <div class="metric-icon metric-amber"><span data-lucide="utensils"></span></div>
-                  <div><div class="card-title">Total Vales Refeição</div><div class="card-value status-warning" id="rep-total-vr">0</div></div>
+                  <div><div class="card-title">PIS não conciliado</div><div class="card-value status-warning" id="rep-total-nao-conciliados">0</div></div>
                 </div>
               </div>
 
@@ -525,9 +525,13 @@
                 <div style="width: 190px;">
                   <select id="rep-filter-status" class="form-control" onchange="renderizarListaRep()">
                     <option value="all">Todos os Status</option>
-                    <option value="pending">Com Pendências (Ímpares)</option>
-                    <option value="extra">Com Horas Extras</option>
+                    <option value="pending">Com pendências</option>
+                    <option value="unmatched">PIS não conciliado</option>
+                    <option value="saldo">Com saldo estimado positivo</option>
                   </select>
+                </div>
+                <div style="width: 185px;">
+                  <input type="number" id="rep-jornada-horas" class="form-control" min="1" max="12" step="0.5" value="8" title="Jornada de referência (horas)" onchange="atualizarProcessamentoRep()" aria-label="Jornada de referência em horas">
                 </div>
                 <button class="btn btn-secondary" onclick="resetarLeituraRep()"><span data-lucide="rotate-ccw"></span> Limpar & Recarregar</button>
               </div>
@@ -669,6 +673,10 @@
               <div class="form-group">
                 <label class="form-label">Matrícula *</label>
                 <input type="text" id="serv-matricula" class="form-control" required placeholder="Ex: 00000">
+              </div>
+              <div class="form-group">
+                <label class="form-label">PIS</label>
+                <input type="text" id="serv-pis" class="form-control" inputmode="numeric" maxlength="12" placeholder="Somente números">
               </div>
               <div class="form-group">
                 <label class="form-label">Situação *</label>
