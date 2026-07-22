@@ -1905,12 +1905,17 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 }
 
 .desktop-navigation {
-  overflow: hidden;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.desktop-navigation::-webkit-scrollbar {
+  display: none;
 }
 
 .desktop-navigation .menu-link {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
+  padding: 0 clamp(6px, 0.9vw, 14px);
 }
 
 .header-actions {
@@ -1955,9 +1960,10 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 
 @media (max-width: 1500px) {
   .desktop-navigation .menu-link {
-    padding-left: 8px;
-    padding-right: 8px;
-    font-size: 12px;
+    padding-left: 6px;
+    padding-right: 6px;
+    font-size: 11px;
+    gap: 4px;
   }
   .sync-detailed-status.entidade-insight.show {
     width: clamp(170px, 18vw, 280px);
