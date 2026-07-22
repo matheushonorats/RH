@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pré-Leitura REP | RH</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- SheetJS para Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <i class="bi bi-clock-history"></i>
+                <h1>Pré-Leitura REP</h1>
+            </div>
+            <div class="actions">
+                <button id="btnExport" class="btn btn-primary" style="display: none;">
+                    <i class="bi bi-file-earmark-excel"></i> Exportar
+                </button>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <div class="upload-zone" id="uploadZone">
+                <input type="file" id="fileInput" multiple accept=".txt" hidden>
+                <i class="bi bi-cloud-arrow-up display-1"></i>
+                <h2>Arraste arquivos AFD aqui</h2>
+                <p>ou clique para selecionar (arquivos .txt)</p>
+            </div>
+
+            <div id="resultsContainer" class="results-container" style="display: none;">
+                <div class="dashboard-cards">
+                    <div class="card">
+                        <h3>Servidores</h3>
+                        <p id="totalServidores" class="big-number">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>Marcações</h3>
+                        <p id="totalMarcacoes" class="big-number">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>Pendências (Ímpares)</h3>
+                        <p id="totalPendencias" class="big-number error">0</p>
+                    </div>
+                    <div class="card">
+                        <h3>Vale Refeição Total</h3>
+                        <p id="totalVR" class="big-number success">0</p>
+                    </div>
+                </div>
+
+                <div class="filters">
+                    <div class="search-box">
+                        <i class="bi bi-search"></i>
+                        <input type="text" id="searchInput" placeholder="Buscar por nome ou PIS...">
+                    </div>
+                    <div class="filter-box">
+                        <select id="filterStatus">
+                            <option value="all">Todos</option>
+                            <option value="pending">Com Pendências</option>
+                            <option value="extra">Com Horas Extras</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="servidores-list" id="servidoresList">
+                    <!-- Servidores injetados via JS -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Template do Card do Servidor -->
+    <template id="servidorTemplate">
+        <div class="servidor-card">
+            <div class="servidor-header">
+                <div class="servidor-info">
+                    <h3 class="nome"></h3>
+                    <span class="pis-badge"></span>
+                </div>
+                <div class="servidor-resumo">
+                    <div class="resumo-item">
+                        <span class="label">Horas Trab.</span>
+                        <span class="valor trabalhadas"></span>
+                    </div>
+                    <div class="resumo-item">
+                        <span class="label">Extras</span>
+                        <span class="valor extras"></span>
+                    </div>
+                    <div class="resumo-item">
+                        <span class="label">VRs</span>
+                        <span class="valor vr"></span>
+                    </div>
+                </div>
+                <button class="btn-toggle"><i class="bi bi-chevron-down"></i></button>
+            </div>
+            <div class="servidor-body" style="display: none;">
+                <table class="table-dias">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Entradas/Saídas (Batidas)</th>
+                            <th>Total Dia</th>
+                            <th>Extra/Débito</th>
+                            <th>VR</th>
+                            <th>Relógio</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Linhas dos dias -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </template>
+
+    <script src="js/app.js" type="module"></script>
+</body>
+</html>
