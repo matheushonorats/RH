@@ -4133,7 +4133,16 @@ function parseAFDRep(content) {
 }
 
 function roundTimeRep(dateObj) {
+  const min = dateObj.getMinutes();
   const rounded = new Date(dateObj.getTime());
+  if (min <= 15) {
+    rounded.setMinutes(0);
+  } else if (min <= 45) {
+    rounded.setMinutes(30);
+  } else {
+    rounded.setHours(rounded.getHours() + 1);
+    rounded.setMinutes(0);
+  }
   rounded.setSeconds(0);
   rounded.setMilliseconds(0);
   return rounded;
