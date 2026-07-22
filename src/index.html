@@ -496,11 +496,33 @@
                 </div>
               </div>
 
-              <div class="filters-bar" style="display: flex; gap: 16px; margin-bottom: 20px; align-items: center;">
-                <div style="flex: 1;">
+              <div class="filters-bar" style="display: flex; gap: 12px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
+                <div style="flex: 2; min-width: 200px;">
                   <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar servidor por nome ou PIS..." oninput="renderizarListaRep()">
                 </div>
-                <div style="width: 220px;">
+                <div style="width: 140px;">
+                  <select id="rep-filter-ano" class="form-control" onchange="atualizarProcessamentoRep()">
+                    <option value="all">Todos os Anos</option>
+                  </select>
+                </div>
+                <div style="width: 150px;">
+                  <select id="rep-filter-mes" class="form-control" onchange="atualizarProcessamentoRep()">
+                    <option value="all">Todos os Meses</option>
+                    <option value="01">Janeiro</option>
+                    <option value="02">Fevereiro</option>
+                    <option value="03">Março</option>
+                    <option value="04">Abril</option>
+                    <option value="05">Maio</option>
+                    <option value="06">Junho</option>
+                    <option value="07">Julho</option>
+                    <option value="08">Agosto</option>
+                    <option value="09">Setembro</option>
+                    <option value="10">Outubro</option>
+                    <option value="11">Novembro</option>
+                    <option value="12">Dezembro</option>
+                  </select>
+                </div>
+                <div style="width: 190px;">
                   <select id="rep-filter-status" class="form-control" onchange="renderizarListaRep()">
                     <option value="all">Todos os Status</option>
                     <option value="pending">Com Pendências (Ímpares)</option>

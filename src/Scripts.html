@@ -4077,6 +4077,7 @@ function exibirInsightStatus(texto) {
 // ==========================================
 // MÓDULO PRÉ-LEITURA REP (100% LOCAL / CLIENT-SIDE)
 // ==========================================
+let dadosRepCache = { employees: new Map(), punches: [] };
 let dadosRepProcessados = [];
 
 function parseAFDRep(content) {
@@ -4132,16 +4133,7 @@ function parseAFDRep(content) {
 }
 
 function roundTimeRep(dateObj) {
-  const min = dateObj.getMinutes();
   const rounded = new Date(dateObj.getTime());
-  if (min <= 15) {
-    rounded.setMinutes(0);
-  } else if (min <= 45) {
-    rounded.setMinutes(30);
-  } else {
-    rounded.setHours(rounded.getHours() + 1);
-    rounded.setMinutes(0);
-  }
   rounded.setSeconds(0);
   rounded.setMilliseconds(0);
   return rounded;
@@ -4215,9 +4207,19 @@ function processDataRep(employees, punches) {
         emp.resumo.pendencias++;
       }
 
-      let horasTrabalhadas = 0;
+      let tempoBruto = 0;
       for (let i = 0; i < batidas.length - 1; i += 2) {
-        horasTrabalhadas += getHoursDiffRep(batidas[i], batidas[i+1]);
+        tempoBruto += getHoursDiffRep(batidas[i], batidas[i+1]);
+      }
+
+      let horasTrabalhadas = tempoBruto;
+
+      // REGRA DO ALMOÇO (Intervalo Intrajornada):
+      // Quando o servidor possui apenas 2 batidas no dia (Entrada e Saída final),
+      // e o tempo total corrido é superior a 6 horas (ex: 08:00 às 17:00 = 9h),
+      // deduz-se 1 hora referente ao intervalo de almoço obrigatório/presumido.
+      if (!isImpar && batidas.length === 2 && tempoBruto > 6) {
+        horasTrabalhadas = Math.max(0, tempoBruto - 1.0);
       }
 
       let extraDia = 0;
@@ -4273,9 +4275,40 @@ async function processarArquivosRep(files) {
     allPunches.push(...punches);
   }
 
-  dadosRepProcessados = processDataRep(allEmployees, allPunches);
-  updateDashboardRep();
-  renderizarListaRep();
+  dadosRepCache = { employees: allEmployees, punches: allPunches };
+
+  // Popula seletor de Anos dinamicamente
+  const anosSet = new Set();
+  let anoMaisRecente = "";
+  let mesMaisRecente = "";
+
+  allPunches.forEach(p => {
+    const y = String(p.datetime.getFullYear());
+    const m = String(p.datetime.getMonth() + 1).padStart(2, '0');
+    anosSet.add(y);
+    if (!anoMaisRecente || p.datetime > new Date(`${anoMaisRecente}-${mesMaisRecente}-01`)) {
+      anoMaisRecente = y;
+      mesMaisRecente = m;
+    }
+  });
+
+  const selectAno = document.getElementById('rep-filter-ano');
+  const selectMes = document.getElementById('rep-filter-mes');
+
+  if (selectAno) {
+    selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
+    const anosSorted = Array.from(anosSet).sort().reverse();
+    anosSorted.forEach(a => {
+      selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
+    });
+    if (anoMaisRecente) selectAno.value = anoMaisRecente;
+  }
+
+  if (selectMes && mesMaisRecente) {
+    selectMes.value = mesMaisRecente;
+  }
+
+  atualizarProcessamentoRep();
 
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
@@ -4283,6 +4316,26 @@ async function processarArquivosRep(files) {
   if (zone) zone.style.display = 'none';
   if (res) res.style.display = 'block';
   if (btn) btn.style.display = 'inline-flex';
+}
+
+function atualizarProcessamentoRep() {
+  if (!dadosRepCache || !dadosRepCache.punches) return;
+
+  const anoSel = document.getElementById('rep-filter-ano') ? document.getElementById('rep-filter-ano').value : 'all';
+  const mesSel = document.getElementById('rep-filter-mes') ? document.getElementById('rep-filter-mes').value : 'all';
+
+  const punchesFiltrados = dadosRepCache.punches.filter(p => {
+    const y = String(p.datetime.getFullYear());
+    const m = String(p.datetime.getMonth() + 1).padStart(2, '0');
+
+    if (anoSel !== 'all' && y !== anoSel) return false;
+    if (mesSel !== 'all' && m !== mesSel) return false;
+    return true;
+  });
+
+  dadosRepProcessados = processDataRep(dadosRepCache.employees, punchesFiltrados);
+  updateDashboardRep();
+  renderizarListaRep();
 }
 
 function updateDashboardRep() {
@@ -4389,7 +4442,7 @@ function renderizarListaRep() {
             <thead>
               <tr>
                 <th>Data</th>
-                <th>Batidas (Arredondadas)</th>
+                <th>Batidas Registradas</th>
                 <th>Horas Trabalhadas</th>
                 <th>Saldo Extra / Débito</th>
                 <th>Vale Refeição</th>
@@ -4417,6 +4470,7 @@ function toggleRepCard(bodyId) {
 }
 
 function resetarLeituraRep() {
+  dadosRepCache = { employees: new Map(), punches: [] };
   dadosRepProcessados = [];
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
