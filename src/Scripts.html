@@ -3649,6 +3649,7 @@ function toggleChatEntidade() {
   const chatWindow = document.getElementById('entidade-chat-window');
   const fantasma = document.getElementById('entidade-fab');
   pararFantasmaErrante_();
+  restaurarFantasmaNoWidget_();
 
   fantasma.classList.remove('has-notification', 'chat-open', 'enter-left', 'enter-right');
   fantasma.classList.add('leaving', Math.random() < 0.5 ? 'exit-left' : 'exit-right');
@@ -3795,6 +3796,7 @@ function atualizarConviteEntidade() {
   if (!fantasma) return;
   if (AppState.conviteEntidadePendente && !entidadeChatAberto && !entidadeChatAbrindo) {
     pararFantasmaErrante_();
+    restaurarFantasmaNoWidget_();
     fantasma.classList.remove('roaming', 'passeando', 'leaving', 'exit-left', 'exit-right');
     fantasma.style.removeProperty('left');
     fantasma.style.removeProperty('top');
@@ -3812,6 +3814,12 @@ function pararFantasmaErrante_() {
   entidadeFantasmaPasseioTimers.forEach(clearTimeout);
   entidadeFantasmaPasseioTimers = [];
   entidadeFantasmaEmPasseio = false;
+}
+
+function restaurarFantasmaNoWidget_() {
+  const fantasma = document.getElementById('entidade-fab');
+  const widget = document.querySelector('.entidade-widget');
+  if (fantasma && widget && fantasma.parentElement !== widget) widget.appendChild(fantasma);
 }
 
 function obterPosicaoBaseFantasma_() {
@@ -3844,6 +3852,8 @@ function iniciarPasseioFantasma_() {
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || AppState.conviteEntidadePendente) return;
   entidadeFantasmaEmPasseio = true;
+  const areaPrincipal = document.querySelector('.main-content');
+  if (areaPrincipal && fantasma.parentElement !== areaPrincipal) areaPrincipal.appendChild(fantasma);
   fantasma.classList.add('passeando');
   const largura = fantasma.offsetWidth || 34;
   const altura = fantasma.offsetHeight || 34;
