@@ -99,6 +99,8 @@ COMO RESPONDER
 23. Em resumos automáticos ou quando a pergunta pedir os principais insights, comece pelos casos concretos: nome, matrícula, motivo e prazo/data presentes no mesmo registro. Em seguida, apresente no máximo um dado agregado que ajude a decisão.
 24. Não repita o mesmo indicador em itens diferentes. Não use percentual, expressão como "nas últimas 24 horas" ou causalidade entre setor e ausência, a menos que esse dado esteja explicitamente calculado no contexto. A atividade do aplicativo representa apenas um recorte dos últimos 500 logs.
 25. Os alertas de auditoria cadastral são indícios automáticos, não erros confirmados. Quando existirem, informe nome, matrícula, campo e motivo, diga que o cadastro precisa ser conferido e não acuse o usuário de ter cometido um erro.
+26. ausenciasHoje é uma lista operacional informativa. Estar de férias ou afastado hoje não é, por si só, problema, risco ou pendência. Só inclua uma ausência em "pontos que exigem atenção" quando o próprio objeto trouxer uma inconsistência explícita. Se houver 1DOC no objeto, não sugira emitir 1DOC, confirmar agendamento ou regularizar esse afastamento.
+27. Em pendenciasDe1Doc, diasPendente representa há quantos dias o lançamento aguarda o número. Escreva "aguarda 1DOC há X dias"; nunca escreva "X dias pendentes de 1DOC", pois isso pode ser confundido com a duração do afastamento.
 
 COMANDOS DISPONÍVEIS (use no máximo um, apenas quando ele ajudar)
 - [NAVEGAR_DASHBOARD], [NAVEGAR_SERVIDORES], [NAVEGAR_LANCAMENTOS], [NAVEGAR_PROTOCOLOS], [NAVEGAR_RELATORIOS]
@@ -130,28 +132,33 @@ ${JSON.stringify(dadosContexto, null, 2)}
     if (mensagemUsuario) {
       messages.push({ role: "user", content: mensagemUsuario });
     } else {
-      messages.push({ role: "user", content: "Faça uma verificação silenciosa e cruzada de todos os setores presentes no contexto. Destaque somente riscos ou mudanças relevantes, com até 3 casos prioritários. Cada caso deve citar nome, matrícula, motivo e prazo/data quando existirem no mesmo registro. Não repita indicadores, não use percentuais e não chame o recorte de logs de últimas 24 horas. Use texto natural, preciso e direto. Se não houver pendência ou insight novo, responda exatamente: Tudo em ordem" });
+      messages.push({ role: "user", content: "Faça uma verificação silenciosa e cruzada de todos os setores presentes no contexto. Destaque somente riscos ou mudanças relevantes, com até 3 casos prioritários. Cada caso deve citar nome, matrícula, motivo e prazo/data quando existirem no mesmo registro. Ausência normal de hoje, inclusive férias com 1DOC, é apenas informativa e deve ser omitida dos alertas. Não invente confirmação de agendamento. Para pendências, diga que o lançamento aguarda 1DOC há X dias. Não repita indicadores, não use percentuais e não chame o recorte de logs de últimas 24 horas. Use texto natural, preciso e direto. Se não houver pendência ou insight novo, responda exatamente: Tudo em ordem" });
     }
 
-    const retornoModelo = chamarProvedorEntidade_(messages, !mensagemUsuario);
-    if (retornoModelo.erro) return { erro: retornoModelo.erro };
-    const data = retornoModelo.dados;
-    if (!data.choices || data.choices.length === 0) {
-      return { erro: "Resposta vazia da IA." };
-    }
-    
-    const conteudoResposta = data.choices[0].message.content;
-    let respostaIA = typeof conteudoResposta === 'string'
-      ? conteudoResposta
-      : (Array.isArray(conteudoResposta)
-          ? conteudoResposta.map(function(parte) { return parte && (parte.text || parte.content) || ''; }).join('\n')
-          : String(conteudoResposta || ''));
-    respostaIA = normalizarComandosRespostaEntidade_(respostaIA);
-    respostaIA = removerRaciocinioExpostoEntidade_(respostaIA);
-    if (!respostaIA) {
+    let retornoModelo = null;
+    let respostaIA = '';
+    for (let tentativaResposta = 0; tentativaResposta < 2; tentativaResposta++) {
+      retornoModelo = chamarProvedorEntidade_(messages, !mensagemUsuario);
+      if (retornoModelo.erro) return { erro: retornoModelo.erro };
+      const data = retornoModelo.dados || {};
+      const escolha = data.choices && data.choices[0];
+      const conteudoResposta = escolha && escolha.message && escolha.message.content;
+      respostaIA = typeof conteudoResposta === 'string'
+        ? conteudoResposta
+        : (Array.isArray(conteudoResposta)
+            ? conteudoResposta.map(function(parte) { return parte && (parte.text || parte.content) || ''; }).join('\n')
+            : String(conteudoResposta || ''));
+      respostaIA = removerRaciocinioExpostoEntidade_(normalizarComandosRespostaEntidade_(respostaIA));
+      if (respostaIA) break;
       if (!mensagemUsuario) return { silencioso: true, provedor: retornoModelo.provedor };
-      return { erro: 'A Entidade descartou uma resposta incompleta do provedor. Tente novamente.' };
+      if (tentativaResposta === 0) {
+        messages.push({
+          role: 'user',
+          content: 'A resposta anterior veio vazia, incompleta ou com texto interno. Responda novamente em português, de forma direta, com no máximo 6 frases. Entregue somente a resposta final ao usuário.'
+        });
+      }
     }
+    if (!respostaIA) return { erro: 'A Entidade não conseguiu concluir a resposta após uma nova tentativa automática.' };
     
     // Se for varredura silenciosa e tudo estiver em ordem
     if (!mensagemUsuario && respostaIA.trim().toLowerCase().indexOf("tudo em ordem") !== -1) {
@@ -907,8 +914,8 @@ function gerarInsightEntidade_(forcarAnalise) {
   }
   const agora = new Date().getTime();
   const registro = resultado && resultado.silencioso
-    ? { versao: '2.3.5-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
-    : { versao: '2.3.5-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
+    ? { versao: '2.3.6-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
+    : { versao: '2.3.6-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
 
   props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(registro));
   props.setProperty('ENTIDADE_ESTADO_ANALISADO', JSON.stringify(estadoAtual));
@@ -1045,7 +1052,7 @@ function obterInsightEntidadeAtual() {
   if (salvo) {
     try {
       const insight = JSON.parse(salvo);
-      if (insight.versao === '2.3.5-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
+      if (insight.versao === '2.3.6-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
     } catch (e) {}
   }
 
@@ -1057,7 +1064,7 @@ function obterInsightEntidadeAtual() {
     if (atualizado) {
       try {
         const insightAtual = JSON.parse(atualizado);
-        if (insightAtual.versao === '2.3.5-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
+        if (insightAtual.versao === '2.3.6-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
       } catch (e) {}
     }
     return gerarInsightEntidade_(false);

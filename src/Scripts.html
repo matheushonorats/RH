@@ -3814,6 +3814,8 @@ function pararFantasmaErrante_() {
   entidadeFantasmaPasseioTimers.forEach(clearTimeout);
   entidadeFantasmaPasseioTimers = [];
   entidadeFantasmaEmPasseio = false;
+  const fantasma = document.getElementById('entidade-fab');
+  if (fantasma) fantasma.classList.remove('passeando', 'subindo-do-rodape', 'descendo-ao-rodape');
 }
 
 function restaurarFantasmaNoWidget_() {
@@ -3851,31 +3853,63 @@ function agendarPasseioFantasma_() {
 function iniciarPasseioFantasma_() {
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || AppState.conviteEntidadePendente) return;
+  const base = obterPosicaoBaseFantasma_();
+  const areaConteudo = document.querySelector('.view-container');
+  if (!base || !areaConteudo) return agendarPasseioFantasma_();
   entidadeFantasmaEmPasseio = true;
-  const areaPrincipal = document.querySelector('.main-content');
-  if (areaPrincipal && fantasma.parentElement !== areaPrincipal) areaPrincipal.appendChild(fantasma);
-  fantasma.classList.add('passeando');
   const largura = fantasma.offsetWidth || 34;
   const altura = fantasma.offsetHeight || 34;
   const margem = 24;
+  const limiteInferior = Math.max(120, base.y - 70);
   const destinos = [
-    { x: window.innerWidth * (.18 + Math.random() * .20), y: window.innerHeight * (.58 + Math.random() * .18) },
-    { x: window.innerWidth * (.48 + Math.random() * .22), y: window.innerHeight * (.26 + Math.random() * .26) },
-    { x: window.innerWidth * (.72 + Math.random() * .16), y: window.innerHeight * (.52 + Math.random() * .18) }
+    { x: window.innerWidth * (.18 + Math.random() * .16), y: window.innerHeight * (.56 + Math.random() * .10) },
+    { x: window.innerWidth * (.44 + Math.random() * .18), y: window.innerHeight * (.25 + Math.random() * .18) },
+    { x: window.innerWidth * (.70 + Math.random() * .14), y: window.innerHeight * (.48 + Math.random() * .14) }
   ];
-  destinos.forEach(function(destino, indice) {
-    entidadeFantasmaPasseioTimers.push(setTimeout(function() {
-      if (!entidadeFantasmaEmPasseio) return;
-      fantasma.style.left = Math.round(Math.min(window.innerWidth - largura - margem, Math.max(margem, destino.x))) + 'px';
-      fantasma.style.top = Math.round(Math.min(window.innerHeight - altura - 64, Math.max(84, destino.y))) + 'px';
-    }, indice * 4800));
-  });
+
+  function mover(destino) {
+    if (!entidadeFantasmaEmPasseio) return;
+    fantasma.style.left = Math.round(Math.min(window.innerWidth - largura - margem, Math.max(margem, destino.x))) + 'px';
+    fantasma.style.top = Math.round(Math.min(limiteInferior, Math.max(84, destino.y))) + 'px';
+  }
+
+  // Primeiro sobe para fora da barra, ainda na camada da frente.
+  fantasma.classList.add('subindo-do-rodape');
+  fantasma.style.left = Math.round(base.x) + 'px';
+  fantasma.style.top = Math.round(base.y - 68) + 'px';
+
+  // Só depois da subida entra na camada entre o fundo e os cartões.
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    if (!entidadeFantasmaEmPasseio) return;
+    areaConteudo.appendChild(fantasma);
+    fantasma.classList.remove('subindo-do-rodape');
+    fantasma.classList.add('passeando');
+    mover(destinos[0]);
+  }, 2400));
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[1]); }, 7000));
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[2]); }, 11600));
+
+  // Retorna primeiro ao ponto acima do rodapé, ainda atrás dos elementos.
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    mover({ x: base.x, y: base.y - 68 });
+  }, 16200));
+
+  // Sai da camada de conteúdo e desce suavemente para sua posição original.
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    if (!entidadeFantasmaEmPasseio) return;
+    restaurarFantasmaNoWidget_();
+    fantasma.classList.remove('passeando');
+    fantasma.classList.add('descendo-ao-rodape');
+    fantasma.style.left = Math.round(base.x) + 'px';
+    fantasma.style.top = Math.round(base.y) + 'px';
+  }, 21000));
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
     if (!entidadeFantasmaEmPasseio) return;
     entidadeFantasmaEmPasseio = false;
+    fantasma.classList.remove('descendo-ao-rodape');
     posicionarFantasmaNaBase_();
     agendarPasseioFantasma_();
-  }, 14800));
+  }, 23600));
 }
 
 function iniciarFantasmaErrante_(entrarDaBorda) {
