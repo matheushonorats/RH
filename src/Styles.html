@@ -1899,6 +1899,52 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
   to { opacity: 0; transform: translate3d(84px, 20px, 0); }
 }
 
+/* Rodapé do aplicativo e percurso ocioso da Entidade dentro dessa faixa. */
+.app-footer {
+  position: relative;
+  flex: 0 0 46px;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 64px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+  margin-top: auto;
+  overflow: hidden;
+}
+
+.entidade-fab.roaming {
+  position: fixed;
+  width: 34px;
+  height: 34px;
+  right: auto;
+  bottom: auto;
+  z-index: 10001;
+  will-change: left, top, transform;
+  transition: left 7.2s cubic-bezier(.42, 0, .28, 1), top .25s ease, color .25s ease, filter .25s ease;
+  animation: ghost-roaming-bob 3.8s ease-in-out infinite !important;
+}
+.entidade-fab.roaming svg { width: 27px; height: 27px; }
+.entidade-fab.roaming.has-notification {
+  color: #e0e7ff;
+  filter: drop-shadow(0 0 9px rgba(129, 140, 248, .72));
+  animation: ghost-roaming-bob 3.2s ease-in-out infinite !important;
+}
+.entidade-fab.roaming.leaving.exit-left { animation: ghost-exit-left .62s cubic-bezier(.55, 0, .8, .28) both !important; transition: none; }
+.entidade-fab.roaming.leaving.exit-right { animation: ghost-exit-right .62s cubic-bezier(.55, 0, .8, .28) both !important; transition: none; }
+
+@keyframes ghost-roaming-bob {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -3px, 0); }
+}
+
+@media (max-width: 620px) {
+  .app-footer { min-height: 52px; padding: 8px 46px; font-size: 11px; }
+}
+
 /* Cabeçalho responsivo: o ticker cede espaço antes dos controles e nunca cobre o menu. */
 .app-header {
   gap: clamp(10px, 1.5vw, 24px);

@@ -96,7 +96,9 @@ function obterListaServidores() {
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
         pis: idxPis !== -1 ? String(linha[idxPis]).replace(/\D/g, "") : "",
         saldoHoje: saldoHojeCalculado,
-        feriasCompulsorias: avaliacaoCompulsoria.emRisco,
+        // Inativos permanecem no histórico, mas estão fora da gestão operacional
+        // de férias e nunca devem compor alertas de compulsórias.
+        feriasCompulsorias: statusText !== "Inativo" && avaliacaoCompulsoria.emRisco,
         dataTerceiroPeriodo: avaliacaoCompulsoria.dataTerceiroPeriodo,
         diasParaTerceiroPeriodo: avaliacaoCompulsoria.diasRestantes,
         projetado: parseInt(feriasServidor.projetado) || 0,

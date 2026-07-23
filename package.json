@@ -1,6 +1,6 @@
 {
   "name": "rh-central-documentos-v2",
-  "version": "2.0.0",
+  "version": "2.3.1",
   "description": "Sistema de Gestão de RH - SETUR - São Sebastião",
   "main": "src/Code.js",
   "scripts": {
@@ -8,7 +8,8 @@
     "pull": "clasp pull",
     "push": "clasp push",
     "watch": "clasp push --watch",
-    "status": "clasp status"
+    "status": "clasp status",
+    "deploy": "node src/deploy-versionado.cjs"
   },
   "devDependencies": {
     "@google/clasp": "^2.4.2",

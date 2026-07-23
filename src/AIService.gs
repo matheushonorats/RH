@@ -70,6 +70,7 @@ REGRAS DE NEGÓCIO IMPORTANTES
 - Férias futuras ou ainda "Em aquisição" não entram no saldo disponível antes da liberação.
 - Lançamentos de férias ativos descontam os períodos aquisitivos disponíveis; lançamentos anulados não descontam.
 - Férias compulsórias são sinalizadas pelo cálculo oficial: ao menos 60 dias disponíveis e o terceiro período liberando em até 6 meses; quem já possui 90 dias também permanece no alerta. Não recalcule por conta própria se o contexto já trouxer esse indicador.
+- Servidores com status Inativo ficam somente no histórico e não são responsabilidade operacional atual. Nunca os inclua em alertas, prioridades ou risco de férias compulsórias. Não presuma pagamento, quitação, aposentadoria ou perda de direito sem um campo explícito que comprove isso.
 - "Sem 1DOC" significa lançamento sem número 1DOC dentro do recorte considerado pelo sistema.
 
 COMO RESPONDER
@@ -553,7 +554,7 @@ function extrairTermosMemoriaEntidade_(texto) {
  */
 function obterContextoEntidadeServidor_() {
   const cache = CacheService.getScriptCache();
-  const chaveCache = 'entidade_contexto_planilha_v2';
+  const chaveCache = 'entidade_contexto_planilha_v3';
   const salvo = cache.get(chaveCache);
   if (salvo) {
     try { return JSON.parse(salvo); } catch (e) {}
@@ -566,7 +567,7 @@ function obterContextoEntidadeServidor_() {
   const protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
 
   const feriasCompulsorias = servidores
-    .filter(function(s) { return s.feriasCompulsorias === true; })
+    .filter(function(s) { return s.feriasCompulsorias === true && String(s.status || '').toLowerCase() !== 'inativo'; })
     .sort(function(a, b) {
       const prazoA = a.diasParaTerceiroPeriodo == null ? 999999 : Number(a.diasParaTerceiroPeriodo);
       const prazoB = b.diasParaTerceiroPeriodo == null ? 999999 : Number(b.diasParaTerceiroPeriodo);
@@ -679,6 +680,7 @@ function obterContextoEntidadeServidor_() {
     abaLogs.getRange(inicioLogs, 1, quantidadeLogs, Math.min(4, abaLogs.getLastColumn())).getDisplayValues().forEach(function(linha) {
       const acao = String(linha[2] || 'Não informada').trim() || 'Não informada';
       const modulo = String(linha[3] || 'Não informado').trim() || 'Não informado';
+      if (acao === 'VIGIA_IA' || acao === 'ROTACAO_LOGS' || modulo === 'IA_Entidade') return;
       atividadePorAcao[acao] = (atividadePorAcao[acao] || 0) + 1;
       atividadePorModulo[modulo] = (atividadePorModulo[modulo] || 0) + 1;
     });
@@ -755,7 +757,8 @@ function criarFingerprintContextoEntidade_(contexto) {
     pendencias: contexto.pendenciasDe1Doc || [],
     ausencias: contexto.ausenciasHoje || [],
     sinais: contexto.sinaisCruzados || {},
-    protocolos: contexto.protocolosPorStatus || {}
+    protocolos: contexto.protocolosPorStatus || {},
+    atividade: contexto.atividadeRecenteDoAplicativo || {}
   };
   const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(base), Utilities.Charset.UTF_8);
   return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '');
@@ -773,7 +776,8 @@ function criarEstadoResumidoEntidade_(contexto) {
     ausencias: (contexto.ausenciasHoje || []).map(function(item) {
       return normalizarChaveMatricula_(item.matricula) + '|' + String(item.tipo || '') + '|' + String(item.periodo || '');
     }).sort(),
-    qualidade: (contexto.sinaisCruzados && contexto.sinaisCruzados.qualidadeCadastral) || {}
+    qualidade: (contexto.sinaisCruzados && contexto.sinaisCruzados.qualidadeCadastral) || {},
+    atividade: contexto.atividadeRecenteDoAplicativo || {}
   };
 }
 
@@ -784,6 +788,18 @@ function compararEstadosEntidade_(anterior, atual) {
     const mapaAnterior = {};
     (listaAnterior || []).forEach(function(item) { mapaAnterior[item] = true; });
     return (novaLista || []).filter(function(item) { return !mapaAnterior[item]; }).slice(0, 10);
+  }
+
+  function compararContagens(listaAtual, listaAnterior, campo) {
+    const anteriores = {};
+    (listaAnterior || []).forEach(function(item) { anteriores[String(item[campo] || '')] = Number(item.ocorrencias || 0); });
+    return (listaAtual || []).reduce(function(saida, item) {
+      const chave = String(item[campo] || '');
+      const antes = Number(anteriores[chave] || 0);
+      const agora = Number(item.ocorrencias || 0);
+      if (chave && antes !== agora) saida[chave] = { antes: antes, agora: agora, variacao: agora - antes };
+      return saida;
+    }, {});
   }
 
   return {
@@ -799,7 +815,9 @@ function compararEstadosEntidade_(anterior, atual) {
     novasPendencias1Doc: diferenca(atual.pendencias, anterior.pendencias),
     pendencias1DocResolvidas: diferenca(anterior.pendencias, atual.pendencias),
     novasAusencias: diferenca(atual.ausencias, anterior.ausencias),
-    ausenciasEncerradas: diferenca(anterior.ausencias, atual.ausencias)
+    ausenciasEncerradas: diferenca(anterior.ausencias, atual.ausencias),
+    variacaoAcoes: compararContagens((atual.atividade || {}).porAcao, (anterior.atividade || {}).porAcao, 'acao'),
+    variacaoModulos: compararContagens((atual.atividade || {}).porModulo, (anterior.atividade || {}).porModulo, 'modulo')
   };
 }
 
@@ -872,7 +890,7 @@ function gerarInsightEntidade_(forcarAnalise) {
   let estadoAnterior = null;
   try { estadoAnterior = JSON.parse(props.getProperty('ENTIDADE_ESTADO_ANALISADO') || 'null'); } catch (e) {}
   props.setProperty('ENTIDADE_MUDANCAS_PENDENTES', JSON.stringify(compararEstadosEntidade_(estadoAnterior, estadoAtual)));
-  CacheService.getScriptCache().remove('entidade_contexto_planilha_v2');
+  CacheService.getScriptCache().remove('entidade_contexto_planilha_v3');
 
   const resultado = chamarEntidade(null, '{}', []);
   if (!resultado || resultado.erro) {
@@ -880,8 +898,8 @@ function gerarInsightEntidade_(forcarAnalise) {
   }
   const agora = new Date().getTime();
   const registro = resultado && resultado.silencioso
-    ? { versao: '2.3.3-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
-    : { versao: '2.3.3-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
+    ? { versao: '2.3.5-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
+    : { versao: '2.3.5-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
 
   props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(registro));
   props.setProperty('ENTIDADE_ESTADO_ANALISADO', JSON.stringify(estadoAtual));
@@ -1018,7 +1036,7 @@ function obterInsightEntidadeAtual() {
   if (salvo) {
     try {
       const insight = JSON.parse(salvo);
-      if (insight.versao === '2.3.3-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
+      if (insight.versao === '2.3.5-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
     } catch (e) {}
   }
 
@@ -1030,7 +1048,7 @@ function obterInsightEntidadeAtual() {
     if (atualizado) {
       try {
         const insightAtual = JSON.parse(atualizado);
-        if (insightAtual.versao === '2.3.3-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
+        if (insightAtual.versao === '2.3.5-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
       } catch (e) {}
     }
     return gerarInsightEntidade_(false);

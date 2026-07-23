@@ -3610,6 +3610,9 @@ let entidadeBriefingDiarioSolicitado = false;
 let entidadeBriefingExibirAoCarregar = false;
 let entidadeBriefingMensagemExibida = false;
 let entidadeChatAbrindo = false;
+let entidadeFantasmaSaindo = false;
+let entidadeFantasmaErranteTimer = null;
+let entidadeAberturaToken = 0;
 const entidadeTestePrimeiroAcesso = new URLSearchParams(window.location.search).get('testeEntidade') === '1';
 
 window.addEventListener('pointerdown', function habilitarSomEntidade() {
@@ -3629,22 +3632,39 @@ function toggleChatEntidade() {
     fecharChatEntidade();
     return;
   }
+  if (entidadeFantasmaSaindo) return;
+  const tokenAbertura = ++entidadeAberturaToken;
   entidadeChatAbrindo = true;
   AppState.conviteEntidadePendente = false;
-  atualizarConviteEntidade();
   const chatWindow = document.getElementById('entidade-chat-window');
+  const fantasma = document.getElementById('entidade-fab');
+  pararFantasmaErrante_();
+
+  fantasma.classList.remove('has-notification', 'chat-open', 'enter-left', 'enter-right');
+  fantasma.classList.add('leaving', Math.random() < 0.5 ? 'exit-left' : 'exit-right');
+
   setTimeout(function() {
-    entidadeChatAbrindo = false;
-    entidadeChatAberto = true;
-    chatWindow.style.display = 'flex';
-    atualizarConviteEntidade();
-    document.getElementById('entidade-input').focus();
-    if (!entidadeVigiaAtivo) {
-      entidadeVigiaAtivo = true;
-      iniciarVigia();
-    }
-    solicitarBriefingDiarioEntidade(true);
-  }, 560);
+    if (tokenAbertura !== entidadeAberturaToken) return;
+    fantasma.classList.remove('roaming', 'leaving', 'exit-left', 'exit-right');
+    fantasma.style.removeProperty('left');
+    fantasma.style.removeProperty('top');
+    fantasma.style.display = 'grid';
+    fantasma.classList.add('enter-right', 'chat-open');
+
+    setTimeout(function() {
+      if (tokenAbertura !== entidadeAberturaToken) return;
+      fantasma.classList.remove('enter-right');
+      entidadeChatAbrindo = false;
+      entidadeChatAberto = true;
+      chatWindow.style.display = 'flex';
+      document.getElementById('entidade-input').focus();
+      if (!entidadeVigiaAtivo) {
+        entidadeVigiaAtivo = true;
+        iniciarVigia();
+      }
+      solicitarBriefingDiarioEntidade(true);
+    }, 560);
+  }, 640);
 }
 
 function solicitarBriefingDiarioEntidade(exibirNoChat = false) {
@@ -3695,11 +3715,22 @@ function apresentarBriefingDiarioNoChat_() {
 }
 
 function fecharChatEntidade() {
+  entidadeAberturaToken++;
   entidadeChatAbrindo = false;
   entidadeChatAberto = false;
   AppState.conviteEntidadePendente = false;
   document.getElementById('entidade-chat-window').style.display = 'none';
-  atualizarConviteEntidade();
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma) return;
+  entidadeFantasmaSaindo = true;
+  fantasma.classList.remove('chat-open', 'enter-left', 'enter-right');
+  fantasma.classList.add('leaving', Math.random() < 0.5 ? 'exit-left' : 'exit-right');
+  setTimeout(function() {
+    fantasma.style.display = 'none';
+    fantasma.classList.remove('leaving', 'exit-left', 'exit-right');
+    entidadeFantasmaSaindo = false;
+    iniciarFantasmaErrante_(true);
+  }, 680);
 }
 
 function tocarSomNotificacao() {
@@ -3744,35 +3775,52 @@ function exibirBadgeNotificacao() {
 
 function atualizarConviteEntidade() {
   const convite = document.getElementById('btn-conversar-entidade-convite');
-  const fantasma = document.getElementById('entidade-fab');
-  const temConvite = Boolean(AppState.conviteEntidadePendente && !entidadeChatAberto);
-  const mostrarFantasma = temConvite || entidadeChatAberto || entidadeChatAbrindo;
   if (convite) convite.style.display = 'inline-flex';
-  if (fantasma) {
-    if (mostrarFantasma) {
-      const estavaOculto = fantasma.style.display === 'none';
-      fantasma.style.display = 'grid';
-      fantasma.classList.remove('leaving');
-      fantasma.classList.remove('exit-left', 'exit-right');
-      if (estavaOculto) {
-        fantasma.classList.remove('enter-left', 'enter-right');
-        fantasma.classList.add(Math.random() < 0.5 ? 'enter-left' : 'enter-right');
-        setTimeout(function() { fantasma.classList.remove('enter-left', 'enter-right'); }, 620);
-      }
-      fantasma.classList.toggle('has-notification', temConvite);
-      fantasma.classList.toggle('chat-open', entidadeChatAberto || entidadeChatAbrindo);
-    } else if (fantasma.style.display !== 'none') {
-      fantasma.classList.remove('has-notification');
-      fantasma.classList.remove('chat-open');
-      fantasma.classList.remove('enter-left', 'enter-right');
-      fantasma.classList.add(Math.random() < 0.5 ? 'exit-left' : 'exit-right');
-      fantasma.classList.add('leaving');
-      setTimeout(function() {
-        if (!AppState.conviteEntidadePendente) fantasma.style.display = 'none';
-        fantasma.classList.remove('leaving', 'exit-left', 'exit-right');
-      }, 680);
-    }
+  if (!entidadeChatAberto && !entidadeChatAbrindo && !entidadeFantasmaSaindo) iniciarFantasmaErrante_(false);
+  const fantasma = document.getElementById('entidade-fab');
+  if (fantasma) fantasma.classList.toggle('has-notification', Boolean(AppState.conviteEntidadePendente));
+}
+
+function pararFantasmaErrante_() {
+  if (entidadeFantasmaErranteTimer) clearInterval(entidadeFantasmaErranteTimer);
+  entidadeFantasmaErranteTimer = null;
+}
+
+function moverFantasmaErrante_() {
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo) return;
+  const rodape = document.getElementById('app-footer');
+  if (!rodape) return;
+  const area = rodape.getBoundingClientRect();
+  const margem = 12;
+  const largura = fantasma.offsetWidth || 34;
+  const altura = fantasma.offsetHeight || 34;
+  const minimoX = Math.max(margem, area.left + margem);
+  const maximoX = Math.max(minimoX, area.right - largura - margem);
+  const x = minimoX + Math.random() * Math.max(1, maximoX - minimoX);
+  const y = area.top + Math.max(0, (area.height - altura) / 2);
+  fantasma.style.left = Math.round(x) + 'px';
+  fantasma.style.top = Math.round(y) + 'px';
+}
+
+function iniciarFantasmaErrante_(entrarDaBorda) {
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo) return;
+  pararFantasmaErrante_();
+  fantasma.classList.remove('chat-open', 'leaving', 'exit-left', 'exit-right', 'enter-left', 'enter-right');
+  fantasma.classList.add('roaming');
+  fantasma.style.display = 'grid';
+  const rodape = document.getElementById('app-footer');
+  const area = rodape ? rodape.getBoundingClientRect() : null;
+  if (entrarDaBorda || !fantasma.style.left) {
+    const entrarPelaEsquerda = Math.random() < 0.5;
+    fantasma.style.left = (entrarPelaEsquerda ? -42 : window.innerWidth + 8) + 'px';
+    fantasma.style.top = Math.round(area ? area.top + Math.max(0, (area.height - 34) / 2) : window.innerHeight - 42) + 'px';
+    requestAnimationFrame(function() { requestAnimationFrame(moverFantasmaErrante_); });
+  } else {
+    moverFantasmaErrante_();
   }
+  entidadeFantasmaErranteTimer = setInterval(moverFantasmaErrante_, 7600);
 }
 
 function piscarRobozinho() {
