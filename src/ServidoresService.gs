@@ -190,6 +190,8 @@ function salvarServidor(dadosServidor) {
 
   const lock = LockService.getScriptLock();
   let gerarCreditosDepois = false;
+  let dadosAntesAuditoria = null;
+  let operacaoAuditoria = "CRIACAO";
   try {
     lock.waitLock(10000);
   } catch (e) {
@@ -257,6 +259,18 @@ function salvarServidor(dadosServidor) {
   }
   
   if (linhaEdit !== -1) {
+    operacaoAuditoria = "EDICAO";
+    dadosAntesAuditoria = {
+      nome: idxNome !== -1 ? dados[linhaEdit - 1][idxNome] : "",
+      matricula: idxMatricula !== -1 ? dados[linhaEdit - 1][idxMatricula] : "",
+      cargo: idxCargo !== -1 ? dados[linhaEdit - 1][idxCargo] : "",
+      lotacao: idxLotacao !== -1 ? dados[linhaEdit - 1][idxLotacao] : "",
+      admissao: idxAdmissao !== -1 ? dados[linhaEdit - 1][idxAdmissao] : "",
+      situacao: idxSituacao !== -1 ? dados[linhaEdit - 1][idxSituacao] : "",
+      email: idxEmail !== -1 ? dados[linhaEdit - 1][idxEmail] : "",
+      pis: idxPis !== -1 ? dados[linhaEdit - 1][idxPis] : "",
+      ativo: idxAtivo !== -1 ? dados[linhaEdit - 1][idxAtivo] : ""
+    };
     // MODO EDIÇÃO: Atualiza apenas as células de dados usando lote por segurança de fórmulas
     if (idxNome !== -1) aba.getRange(linhaEdit, idxNome + 1).setValue(dadosServidor.nome.toUpperCase());
     if (idxCargo !== -1) aba.getRange(linhaEdit, idxCargo + 1).setValue(dadosServidor.cargo);
@@ -320,6 +334,14 @@ function salvarServidor(dadosServidor) {
     } catch(e) {
       lancarLog("ERRO_AUTO_CREDITOS", "Creditos_Ferias", "Erro ao gerar créditos automáticos para novo cadastro: " + e.toString(), "", "", "", String(dadosServidor.matricula).trim());
     }
+  }
+
+  try {
+    auditarCadastroServidor_(dadosServidor, dadosAntesAuditoria, operacaoAuditoria);
+    CacheService.getScriptCache().remove('entidade_contexto_planilha_v3');
+    PropertiesService.getScriptProperties().deleteProperty('ENTIDADE_ULTIMO_INSIGHT');
+  } catch (e) {
+    lancarLog("ERRO_AUDITORIA_CADASTRO", "Servidores", "Não foi possível auditar o cadastro salvo: " + e.toString(), "", "", "", String(dadosServidor.matricula || ""));
   }
 
   return true;

@@ -98,6 +98,7 @@ COMO RESPONDER
 22. Para distribuições, prefira uma lista ordenada no formato "quantidade — lotação". Não use tabela Markdown salvo se o usuário pedir explicitamente uma tabela. Exiba "Sem lotação" no lugar de valores vazios, "-" ou equivalentes.
 23. Em resumos automáticos ou quando a pergunta pedir os principais insights, comece pelos casos concretos: nome, matrícula, motivo e prazo/data presentes no mesmo registro. Em seguida, apresente no máximo um dado agregado que ajude a decisão.
 24. Não repita o mesmo indicador em itens diferentes. Não use percentual, expressão como "nas últimas 24 horas" ou causalidade entre setor e ausência, a menos que esse dado esteja explicitamente calculado no contexto. A atividade do aplicativo representa apenas um recorte dos últimos 500 logs.
+25. Os alertas de auditoria cadastral são indícios automáticos, não erros confirmados. Quando existirem, informe nome, matrícula, campo e motivo, diga que o cadastro precisa ser conferido e não acuse o usuário de ter cometido um erro.
 
 COMANDOS DISPONÍVEIS (use no máximo um, apenas quando ele ajudar)
 - [NAVEGAR_DASHBOARD], [NAVEGAR_SERVIDORES], [NAVEGAR_LANCAMENTOS], [NAVEGAR_PROTOCOLOS], [NAVEGAR_RELATORIOS]
@@ -686,6 +687,13 @@ function obterContextoEntidadeServidor_() {
     });
   }
 
+  let alertasAuditoriaCadastral = [];
+  try {
+    alertasAuditoriaCadastral = obterAlertasAuditoriaCadastralEntidade_(12);
+  } catch (e) {
+    Logger.log('Não foi possível carregar a auditoria cadastral para a Entidade: ' + e.toString());
+  }
+
   const contexto = {
     origem: 'Leitura direta e atual da planilha Google',
     geradoEm: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
@@ -715,7 +723,8 @@ function obterContextoEntidadeServidor_() {
         .slice(0, 10),
       qualidadeCadastral: {
         servidoresSemLotacao: cadastrosSemLotacao,
-        matriculasDuplicadas: Object.keys(matriculasDuplicadas)
+        matriculasDuplicadas: Object.keys(matriculasDuplicadas),
+        alertasRecentesDeCadastroOuAlteracao: alertasAuditoriaCadastral
       },
       totalLotacoes: Object.keys(lotacoes).length
     },

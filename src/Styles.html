@@ -1924,8 +1924,12 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
   bottom: auto;
   z-index: 10001;
   will-change: left, top, transform;
-  transition: left 7.2s cubic-bezier(.42, 0, .28, 1), top .25s ease, color .25s ease, filter .25s ease;
+  transition: left 2.8s cubic-bezier(.34, .72, .28, 1), top 2.8s cubic-bezier(.34, .72, .28, 1), color .25s ease, filter .25s ease;
   animation: ghost-roaming-bob 3.8s ease-in-out infinite !important;
+}
+.entidade-fab.roaming.passeando {
+  transition: left 4.6s cubic-bezier(.42, 0, .24, 1), top 4.6s cubic-bezier(.42, 0, .24, 1), color .25s ease, filter .25s ease;
+  animation: ghost-roaming-bob 4.4s ease-in-out infinite !important;
 }
 .entidade-fab.roaming svg { width: 27px; height: 27px; }
 .entidade-fab.roaming.has-notification {

@@ -79,6 +79,12 @@ const SyncQueue = {
         if (currBtn && self.fila.length === 0) currBtn.classList.remove('spinning');
         
         atualizarTextoSync("Operação salva!", true, 'check');
+
+        // Cadastros de servidor são auditados no backend durante a gravação.
+        // Consulta imediatamente o novo parecer, sem aguardar o polling de 10 minutos.
+        if (item.tipo === 'salvar_servidor') {
+          setTimeout(consultarInsightEntidade, 900);
+        }
         
         // Processa o próximo da fila
         if (self.fila.length > 0) {
@@ -3612,7 +3618,11 @@ let entidadeBriefingMensagemExibida = false;
 let entidadeChatAbrindo = false;
 let entidadeFantasmaSaindo = false;
 let entidadeFantasmaErranteTimer = null;
+let entidadeFantasmaPasseioTimers = [];
+let entidadeFantasmaEmPasseio = false;
 let entidadeAberturaToken = 0;
+let entidadeMensagemTemporariaRep = '';
+let entidadeUltimoFingerprintRep = '';
 const entidadeTestePrimeiroAcesso = new URLSearchParams(window.location.search).get('testeEntidade') === '1';
 
 window.addEventListener('pointerdown', function habilitarSomEntidade() {
@@ -3658,6 +3668,11 @@ function toggleChatEntidade() {
       entidadeChatAberto = true;
       chatWindow.style.display = 'flex';
       document.getElementById('entidade-input').focus();
+      if (entidadeMensagemTemporariaRep) {
+        addMensagemEntidade(entidadeMensagemTemporariaRep, false);
+        entidadeHistorico.push({ role: 'assistant', content: entidadeMensagemTemporariaRep });
+        entidadeMensagemTemporariaRep = '';
+      }
       if (!entidadeVigiaAtivo) {
         entidadeVigiaAtivo = true;
         iniciarVigia();
@@ -3776,52 +3791,104 @@ function exibirBadgeNotificacao() {
 function atualizarConviteEntidade() {
   const convite = document.getElementById('btn-conversar-entidade-convite');
   if (convite) convite.style.display = 'inline-flex';
-  if (!entidadeChatAberto && !entidadeChatAbrindo && !entidadeFantasmaSaindo) iniciarFantasmaErrante_(false);
   const fantasma = document.getElementById('entidade-fab');
-  if (fantasma) fantasma.classList.toggle('has-notification', Boolean(AppState.conviteEntidadePendente));
+  if (!fantasma) return;
+  if (AppState.conviteEntidadePendente && !entidadeChatAberto && !entidadeChatAbrindo) {
+    pararFantasmaErrante_();
+    fantasma.classList.remove('roaming', 'passeando', 'leaving', 'exit-left', 'exit-right');
+    fantasma.style.removeProperty('left');
+    fantasma.style.removeProperty('top');
+    fantasma.style.display = 'grid';
+    fantasma.classList.add('has-notification', 'chat-open');
+    return;
+  }
+  fantasma.classList.remove('has-notification');
+  if (!entidadeChatAberto && !entidadeChatAbrindo && !entidadeFantasmaSaindo) iniciarFantasmaErrante_(false);
 }
 
 function pararFantasmaErrante_() {
-  if (entidadeFantasmaErranteTimer) clearInterval(entidadeFantasmaErranteTimer);
+  if (entidadeFantasmaErranteTimer) clearTimeout(entidadeFantasmaErranteTimer);
   entidadeFantasmaErranteTimer = null;
+  entidadeFantasmaPasseioTimers.forEach(clearTimeout);
+  entidadeFantasmaPasseioTimers = [];
+  entidadeFantasmaEmPasseio = false;
 }
 
-function moverFantasmaErrante_() {
+function obterPosicaoBaseFantasma_() {
+  const rodape = document.getElementById('app-footer');
+  if (!rodape) return null;
+  const area = rodape.getBoundingClientRect();
+  return {
+    x: Math.max(12, area.left + 16),
+    y: area.top + Math.max(0, (area.height - 34) / 2)
+  };
+}
+
+function posicionarFantasmaNaBase_() {
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo) return;
-  const rodape = document.getElementById('app-footer');
-  if (!rodape) return;
-  const area = rodape.getBoundingClientRect();
-  const margem = 12;
+  const base = obterPosicaoBaseFantasma_();
+  if (!base) return;
+  fantasma.classList.remove('passeando');
+  fantasma.style.left = Math.round(base.x) + 'px';
+  fantasma.style.top = Math.round(base.y) + 'px';
+}
+
+function agendarPasseioFantasma_() {
+  if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || AppState.conviteEntidadePendente) return;
+  const espera = 32000 + Math.round(Math.random() * 26000);
+  entidadeFantasmaErranteTimer = setTimeout(iniciarPasseioFantasma_, espera);
+}
+
+function iniciarPasseioFantasma_() {
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || AppState.conviteEntidadePendente) return;
+  entidadeFantasmaEmPasseio = true;
+  fantasma.classList.add('passeando');
   const largura = fantasma.offsetWidth || 34;
   const altura = fantasma.offsetHeight || 34;
-  const minimoX = Math.max(margem, area.left + margem);
-  const maximoX = Math.max(minimoX, area.right - largura - margem);
-  const x = minimoX + Math.random() * Math.max(1, maximoX - minimoX);
-  const y = area.top + Math.max(0, (area.height - altura) / 2);
-  fantasma.style.left = Math.round(x) + 'px';
-  fantasma.style.top = Math.round(y) + 'px';
+  const margem = 24;
+  const destinos = [
+    { x: window.innerWidth * (.18 + Math.random() * .20), y: window.innerHeight * (.58 + Math.random() * .18) },
+    { x: window.innerWidth * (.48 + Math.random() * .22), y: window.innerHeight * (.26 + Math.random() * .26) },
+    { x: window.innerWidth * (.72 + Math.random() * .16), y: window.innerHeight * (.52 + Math.random() * .18) }
+  ];
+  destinos.forEach(function(destino, indice) {
+    entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+      if (!entidadeFantasmaEmPasseio) return;
+      fantasma.style.left = Math.round(Math.min(window.innerWidth - largura - margem, Math.max(margem, destino.x))) + 'px';
+      fantasma.style.top = Math.round(Math.min(window.innerHeight - altura - 64, Math.max(84, destino.y))) + 'px';
+    }, indice * 4800));
+  });
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    if (!entidadeFantasmaEmPasseio) return;
+    entidadeFantasmaEmPasseio = false;
+    posicionarFantasmaNaBase_();
+    agendarPasseioFantasma_();
+  }, 14800));
 }
 
 function iniciarFantasmaErrante_(entrarDaBorda) {
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo) return;
   pararFantasmaErrante_();
-  fantasma.classList.remove('chat-open', 'leaving', 'exit-left', 'exit-right', 'enter-left', 'enter-right');
+  fantasma.classList.remove('chat-open', 'has-notification', 'passeando', 'leaving', 'exit-left', 'exit-right', 'enter-left', 'enter-right');
   fantasma.classList.add('roaming');
   fantasma.style.display = 'grid';
-  const rodape = document.getElementById('app-footer');
-  const area = rodape ? rodape.getBoundingClientRect() : null;
+  const base = obterPosicaoBaseFantasma_();
   if (entrarDaBorda || !fantasma.style.left) {
-    const entrarPelaEsquerda = Math.random() < 0.5;
-    fantasma.style.left = (entrarPelaEsquerda ? -42 : window.innerWidth + 8) + 'px';
-    fantasma.style.top = Math.round(area ? area.top + Math.max(0, (area.height - 34) / 2) : window.innerHeight - 42) + 'px';
-    requestAnimationFrame(function() { requestAnimationFrame(moverFantasmaErrante_); });
+    fantasma.style.left = '-42px';
+    fantasma.style.top = Math.round(base ? base.y : window.innerHeight - 42) + 'px';
+    requestAnimationFrame(function() { requestAnimationFrame(posicionarFantasmaNaBase_); });
   } else {
-    moverFantasmaErrante_();
+    posicionarFantasmaNaBase_();
   }
-  entidadeFantasmaErranteTimer = setInterval(moverFantasmaErrante_, 7600);
+  agendarPasseioFantasma_();
 }
+
+window.addEventListener('resize', function() {
+  if (!entidadeFantasmaEmPasseio && !entidadeChatAberto && !entidadeChatAbrindo && !AppState.conviteEntidadePendente) posicionarFantasmaNaBase_();
+});
 
 function piscarRobozinho() {
   const fab = document.querySelector('.entidade-fab');
@@ -3921,7 +3988,7 @@ function setEntidadePensando(isThinking) {
   }
 }
 
-function montarContextoEntidade() {
+function montarContextoEntidade(mensagemUsuario = '') {
   const servidores = Array.isArray(AppState.servidores) ? AppState.servidores : [];
   const lancamentos = Array.isArray(AppState.lancamentos) ? AppState.lancamentos : [];
   const protocolos = Array.isArray(AppState.protocolos) ? AppState.protocolos : [];
@@ -3987,6 +4054,7 @@ function montarContextoEntidade() {
     pendenciasDe1Doc: pendencias1Doc,
     equipePorLotacao: Object.entries(porLotacao).sort((a, b) => b[1] - a[1]).slice(0, 15).map(item => ({ lotacao: item[0], quantidade: item[1] })),
     protocolosPorStatus: statusProtocolos,
+    preLeituraRepTemporaria: montarContextoRepEconomicoEntidade_(mensagemUsuario),
     ultimosLancamentos: lancamentos.slice(-15).reverse().map(l => ({ nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataInicio: l.dataInicio, dias: l.dias, status: l.status, idoc: l.idoc || '' })),
     limitesDeListagem: { feriasCompulsorias: 30, pendenciasDe1Doc: 30, ausenciasHoje: 20 }
   });
@@ -4032,7 +4100,7 @@ function enviarMensagemEntidade(textoForcado = null) {
   setEntidadePensando(true);
   document.getElementById('entidade-chips').style.display = 'none';
   
-  const contexto = montarContextoEntidade();
+  const contexto = montarContextoEntidade(texto);
   const historicoAnterior = entidadeHistorico.slice(0, -1).slice(-10);
   
   backendApi()
@@ -4766,6 +4834,124 @@ function atualizarProcessamentoRep() {
   paginaRepAtual = 1;
   updateDashboardRep();
   renderizarListaRep();
+  observarPreLeituraRepEntidade_();
+}
+
+function montarResumoPreLeituraRepEntidade_() {
+  if (currentView !== 'pre-leitura-rep' || !Array.isArray(dadosRepProcessados) || !dadosRepProcessados.length) {
+    return { disponivel: false, observacao: 'Nenhuma Pré-leitura REP está carregada nesta sessão.' };
+  }
+
+  let marcacoes = 0;
+  let alertas = 0;
+  let naoConciliados = 0;
+  const situacoes = {};
+  dadosRepProcessados.forEach(function(emp) {
+    alertas += Number(emp.resumo && emp.resumo.pendencias || 0);
+    if (emp.naoConciliado) naoConciliados++;
+    (emp.dias || []).forEach(function(dia) {
+      marcacoes += (dia.batidas || []).length;
+      const status = String(dia.status || 'não informado');
+      if (status !== 'ok') situacoes[status] = (situacoes[status] || 0) + 1;
+    });
+  });
+
+  const arquivos = (dadosRepCache.arquivos || []).reduce(function(saida, arquivo) {
+    saida.quantidade++;
+    saida.marcacoesInvalidas += Number(arquivo.marcacoesInvalidas || 0);
+    saida.quebrasNsr += Number(arquivo.quebrasNsr || 0);
+    return saida;
+  }, { quantidade: 0, marcacoesInvalidas: 0, quebrasNsr: 0 });
+
+  const casosPrioritarios = dadosRepProcessados
+    .filter(function(emp) { return emp.naoConciliado || Number(emp.resumo && emp.resumo.pendencias || 0) > 0; })
+    .sort(function(a, b) {
+      return Number(Boolean(b.naoConciliado)) - Number(Boolean(a.naoConciliado)) ||
+        Number(b.resumo && b.resumo.pendencias || 0) - Number(a.resumo && a.resumo.pendencias || 0);
+    })
+    .slice(0, 5)
+    .map(function(emp) {
+      return {
+        nome: emp.nome,
+        identificadorFinal: String(emp.pis || '').slice(-4),
+        naoConciliado: Boolean(emp.naoConciliado),
+        quantidadeAlertas: Number(emp.resumo && emp.resumo.pendencias || 0),
+        saldoEstimadoHoras: Number(emp.resumo && (emp.resumo.saldo != null ? emp.resumo.saldo : emp.resumo.extras) || 0),
+        diasPrioritarios: (emp.dias || []).filter(function(dia) { return dia.pendencia || dia.status === 'nao_conciliado'; }).slice(0, 2).map(function(dia) {
+          return { data: dia.dataFormatada, situacao: textoSituacaoRep(dia.status) };
+        })
+      };
+    });
+
+  return {
+    disponivel: true,
+    natureza: 'Contexto temporário calculado localmente; não armazenado na planilha.',
+    servidores: dadosRepProcessados.length,
+    marcacoes: marcacoes,
+    alertas: alertas,
+    naoConciliados: naoConciliados,
+    auditoriaArquivos: arquivos,
+    situacoesParaConferencia: Object.keys(situacoes).map(function(status) {
+      return { situacao: textoSituacaoRep(status), quantidade: situacoes[status] };
+    }).sort(function(a, b) { return b.quantidade - a.quantidade; }).slice(0, 6),
+    casosPrioritarios: casosPrioritarios
+  };
+}
+
+function montarContextoRepEconomicoEntidade_(mensagemUsuario) {
+  if (currentView !== 'pre-leitura-rep' || !dadosRepProcessados.length) return { disponivel: false };
+  const pergunta = String(mensagemUsuario || '');
+  const perguntaSobreRep = /\b(rep|ponto|batida|marca(?:ç|c)[aã]o|jornada|intervalo|hora(?:s)?|afd|nsr|arquivo|alerta|pend[eê]ncia|n[aã]o conciliad|esta tela|aqui)\b/i.test(pergunta);
+  if (perguntaSobreRep) return montarResumoPreLeituraRepEntidade_();
+
+  const alertas = dadosRepProcessados.reduce(function(total, emp) {
+    return total + Number(emp.resumo && emp.resumo.pendencias || 0);
+  }, 0);
+  return {
+    disponivel: true,
+    detalhesOmitidosParaEconomizarTokens: true,
+    servidoresProcessados: dadosRepProcessados.length,
+    totalAlertas: alertas,
+    observacao: 'Os detalhes temporários do REP só devem ser solicitados quando a pergunta tratar desta pré-leitura.'
+  };
+}
+
+function observarPreLeituraRepEntidade_() {
+  const resumo = montarResumoPreLeituraRepEntidade_();
+  if (!resumo.disponivel) return;
+  const fingerprint = JSON.stringify({
+    servidores: resumo.servidores,
+    marcacoes: resumo.marcacoes,
+    alertas: resumo.alertas,
+    naoConciliados: resumo.naoConciliados,
+    arquivos: resumo.auditoriaArquivos,
+    casos: resumo.casosPrioritarios.map(function(item) { return [item.nome, item.quantidadeAlertas, item.naoConciliado]; })
+  });
+  if (fingerprint === entidadeUltimoFingerprintRep) return;
+  entidadeUltimoFingerprintRep = fingerprint;
+
+  const totalProblemasArquivo = Number(resumo.auditoriaArquivos.marcacoesInvalidas || 0) + Number(resumo.auditoriaArquivos.quebrasNsr || 0);
+  if (!resumo.alertas && !resumo.naoConciliados && !totalProblemasArquivo) return;
+
+  const prioridades = resumo.casosPrioritarios.slice(0, 3).map(function(item) {
+    const motivos = [];
+    if (item.naoConciliado) motivos.push('identificador não conciliado');
+    if (item.quantidadeAlertas) motivos.push(item.quantidadeAlertas + ' alerta(s) de marcação');
+    return item.nome + ' — ' + motivos.join(' e ');
+  });
+  let mensagem = 'A Pré-leitura REP terminou com ' + resumo.alertas + ' alerta(s) e ' + resumo.naoConciliados + ' servidor(es) não conciliado(s).';
+  if (prioridades.length) mensagem += '\nPrioridades:\n• ' + prioridades.join('\n• ');
+  if (totalProblemasArquivo) mensagem += '\nTambém encontrei ' + resumo.auditoriaArquivos.marcacoesInvalidas + ' marcação(ões) inválida(s) e ' + resumo.auditoriaArquivos.quebrasNsr + ' quebra(s) de NSR nos arquivos.';
+  mensagem += '\nRecomendo conferir esses casos antes de usar o espelho como apoio administrativo.';
+
+  if (entidadeChatAberto) {
+    addMensagemEntidade(mensagem, false);
+    entidadeHistorico.push({ role: 'assistant', content: mensagem });
+  } else {
+    entidadeMensagemTemporariaRep = mensagem;
+    exibirBadgeNotificacao();
+  }
+  exibirInsightStatus(mensagem);
 }
 
 function aplicarFeriadosRep() {
