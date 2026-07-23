@@ -3822,14 +3822,20 @@ function pararFantasmaErrante_() {
   if (fantasma) fantasma.classList.remove(
     'passeando', 'subindo-do-rodape', 'descendo-ao-rodape',
     'indo-direita', 'indo-esquerda', 'movendo-vertical',
-    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb'
+    'idle-entering', 'idle-leaving',
+    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb',
+    'idle-music', 'idle-sunbathing'
   );
 }
 
 function limparAnimacaoOciosaFantasma_() {
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma) return;
-  fantasma.classList.remove('idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb');
+  fantasma.classList.remove(
+    'idle-entering', 'idle-leaving',
+    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb',
+    'idle-music', 'idle-sunbathing'
+  );
 }
 
 function agendarAnimacaoOciosaFantasma_() {
@@ -3842,15 +3848,22 @@ function iniciarAnimacaoOciosaFantasma_() {
   if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || entidadeFantasmaEmPasseio || AppState.conviteEntidadePendente) return;
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma) return;
-  const opcoes = ['idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb']
+  const opcoes = [
+    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating',
+    'idle-orb', 'idle-music', 'idle-sunbathing'
+  ]
     .filter(function(nome) { return nome !== entidadeFantasmaUltimaAnimacaoOciosa; });
   const escolhida = opcoes[Math.floor(Math.random() * opcoes.length)];
   entidadeFantasmaUltimaAnimacaoOciosa = escolhida;
   limparAnimacaoOciosaFantasma_();
-  fantasma.classList.add(escolhida);
+  fantasma.classList.add(escolhida, 'idle-entering');
+  setTimeout(function() { fantasma.classList.remove('idle-entering'); }, 520);
   entidadeFantasmaAnimacaoOciosaTimer = setTimeout(function() {
-    limparAnimacaoOciosaFantasma_();
-    agendarAnimacaoOciosaFantasma_();
+    fantasma.classList.add('idle-leaving');
+    entidadeFantasmaAnimacaoOciosaTimer = setTimeout(function() {
+      limparAnimacaoOciosaFantasma_();
+      agendarAnimacaoOciosaFantasma_();
+    }, 620);
   }, 5200 + Math.round(Math.random() * 1800));
 }
 
