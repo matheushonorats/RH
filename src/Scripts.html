@@ -4339,17 +4339,22 @@ function processDataRep(employees, punches) {
       const colisaoReps = Array.from(chavesMomento.values()).some(reps => reps.size > 1);
       const diaSemana = batidas[0].getDay();
       const diaExtra = diaSemana === 0 || diaSemana === 6 || feriados.has(diaSeguro.data);
-      const intervaloNaoIdentificado = !diaExtra && !isImpar && batidas.length === 2 && getHoursDiffRep(batidas[0], batidas[1]) > 6;
+      // Jornada continua acima de 6h sem marcacoes de almoco: presume e desconta
+      // uma hora de intervalo, inclusive aos sabados, domingos e feriados.
+      const intervaloPresumido = !isImpar && batidas.length === 2 && getHoursDiffRep(batidas[0], batidas[1]) > 6;
       let totalDia = null;
       let saldoDia = null;
       let intervaloConsiderado = 0;
       let descontoIntervalo = 0;
-      if (!isImpar && !batidasExcedentes && !conflitoArredondamento && !intervaloNaoIdentificado && !colisaoReps) {
+      if (!isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
         // Em jornada superior a 6 horas, o intervalo mínimo de uma hora não
         // gera crédito. Se houve só 30 min, os 30 min restantes não contam como saldo.
-        if (!diaExtra && batidas.length >= 4 && getHoursDiffRep(batidas[0], batidas[batidas.length - 1]) > 6) {
+        if (intervaloPresumido) {
+          descontoIntervalo = 1;
+          totalDia = Math.max(0, totalDia - descontoIntervalo);
+        } else if (batidas.length >= 4 && getHoursDiffRep(batidas[0], batidas[batidas.length - 1]) > 6) {
           for (let i = 1; i < batidas.length - 1; i += 2) {
             intervaloConsiderado += getHoursDiffRep(batidas[i], batidas[i + 1]);
           }
@@ -4371,7 +4376,7 @@ function processDataRep(employees, punches) {
       else if (batidasExcedentes) status = 'batidas_excedentes';
       else if (colisaoReps) status = 'colisao_reps';
       else if (conflitoArredondamento) status = 'conflito_arredondamento';
-      else if (intervaloNaoIdentificado) status = 'intervalo_nao_identificado';
+      else if (intervaloPresumido) status = diaExtra ? 'extra_intervalo_presumido' : 'intervalo_presumido';
       else if (descontoIntervalo > 0) status = 'intervalo_inferior_minimo';
       else if (diaExtra) status = 'extra_dia_nao_util';
       else if (saldoDia > 0) status = 'saldo_positivo';
@@ -4392,8 +4397,8 @@ function processDataRep(employees, punches) {
         reps: Array.from(diaSeguro.reps).join(', '),
         fontes: Array.from(diaSeguro.fontes).join(', '),
         status, isImpar,
-        pendencia: isImpar || batidasExcedentes || conflitoArredondamento || intervaloNaoIdentificado || colisaoReps,
-        intervaloNaoIdentificado, batidasExcedentes, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra
+        pendencia: isImpar || batidasExcedentes || conflitoArredondamento || colisaoReps,
+        intervaloPresumido, batidasExcedentes, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra
       });
     }
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
@@ -4832,6 +4837,8 @@ function updateDashboardRep() {
 
 function textoSituacaoRep(status) {
   const textos = {
+    intervalo_presumido: '1h de almoco descontada (nao registrada)',
+    extra_intervalo_presumido: 'Extra com 1h de almoco descontada',
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
     intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
     colisao_reps: 'Mesmo horário em REPs diferentes', batidas_excedentes: 'Mais de 4 marcações: conferir', nao_conciliado: 'Identificador não conciliado',
@@ -5104,9 +5111,55 @@ function resetarLeituraRep() {
   if (btnPdf) btnPdf.style.display = 'none';
 }
 
+function exportarRepPdfUmaPagina(emp) {
+  const linhas = emp.dias.map(dia => {
+    const batidas = (dia.batidasDetalhadas || []).map(evento =>
+      `${escapeHtml(evento.horarioOriginal)}${evento.manual ? '*' : ''}`
+    ).join(' - ');
+    const locais = Array.from(new Set((dia.batidasDetalhadas || [])
+      .map(evento => evento.local || '')
+      .filter(Boolean))).join(', ') || '-';
+    const ajustes = (dia.batidasDetalhadas || [])
+      .filter(evento => evento.manual && evento.justificativa)
+      .map(evento => evento.justificativa).join('; ');
+    const situacao = `${textoSituacaoRep(dia.status)}${ajustes ? ` | Ajuste: ${ajustes}` : ''}`;
+    return `<tr>
+      <td class="nowrap"><b>${escapeHtml(dia.dataFormatada)}</b></td>
+      <td class="nowrap">${escapeHtml((dia.diaSemana || '').replace('-feira', ''))}</td>
+      <td class="batidas">${batidas || '-'}</td>
+      <td class="numero">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
+      <td class="numero ${!dia.pendencia && dia.saldoDia > 0 ? 'positivo' : ''}">${dia.pendencia ? '-' : formatHoursRep(dia.saldoDia) + 'h'}</td>
+      <td class="local" title="${escapeHtml(locais)}">${escapeHtml(locais)}</td>
+      <td class="situacao" title="${escapeHtml(situacao)}">${escapeHtml(situacao)}</td>
+    </tr>`;
+  }).join('');
+
+  const janela = window.open('', '_blank', 'width=1200,height=850');
+  if (!janela) return alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este Web App.');
+  janela.document.open();
+  janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pre-leitura REP - ${escapeHtml(emp.nome)}</title><style>
+    @page{size:A4 landscape;margin:5mm}
+    *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
+    .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#53615c}
+    th:nth-child(1){width:8%}th:nth-child(2){width:8%}th:nth-child(3){width:22%}th:nth-child(4){width:8%}th:nth-child(5){width:8%}th:nth-child(6){width:21%}th:nth-child(7){width:25%}
+    .rodape{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:10px;align-items:end;margin-top:5px;color:#687386}.nota{font-size:6px}.assinatura{border-top:1px solid #687386;padding-top:2px;text-align:center}.legenda{margin-top:3px;color:#687386;font-size:6px}.acoes{position:fixed;right:10px;top:8px;padding:7px 10px;background:#087f5b;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:11px}
+    @media print{.acoes{display:none}.folha{page-break-after:avoid;page-break-inside:avoid}}
+  </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><main class="folha">
+    <header class="topo"><div><span class="marca">SETUR</span><h1>Espelho mensal de pre-leitura de ponto</h1><div class="subtitulo">Conferencia auxiliar dos registros originais do AFD</div></div><div class="pessoa"><b>${escapeHtml(emp.nome)}</b><span>PIS/CPF: ${escapeHtml(emp.pis)} | Emitido em ${new Date().toLocaleDateString('pt-BR')}</span></div></header>
+    <div class="resumo"><span>Horas extras <b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>VR em dia nao util &gt; 6h <b>${emp.resumo.valeRefeicao}</b></span><span>Horas apuradas <b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Alertas <b>${emp.resumo.pendencias}</b></span></div>
+    <table><thead><tr><th>Data</th><th>Dia</th><th>Batidas</th><th>Horas</th><th>Saldo</th><th>Local</th><th>Situacao</th></tr></thead><tbody>${linhas}</tbody></table>
+    <div class="legenda">* Marcacao incluida ou corrigida manualmente. Jornada continua acima de 6h sem intervalo registrado: desconto automatico de 1h.</div>
+    <footer class="rodape"><div class="nota">Documento auxiliar; nao altera o AFD original. Horas extras dependem de validacao administrativa.</div><div class="assinatura">Responsavel pela conferencia</div><div class="assinatura">Servidor</div></footer>
+  </main></body></html>`);
+  janela.document.close();
+  janela.focus();
+}
+
 function exportarRepPdf() {
   const emp = dadosRepProcessados.find(item => item.pis === pisSelecionadoRep);
   if (!emp) return alert('Selecione um servidor para gerar o PDF.');
+  return exportarRepPdfUmaPagina(emp);
   const linhas = emp.dias.map(dia => {
     const eventos = (dia.batidasDetalhadas || []).map(evento =>
       `<div class="evento"><b>${escapeHtml(evento.horarioOriginal)}</b>${evento.horarioOriginal !== evento.horarioArredondado ? `<span>Arred. ${escapeHtml(evento.horarioArredondado)}</span>` : ''}<span>Local: ${escapeHtml(evento.local || 'não informado')}</span><small>${evento.manual ? `AJUSTE MANUAL · ${escapeHtml(evento.justificativa || '')}` : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small></div>`
