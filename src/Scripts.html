@@ -3828,8 +3828,11 @@ function obterPosicaoBaseFantasma_() {
   const rodape = document.getElementById('app-footer');
   if (!rodape) return null;
   const area = rodape.getBoundingClientRect();
+  const areaConteudo = document.querySelector('.view-container');
+  const retanguloConteudo = areaConteudo ? areaConteudo.getBoundingClientRect() : area;
+  const paddingEsquerdo = areaConteudo ? parseFloat(getComputedStyle(areaConteudo).paddingLeft || 0) : 0;
   return {
-    x: Math.max(12, area.left + 16),
+    x: Math.max(4, retanguloConteudo.left + Math.max(4, (paddingEsquerdo - 34) / 2)),
     y: area.top + Math.max(0, (area.height - 34) / 2)
   };
 }
@@ -3855,7 +3858,8 @@ function iniciarPasseioFantasma_() {
   if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || AppState.conviteEntidadePendente) return;
   const base = obterPosicaoBaseFantasma_();
   const areaConteudo = document.querySelector('.view-container');
-  if (!base || !areaConteudo) return agendarPasseioFantasma_();
+  const camadaConteudo = document.querySelector('.view-section.active');
+  if (!base || !areaConteudo || !camadaConteudo) return agendarPasseioFantasma_();
   entidadeFantasmaEmPasseio = true;
   const largura = fantasma.offsetWidth || 34;
   const altura = fantasma.offsetHeight || 34;
@@ -3876,32 +3880,49 @@ function iniciarPasseioFantasma_() {
   // Primeiro sobe para fora da barra, ainda na camada da frente.
   fantasma.classList.add('subindo-do-rodape');
   fantasma.style.left = Math.round(base.x) + 'px';
-  fantasma.style.top = Math.round(base.y - 68) + 'px';
+  fantasma.style.top = Math.round(base.y) + 'px';
+  void fantasma.offsetWidth;
+  requestAnimationFrame(function() {
+    if (entidadeFantasmaEmPasseio) fantasma.style.top = Math.round(base.y - 68) + 'px';
+  });
 
   // Só depois da subida entra na camada entre o fundo e os cartões.
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
     if (!entidadeFantasmaEmPasseio) return;
-    areaConteudo.appendChild(fantasma);
+    const posicaoVisual = fantasma.getBoundingClientRect();
+    camadaConteudo.insertBefore(fantasma, camadaConteudo.firstChild);
+    fantasma.style.left = Math.round(posicaoVisual.left) + 'px';
+    fantasma.style.top = Math.round(posicaoVisual.top) + 'px';
     fantasma.classList.remove('subindo-do-rodape');
     fantasma.classList.add('passeando');
-    mover(destinos[0]);
+    void fantasma.offsetWidth;
+    requestAnimationFrame(function() { mover(destinos[0]); });
   }, 2400));
   entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[1]); }, 7000));
   entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[2]); }, 11600));
 
   // Retorna primeiro ao ponto acima do rodapé, ainda atrás dos elementos.
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
-    mover({ x: base.x, y: base.y - 68 });
+    if (!entidadeFantasmaEmPasseio) return;
+    fantasma.style.left = Math.round(base.x) + 'px';
+    fantasma.style.top = Math.round(base.y - 68) + 'px';
   }, 16200));
 
   // Sai da camada de conteúdo e desce suavemente para sua posição original.
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
     if (!entidadeFantasmaEmPasseio) return;
+    const posicaoVisual = fantasma.getBoundingClientRect();
     restaurarFantasmaNoWidget_();
+    fantasma.style.left = Math.round(posicaoVisual.left) + 'px';
+    fantasma.style.top = Math.round(posicaoVisual.top) + 'px';
     fantasma.classList.remove('passeando');
     fantasma.classList.add('descendo-ao-rodape');
-    fantasma.style.left = Math.round(base.x) + 'px';
-    fantasma.style.top = Math.round(base.y) + 'px';
+    void fantasma.offsetWidth;
+    requestAnimationFrame(function() {
+      if (!entidadeFantasmaEmPasseio) return;
+      fantasma.style.left = Math.round(base.x) + 'px';
+      fantasma.style.top = Math.round(base.y) + 'px';
+    });
   }, 21000));
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
     if (!entidadeFantasmaEmPasseio) return;
