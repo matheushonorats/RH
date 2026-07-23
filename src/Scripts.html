@@ -3620,6 +3620,8 @@ let entidadeFantasmaSaindo = false;
 let entidadeFantasmaErranteTimer = null;
 let entidadeFantasmaPasseioTimers = [];
 let entidadeFantasmaEmPasseio = false;
+let entidadeFantasmaAnimacaoOciosaTimer = null;
+let entidadeFantasmaUltimaAnimacaoOciosa = '';
 let entidadeAberturaToken = 0;
 let entidadeMensagemTemporariaRep = '';
 let entidadeUltimoFingerprintRep = '';
@@ -3814,8 +3816,51 @@ function pararFantasmaErrante_() {
   entidadeFantasmaPasseioTimers.forEach(clearTimeout);
   entidadeFantasmaPasseioTimers = [];
   entidadeFantasmaEmPasseio = false;
+  if (entidadeFantasmaAnimacaoOciosaTimer) clearTimeout(entidadeFantasmaAnimacaoOciosaTimer);
+  entidadeFantasmaAnimacaoOciosaTimer = null;
   const fantasma = document.getElementById('entidade-fab');
-  if (fantasma) fantasma.classList.remove('passeando', 'subindo-do-rodape', 'descendo-ao-rodape');
+  if (fantasma) fantasma.classList.remove(
+    'passeando', 'subindo-do-rodape', 'descendo-ao-rodape',
+    'indo-direita', 'indo-esquerda', 'movendo-vertical',
+    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb'
+  );
+}
+
+function limparAnimacaoOciosaFantasma_() {
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma) return;
+  fantasma.classList.remove('idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb');
+}
+
+function agendarAnimacaoOciosaFantasma_() {
+  if (entidadeFantasmaAnimacaoOciosaTimer) clearTimeout(entidadeFantasmaAnimacaoOciosaTimer);
+  if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || entidadeFantasmaEmPasseio || AppState.conviteEntidadePendente) return;
+  entidadeFantasmaAnimacaoOciosaTimer = setTimeout(iniciarAnimacaoOciosaFantasma_, 7000 + Math.round(Math.random() * 8000));
+}
+
+function iniciarAnimacaoOciosaFantasma_() {
+  if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || entidadeFantasmaEmPasseio || AppState.conviteEntidadePendente) return;
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma) return;
+  const opcoes = ['idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb']
+    .filter(function(nome) { return nome !== entidadeFantasmaUltimaAnimacaoOciosa; });
+  const escolhida = opcoes[Math.floor(Math.random() * opcoes.length)];
+  entidadeFantasmaUltimaAnimacaoOciosa = escolhida;
+  limparAnimacaoOciosaFantasma_();
+  fantasma.classList.add(escolhida);
+  entidadeFantasmaAnimacaoOciosaTimer = setTimeout(function() {
+    limparAnimacaoOciosaFantasma_();
+    agendarAnimacaoOciosaFantasma_();
+  }, 5200 + Math.round(Math.random() * 1800));
+}
+
+function definirDirecaoMovimentoFantasma_(destinoX, vertical) {
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma) return;
+  fantasma.classList.remove('indo-direita', 'indo-esquerda', 'movendo-vertical');
+  if (vertical) return fantasma.classList.add('movendo-vertical');
+  const atual = fantasma.getBoundingClientRect().left;
+  fantasma.classList.add(Number(destinoX) >= atual ? 'indo-direita' : 'indo-esquerda');
 }
 
 function restaurarFantasmaNoWidget_() {
@@ -3861,6 +3906,9 @@ function iniciarPasseioFantasma_() {
   const camadaConteudo = document.querySelector('.view-section.active');
   if (!base || !areaConteudo || !camadaConteudo) return agendarPasseioFantasma_();
   entidadeFantasmaEmPasseio = true;
+  if (entidadeFantasmaAnimacaoOciosaTimer) clearTimeout(entidadeFantasmaAnimacaoOciosaTimer);
+  entidadeFantasmaAnimacaoOciosaTimer = null;
+  limparAnimacaoOciosaFantasma_();
   const largura = fantasma.offsetWidth || 34;
   const altura = fantasma.offsetHeight || 34;
   const margem = 24;
@@ -3873,11 +3921,13 @@ function iniciarPasseioFantasma_() {
 
   function mover(destino) {
     if (!entidadeFantasmaEmPasseio) return;
+    definirDirecaoMovimentoFantasma_(destino.x, false);
     fantasma.style.left = Math.round(Math.min(window.innerWidth - largura - margem, Math.max(margem, destino.x))) + 'px';
     fantasma.style.top = Math.round(Math.min(limiteInferior, Math.max(84, destino.y))) + 'px';
   }
 
   // Primeiro sobe para fora da barra, ainda na camada da frente.
+  definirDirecaoMovimentoFantasma_(base.x, true);
   fantasma.classList.add('subindo-do-rodape');
   fantasma.style.left = Math.round(base.x) + 'px';
   fantasma.style.top = Math.round(base.y) + 'px';
@@ -3904,6 +3954,7 @@ function iniciarPasseioFantasma_() {
   // Retorna primeiro ao ponto acima do rodapé, ainda atrás dos elementos.
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
     if (!entidadeFantasmaEmPasseio) return;
+    definirDirecaoMovimentoFantasma_(base.x, false);
     fantasma.style.left = Math.round(base.x) + 'px';
     fantasma.style.top = Math.round(base.y - 68) + 'px';
   }, 16200));
@@ -3917,6 +3968,7 @@ function iniciarPasseioFantasma_() {
     fantasma.style.top = Math.round(posicaoVisual.top) + 'px';
     fantasma.classList.remove('passeando');
     fantasma.classList.add('descendo-ao-rodape');
+    definirDirecaoMovimentoFantasma_(base.x, true);
     void fantasma.offsetWidth;
     requestAnimationFrame(function() {
       if (!entidadeFantasmaEmPasseio) return;
@@ -3927,9 +3979,10 @@ function iniciarPasseioFantasma_() {
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
     if (!entidadeFantasmaEmPasseio) return;
     entidadeFantasmaEmPasseio = false;
-    fantasma.classList.remove('descendo-ao-rodape');
+    fantasma.classList.remove('descendo-ao-rodape', 'indo-direita', 'indo-esquerda', 'movendo-vertical');
     posicionarFantasmaNaBase_();
     agendarPasseioFantasma_();
+    agendarAnimacaoOciosaFantasma_();
   }, 23600));
 }
 
@@ -3949,6 +4002,7 @@ function iniciarFantasmaErrante_(entrarDaBorda) {
     posicionarFantasmaNaBase_();
   }
   agendarPasseioFantasma_();
+  agendarAnimacaoOciosaFantasma_();
 }
 
 window.addEventListener('resize', function() {
@@ -4038,6 +4092,8 @@ function setEntidadePensando(isThinking) {
   const status = document.getElementById('entidade-status-text');
   const btn = document.getElementById('entidade-send-btn');
   const input = document.getElementById('entidade-input');
+  const fantasma = document.getElementById('entidade-fab');
+  if (fantasma) fantasma.classList.toggle('is-thinking', Boolean(isThinking));
   
   if (isThinking) {
     status.innerText = 'Pensando...';
