@@ -159,12 +159,14 @@ ${JSON.stringify(dadosContexto, null, 2)}
             ? conteudoResposta.map(function(parte) { return parte && (parte.text || parte.content) || ''; }).join('\n')
             : String(conteudoResposta || ''));
       respostaIA = removerRaciocinioExpostoEntidade_(normalizarComandosRespostaEntidade_(respostaIA));
-      if (respostaIA && respostaEntidadePareceCompleta_(respostaIA, escolha)) break;
+      const respostaCompleta = respostaIA && respostaEntidadePareceCompleta_(respostaIA, escolha);
+      const alertaAcionavel = Boolean(mensagemUsuario) || alertaAutomaticoEntidadeAcionavel_(respostaIA);
+      if (respostaCompleta && alertaAcionavel) break;
       respostaIA = '';
       if (tentativaResposta === 0) {
         messages.push({
           role: 'user',
-          content: 'A resposta anterior veio vazia, incompleta, truncada ou com Markdown aberto. Responda novamente em português, de forma direta, com no máximo 6 frases. Feche todos os marcadores de Markdown e entregue somente a resposta final ao usuário.'
+          content: 'A resposta anterior veio vazia, incompleta, truncada ou sem evidência acionável. Responda novamente em português, com no máximo 6 frases. Em cada alerta informe, no mesmo item: nome, matrícula quando existir, problema concreto, data/prazo ou quantidade de dias e a ação recomendada. Não publique apenas um título e um nome. Se os dados não sustentarem um alerta completo, responda exatamente: Tudo em ordem.'
         });
       }
     }
@@ -413,6 +415,18 @@ function respostaEntidadePareceCompleta_(resposta, escolha) {
   if (/(\*\*|[-–—:,;])$/.test(semComandos)) return false;
   if (/^\s*(?:\d+\.|[-*])\s*(?:\*\*)?[\p{L}\s.]{1,40}$/u.test(semComandos)) return false;
   return true;
+}
+
+/** Impede que nomes isolados ou titulos genericos virem alertas operacionais. */
+function alertaAutomaticoEntidadeAcionavel_(resposta) {
+  const original = String(resposta || '').trim();
+  if (!original || /tudo em ordem/i.test(original)) return false;
+  const texto = normalizarTextoBuscaEntidade_(original);
+  const temProblemaConcreto = /\b(aguarda|pendente|pendencia|inconsistencia|divergencia|conferir|corrigir|regularizar|vencido|vencimento|atraso|duplicado|faltando|ausente|sem matricula|sem lotacao)\b/.test(texto);
+  const temReferenciaVerificavel = /\b(matricula|1doc|campo|motivo|prazo|data)\b/.test(texto)
+    || /\b\d+\s+dias?\b/.test(texto)
+    || /\b\d{2}[\/-]\d{2}(?:[\/-]\d{2,4})?\b/.test(original);
+  return temProblemaConcreto && temReferenciaVerificavel;
 }
 
 function rotuloLotacaoEntidade_(valor) {
