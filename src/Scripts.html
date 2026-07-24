@@ -82,7 +82,14 @@ const SyncQueue = {
 
         // Cadastros de servidor são auditados no backend durante a gravação.
         // Consulta imediatamente o novo parecer, sem aguardar o polling de 10 minutos.
-        if (item.tipo === 'salvar_servidor') {
+        if (item.tipo === 'salvar_lancamento') {
+          animarEntidadeOperacao_(item.args && item.args[0] && item.args[0].linhaPlanilha ? 'alteracao' : 'lancamento');
+        } else if (item.tipo === 'salvar_servidor') {
+          const matriculaSalva = String(item.args && item.args[0] && item.args[0].matricula || '');
+          const jaExistia = (AppState.servidores || []).some(function(servidor) {
+            return String(servidor.matricula || '') === matriculaSalva;
+          });
+          animarEntidadeOperacao_(jaExistia ? 'alteracao' : 'lancamento');
           setTimeout(consultarInsightEntidade, 900);
         }
         
@@ -100,6 +107,7 @@ const SyncQueue = {
           const falhou = self.fila.shift();
           mostrarToast(`Erro permanente: ${falhou.descricao}. ${mensagemErro(erro)}`, 'error');
           atualizarTextoSync(`Falhou: ${falhou.descricao}`, true, 'warning');
+          animarEntidadeOperacao_('falha');
           setTimeout(() => { if(!self.processando) atualizarTextoSync("", false); }, 5000);
         } else {
           const delay = item.tentativas * 5000; // 5s, 10s, 15s
@@ -1058,14 +1066,14 @@ function renderizarCardInteligenteDashboard(insight) {
   alertState.style.display = mostrarEntidade ? 'flex' : 'none';
   locationState.style.display = mostrarEntidade ? 'none' : 'flex';
 
-  if (temAlertas) {
+  if (mostrarEntidade && temAlertas) {
     eyebrow.innerText = 'AVISOS DA ENTIDADE';
     title.innerText = 'Pontos que exigem atenção';
     icon.innerHTML = '<span data-lucide="bell-ring"></span>';
     document.getElementById('dashboard-ai-alert-content').innerHTML = renderizarMarkdownSeguroEntidade(limparComandosEntidade(insight.resposta));
     const data = insight.geradoEm ? new Date(Number(insight.geradoEm)) : new Date();
     document.getElementById('dashboard-ai-alert-date').innerText = `Atualizado em ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
-  } else if (temBriefing) {
+  } else if (mostrarEntidade && temBriefing) {
     eyebrow.innerText = 'VISÃO GERAL DA ENTIDADE';
     title.innerText = 'Resumo e prioridades do dia';
     icon.innerHTML = '<span data-lucide="ghost"></span>';
@@ -1384,11 +1392,13 @@ async function confirmarDesativacaoServidor(matricula, nome) {
       .withSuccessHandler(function() {
         exibirLoader(false);
         mostrarToast("Cadastro de servidor desativado com sucesso!", 'success');
+        animarEntidadeOperacao_('alteracao');
         sincronizarEmSegundoPlano('servidores');
       })
       .withFailureHandler(function(erro) {
         exibirLoader(false);
         mostrarToast("Erro ao desativar servidor: " + erro.toString(), 'error');
+        animarEntidadeOperacao_('falha');
       })
       .desativarServidor(matricula);
   }
@@ -3622,6 +3632,8 @@ let entidadeFantasmaPasseioTimers = [];
 let entidadeFantasmaEmPasseio = false;
 let entidadeFantasmaAnimacaoOciosaTimer = null;
 let entidadeFantasmaUltimaAnimacaoOciosa = '';
+let entidadePlacaPasseio = null;
+let entidadeAnimacaoOperacaoTimer = null;
 let entidadeAberturaToken = 0;
 let entidadeMensagemTemporariaRep = '';
 let entidadeUltimoFingerprintRep = '';
@@ -3818,14 +3830,57 @@ function pararFantasmaErrante_() {
   entidadeFantasmaEmPasseio = false;
   if (entidadeFantasmaAnimacaoOciosaTimer) clearTimeout(entidadeFantasmaAnimacaoOciosaTimer);
   entidadeFantasmaAnimacaoOciosaTimer = null;
+  if (entidadeAnimacaoOperacaoTimer) clearTimeout(entidadeAnimacaoOperacaoTimer);
+  entidadeAnimacaoOperacaoTimer = null;
+  removerPlacaPasseio_();
   const fantasma = document.getElementById('entidade-fab');
   if (fantasma) fantasma.classList.remove(
     'passeando', 'subindo-do-rodape', 'descendo-ao-rodape',
     'indo-direita', 'indo-esquerda', 'movendo-vertical',
+    'colocando-placa', 'recolhendo-placa', 'jogando-placa',
+    'operation-lancamento', 'operation-alteracao', 'operation-falha',
     'idle-entering', 'idle-leaving',
-    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb',
-    'idle-music', 'idle-sunbathing'
+    'idle-reading', 'idle-sleeping', 'idle-coffee', 'idle-orb',
+    'idle-music', 'idle-sunbathing', 'idle-dancing'
   );
+}
+
+function removerPlacaPasseio_() {
+  if (entidadePlacaPasseio && entidadePlacaPasseio.parentNode) entidadePlacaPasseio.parentNode.removeChild(entidadePlacaPasseio);
+  entidadePlacaPasseio = null;
+}
+
+function criarPlacaPasseio_(base) {
+  removerPlacaPasseio_();
+  const placa = document.createElement('button');
+  placa.type = 'button';
+  placa.className = 'entidade-placa-passeio colocando';
+  placa.setAttribute('aria-label', 'Chamar a Entidade de volta');
+  placa.title = 'Clique para chamar a Entidade';
+  placa.innerHTML = '<span>Volto<br>Logo</span>';
+  placa.style.left = Math.round(base.x) + 'px';
+  placa.style.top = Math.round(base.y) + 'px';
+  placa.addEventListener('click', toggleChatEntidade);
+  document.body.appendChild(placa);
+  entidadePlacaPasseio = placa;
+  setTimeout(function() { if (entidadePlacaPasseio === placa) placa.classList.remove('colocando'); }, 1450);
+}
+
+function recolherEDescartarPlacaPasseio_(fantasma) {
+  const placa = entidadePlacaPasseio;
+  if (!placa) return;
+  fantasma.classList.add('recolhendo-placa');
+  placa.classList.add('recolhendo');
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    if (entidadePlacaPasseio !== placa) return;
+    fantasma.classList.remove('recolhendo-placa');
+    fantasma.classList.add('jogando-placa');
+    placa.classList.add('jogada');
+  }, 640));
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    fantasma.classList.remove('jogando-placa');
+    if (entidadePlacaPasseio === placa) removerPlacaPasseio_();
+  }, 1450));
 }
 
 function limparAnimacaoOciosaFantasma_() {
@@ -3833,28 +3888,31 @@ function limparAnimacaoOciosaFantasma_() {
   if (!fantasma) return;
   fantasma.classList.remove(
     'idle-entering', 'idle-leaving',
-    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating', 'idle-orb',
-    'idle-music', 'idle-sunbathing'
+    'idle-reading', 'idle-sleeping', 'idle-coffee', 'idle-orb',
+    'idle-music', 'idle-sunbathing', 'idle-dancing'
   );
 }
 
-function agendarAnimacaoOciosaFantasma_() {
-  if (entidadeFantasmaAnimacaoOciosaTimer) clearTimeout(entidadeFantasmaAnimacaoOciosaTimer);
+function agendarProximaAtividadeFantasma_() {
+  if (entidadeFantasmaErranteTimer) clearTimeout(entidadeFantasmaErranteTimer);
+  entidadeFantasmaErranteTimer = null;
   if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || entidadeFantasmaEmPasseio || AppState.conviteEntidadePendente) return;
-  entidadeFantasmaAnimacaoOciosaTimer = setTimeout(iniciarAnimacaoOciosaFantasma_, 7000 + Math.round(Math.random() * 8000));
+  entidadeFantasmaErranteTimer = setTimeout(function() {
+    const atividades = [
+      'passeio', 'idle-reading', 'idle-sleeping', 'idle-coffee',
+      'idle-orb', 'idle-music', 'idle-sunbathing', 'idle-dancing'
+    ].filter(function(nome) { return nome !== entidadeFantasmaUltimaAnimacaoOciosa; });
+    const escolhida = atividades[Math.floor(Math.random() * atividades.length)];
+    entidadeFantasmaUltimaAnimacaoOciosa = escolhida;
+    if (escolhida === 'passeio') iniciarPasseioFantasma_();
+    else iniciarAnimacaoOciosaFantasma_(escolhida);
+  }, 50000 + Math.round(Math.random() * 50000));
 }
 
-function iniciarAnimacaoOciosaFantasma_() {
+function iniciarAnimacaoOciosaFantasma_(escolhida) {
   if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || entidadeFantasmaEmPasseio || AppState.conviteEntidadePendente) return;
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma) return;
-  const opcoes = [
-    'idle-reading', 'idle-sleeping', 'idle-looking', 'idle-meditating',
-    'idle-orb', 'idle-music', 'idle-sunbathing'
-  ]
-    .filter(function(nome) { return nome !== entidadeFantasmaUltimaAnimacaoOciosa; });
-  const escolhida = opcoes[Math.floor(Math.random() * opcoes.length)];
-  entidadeFantasmaUltimaAnimacaoOciosa = escolhida;
   limparAnimacaoOciosaFantasma_();
   fantasma.classList.add(escolhida, 'idle-entering');
   setTimeout(function() { fantasma.classList.remove('idle-entering'); }, 520);
@@ -3862,7 +3920,7 @@ function iniciarAnimacaoOciosaFantasma_() {
     fantasma.classList.add('idle-leaving');
     entidadeFantasmaAnimacaoOciosaTimer = setTimeout(function() {
       limparAnimacaoOciosaFantasma_();
-      agendarAnimacaoOciosaFantasma_();
+      agendarProximaAtividadeFantasma_();
     }, 620);
   }, 5200 + Math.round(Math.random() * 1800));
 }
@@ -3905,23 +3963,19 @@ function posicionarFantasmaNaBase_() {
   fantasma.style.top = Math.round(base.y) + 'px';
 }
 
-function agendarPasseioFantasma_() {
-  if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || AppState.conviteEntidadePendente) return;
-  const espera = 32000 + Math.round(Math.random() * 26000);
-  entidadeFantasmaErranteTimer = setTimeout(iniciarPasseioFantasma_, espera);
-}
-
 function iniciarPasseioFantasma_() {
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || AppState.conviteEntidadePendente) return;
   const base = obterPosicaoBaseFantasma_();
   const areaConteudo = document.querySelector('.view-container');
   const camadaConteudo = document.querySelector('.view-section.active');
-  if (!base || !areaConteudo || !camadaConteudo) return agendarPasseioFantasma_();
+  if (!base || !areaConteudo || !camadaConteudo) return agendarProximaAtividadeFantasma_();
   entidadeFantasmaEmPasseio = true;
   if (entidadeFantasmaAnimacaoOciosaTimer) clearTimeout(entidadeFantasmaAnimacaoOciosaTimer);
   entidadeFantasmaAnimacaoOciosaTimer = null;
   limparAnimacaoOciosaFantasma_();
+  criarPlacaPasseio_(base);
+  fantasma.classList.add('colocando-placa');
   const largura = fantasma.offsetWidth || 34;
   const altura = fantasma.offsetHeight || 34;
   const margem = 24;
@@ -3939,15 +3993,19 @@ function iniciarPasseioFantasma_() {
     fantasma.style.top = Math.round(Math.min(limiteInferior, Math.max(84, destino.y))) + 'px';
   }
 
-  // Primeiro sobe para fora da barra, ainda na camada da frente.
-  definirDirecaoMovimentoFantasma_(base.x, true);
-  fantasma.classList.add('subindo-do-rodape');
+  // Primeiro apoia e abre a placa. Depois sobe para fora da barra.
   fantasma.style.left = Math.round(base.x) + 'px';
   fantasma.style.top = Math.round(base.y) + 'px';
-  void fantasma.offsetWidth;
-  requestAnimationFrame(function() {
-    if (entidadeFantasmaEmPasseio) fantasma.style.top = Math.round(base.y - 68) + 'px';
-  });
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    if (!entidadeFantasmaEmPasseio) return;
+    fantasma.classList.remove('colocando-placa');
+    definirDirecaoMovimentoFantasma_(base.x, true);
+    fantasma.classList.add('subindo-do-rodape');
+    void fantasma.offsetWidth;
+    requestAnimationFrame(function() {
+      if (entidadeFantasmaEmPasseio) fantasma.style.top = Math.round(base.y - 68) + 'px';
+    });
+  }, 1600));
 
   // Só depois da subida entra na camada entre o fundo e os cartões.
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
@@ -3960,9 +4018,9 @@ function iniciarPasseioFantasma_() {
     fantasma.classList.add('passeando');
     void fantasma.offsetWidth;
     requestAnimationFrame(function() { mover(destinos[0]); });
-  }, 2400));
-  entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[1]); }, 7000));
-  entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[2]); }, 11600));
+  }, 4000));
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[1]); }, 8600));
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() { mover(destinos[2]); }, 13200));
 
   // Retorna primeiro ao ponto acima do rodapé, ainda atrás dos elementos.
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
@@ -3970,7 +4028,7 @@ function iniciarPasseioFantasma_() {
     definirDirecaoMovimentoFantasma_(base.x, false);
     fantasma.style.left = Math.round(base.x) + 'px';
     fantasma.style.top = Math.round(base.y - 68) + 'px';
-  }, 16200));
+  }, 17800));
 
   // Sai da camada de conteúdo e desce suavemente para sua posição original.
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
@@ -3988,15 +4046,20 @@ function iniciarPasseioFantasma_() {
       fantasma.style.left = Math.round(base.x) + 'px';
       fantasma.style.top = Math.round(base.y) + 'px';
     });
-  }, 21000));
+  }, 22600));
+  entidadeFantasmaPasseioTimers.push(setTimeout(function() {
+    if (!entidadeFantasmaEmPasseio) return;
+    fantasma.classList.remove('descendo-ao-rodape', 'indo-direita', 'indo-esquerda', 'movendo-vertical');
+    posicionarFantasmaNaBase_();
+    recolherEDescartarPlacaPasseio_(fantasma);
+  }, 25200));
   entidadeFantasmaPasseioTimers.push(setTimeout(function() {
     if (!entidadeFantasmaEmPasseio) return;
     entidadeFantasmaEmPasseio = false;
-    fantasma.classList.remove('descendo-ao-rodape', 'indo-direita', 'indo-esquerda', 'movendo-vertical');
-    posicionarFantasmaNaBase_();
-    agendarPasseioFantasma_();
-    agendarAnimacaoOciosaFantasma_();
-  }, 23600));
+    fantasma.classList.remove('recolhendo-placa', 'jogando-placa');
+    removerPlacaPasseio_();
+    agendarProximaAtividadeFantasma_();
+  }, 26800));
 }
 
 function iniciarFantasmaErrante_(entrarDaBorda) {
@@ -4014,8 +4077,7 @@ function iniciarFantasmaErrante_(entrarDaBorda) {
   } else {
     posicionarFantasmaNaBase_();
   }
-  agendarPasseioFantasma_();
-  agendarAnimacaoOciosaFantasma_();
+  agendarProximaAtividadeFantasma_();
 }
 
 window.addEventListener('resize', function() {
@@ -4065,7 +4127,9 @@ function executarComandoEntidade(texto) {
 }
 
 function renderizarMarkdownSeguroEntidade(texto) {
-  return escapeHtml(texto)
+  let textoSeguro = String(texto || '');
+  if ((textoSeguro.match(/\*\*/g) || []).length % 2 !== 0) textoSeguro = textoSeguro.replace(/\*\*/g, '');
+  return escapeHtml(textoSeguro)
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/^[-*]\s+/gm, '• ')
     .replace(/\n/g, '<br>');
@@ -4253,6 +4317,31 @@ function enviarMensagemEntidade(textoForcado = null) {
       addMensagemEntidade("Erro de conexão.", false, true);
     })
     .chamarEntidade(texto, contexto, historicoAnterior);
+}
+
+function animarEntidadeOperacao_(tipo) {
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma) return;
+  if (entidadeAnimacaoOperacaoTimer) clearTimeout(entidadeAnimacaoOperacaoTimer);
+
+  if (!entidadeChatAberto && !entidadeChatAbrindo) {
+    pararFantasmaErrante_();
+    restaurarFantasmaNoWidget_();
+    fantasma.classList.add('roaming');
+    fantasma.style.display = 'grid';
+    posicionarFantasmaNaBase_();
+  }
+
+  fantasma.classList.remove('operation-lancamento', 'operation-alteracao', 'operation-falha');
+  void fantasma.offsetWidth;
+  const classe = tipo === 'falha' ? 'operation-falha' : (tipo === 'alteracao' ? 'operation-alteracao' : 'operation-lancamento');
+  fantasma.classList.add(classe);
+
+  entidadeAnimacaoOperacaoTimer = setTimeout(function() {
+    fantasma.classList.remove('operation-lancamento', 'operation-alteracao', 'operation-falha');
+    entidadeAnimacaoOperacaoTimer = null;
+    if (!entidadeChatAberto && !entidadeChatAbrindo && !AppState.conviteEntidadePendente) iniciarFantasmaErrante_(false);
+  }, tipo === 'falha' ? 2100 : 2600);
 }
 
 function entidadeKeyPress(e) {

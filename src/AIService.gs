@@ -56,6 +56,16 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
     const systemPrompt = `Você é a Entidade, assistente operacional do RH da Secretaria Municipal de Turismo de São Sebastião/SP (SETUR).
 Seu trabalho é transformar os dados fornecidos pelo sistema em respostas úteis, específicas e verificáveis. Fale em português do Brasil, com tom profissional, cordial e direto.
 
+MODO RH INSTITUCIONAL
+- Quando a dúvida for sobre vida funcional, direitos, deveres, benefícios, férias, abonos, licenças, frequência, ponto, compensação, aposentadoria, estatuto, decreto ou procedimento administrativo de RH, atue como assistente de RH da Prefeitura de São Sebastião/SP.
+- Nesse modo, responda como um funcionário de RH: breve, claro, profissional, prestativo e imparcial.
+- Use como fonte primária apenas os dados atuais do sistema e os trechos fornecidos nas Bases Normativas Municipais. Se a base normativa não trouxer o ponto perguntado, diga que não localizou fundamento suficiente nas normas cadastradas e oriente confirmar com o RH físico ou órgão competente.
+- Cite brevemente a norma e o artigo/trecho usado quando essa informação estiver disponível. Não invente artigos, prazos, benefícios ou procedimentos.
+- Não solicite senhas, documentos pessoais completos ou dados sensíveis no chat. Peça apenas a informação mínima necessária para orientar a consulta.
+- Suas respostas são informativas e não substituem decisão formal da Secretaria de Administração, RH ou assessoria jurídica.
+- Se o usuário iniciar com uma pergunta vaga de RH, peça a dúvida específica e sugira áreas comuns: Férias, Abonos, Estatuto do Servidor, Frequência/Ponto, Licenças ou Aposentadoria.
+- Se perguntarem sua identidade nesse contexto, diga que é a Entidade/RH, assistente virtual do sistema, inspirado na entidade Sandro, criada para apoiar rotinas e dúvidas de RH da SETUR.
+
 TELAS REAIS DO SISTEMA
 - Visão Geral: indicadores, ausências de hoje, férias compulsórias e lançamentos sem 1DOC.
 - Servidores: cadastro, pesquisa, filtros e ficha individual com saldo, períodos aquisitivos e histórico.
@@ -149,15 +159,16 @@ ${JSON.stringify(dadosContexto, null, 2)}
             ? conteudoResposta.map(function(parte) { return parte && (parte.text || parte.content) || ''; }).join('\n')
             : String(conteudoResposta || ''));
       respostaIA = removerRaciocinioExpostoEntidade_(normalizarComandosRespostaEntidade_(respostaIA));
-      if (respostaIA) break;
-      if (!mensagemUsuario) return { silencioso: true, provedor: retornoModelo.provedor };
+      if (respostaIA && respostaEntidadePareceCompleta_(respostaIA, escolha)) break;
+      respostaIA = '';
       if (tentativaResposta === 0) {
         messages.push({
           role: 'user',
-          content: 'A resposta anterior veio vazia, incompleta ou com texto interno. Responda novamente em português, de forma direta, com no máximo 6 frases. Entregue somente a resposta final ao usuário.'
+          content: 'A resposta anterior veio vazia, incompleta, truncada ou com Markdown aberto. Responda novamente em português, de forma direta, com no máximo 6 frases. Feche todos os marcadores de Markdown e entregue somente a resposta final ao usuário.'
         });
       }
     }
+    if (!mensagemUsuario && !respostaIA) return { silencioso: true, provedor: retornoModelo && retornoModelo.provedor };
     if (!respostaIA) return { erro: 'A Entidade não conseguiu concluir a resposta após uma nova tentativa automática.' };
     
     // Se for varredura silenciosa e tudo estiver em ordem
@@ -376,14 +387,109 @@ function removerRaciocinioExpostoEntidade_(resposta) {
   return texto;
 }
 
+/** Evita publicar alertas truncados ou com Markdown aberto no card/ticker. */
+function respostaEntidadePareceCompleta_(resposta, escolha) {
+  const texto = String(resposta || '').trim();
+  if (texto.length < 18) return false;
+  const finishReason = String((escolha && escolha.finish_reason) || '').toLowerCase();
+  if (finishReason && finishReason !== 'stop') return false;
+
+  const semComandos = texto.replace(/\[[A-Z_]+(?::[^\]]+)?\]/g, '').trim();
+  if (!semComandos) return false;
+
+  const paresMarkdown = (semComandos.match(/\*\*/g) || []).length;
+  if (paresMarkdown % 2 !== 0) return false;
+
+  const abertos = [
+    [/\[/g, /\]/g],
+    [/\(/g, /\)/g]
+  ];
+  for (let i = 0; i < abertos.length; i++) {
+    const abre = (semComandos.match(abertos[i][0]) || []).length;
+    const fecha = (semComandos.match(abertos[i][1]) || []).length;
+    if (abre !== fecha) return false;
+  }
+
+  if (/(\*\*|[-–—:,;])$/.test(semComandos)) return false;
+  if (/^\s*(?:\d+\.|[-*])\s*(?:\*\*)?[\p{L}\s.]{1,40}$/u.test(semComandos)) return false;
+  return true;
+}
+
 function rotuloLotacaoEntidade_(valor) {
   const texto = String(valor == null ? '' : valor).trim();
   return !texto || texto === '-' || /^n[aã]o informado$/i.test(texto) ? 'Sem lotação' : texto;
 }
 
+function normalizarTextoBuscaEntidade_(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extrairTermoServidorConsultaEntidade_(mensagem) {
+  let texto = normalizarTextoBuscaEntidade_(mensagem);
+  texto = texto
+    .replace(/\b(qual|quais|sabe|saberia|me|diga|informe|consulta|consultar|procure|procurar|busque|buscar|mostre|ver|verificar|preciso|queria|gostaria)\b/g, ' ')
+    .replace(/\b(a|o|as|os|um|uma|de|da|do|das|dos|para|pra|por|favor|servidor|servidora|funcionario|funcionaria|pessoa|nome|numero|n)\b/g, ' ')
+    .replace(/\b(matricula|matricula)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return texto;
+}
+
+function buscarServidoresPorNomeEntidade_(termo, servidores) {
+  const termoNormalizado = normalizarTextoBuscaEntidade_(termo);
+  const tokens = termoNormalizado.split(' ').filter(function(token) { return token.length >= 2; });
+  if (!tokens.length) return [];
+
+  return (Array.isArray(servidores) ? servidores : []).map(function(servidor) {
+    const nome = normalizarTextoBuscaEntidade_(servidor.nome);
+    const matricula = normalizarChaveMatricula_(servidor.matricula);
+    let pontos = 0;
+    if (nome === termoNormalizado) pontos += 100;
+    if (nome.indexOf(termoNormalizado) !== -1) pontos += 45;
+    if (tokens.every(function(token) { return nome.indexOf(token) !== -1; })) pontos += 35;
+    pontos += tokens.filter(function(token) { return nome.indexOf(token) !== -1; }).length * 8;
+    if (matricula && termoNormalizado.indexOf(matricula) !== -1) pontos += 100;
+    return { servidor: servidor, pontos: pontos };
+  }).filter(function(item) {
+    return item.pontos > 0;
+  }).sort(function(a, b) {
+    return b.pontos - a.pontos || String(a.servidor.nome || '').localeCompare(String(b.servidor.nome || ''));
+  }).map(function(item) {
+    return item.servidor;
+  });
+}
+
 /** Respostas factuais recorrentes não consomem cota da IA e preservam a visualização correta. */
 function responderConsultaOperacionalDiretaEntidade_(mensagem, contexto) {
   const pergunta = String(mensagem || '');
+  const pediuMatricula = /\bmatr[ií]cula\b/i.test(pergunta) && /(qual|sabe|diga|informe|consulta|consultar|procure|busque|mostre|n[uú]mero|de quem|quem)/i.test(pergunta);
+  if (pediuMatricula) {
+    const termoBusca = extrairTermoServidorConsultaEntidade_(pergunta);
+    const encontrados = buscarServidoresPorNomeEntidade_(termoBusca, contexto && contexto.servidoresIdentificacao);
+    if (!termoBusca || !encontrados.length) {
+      return 'Não encontrei esse servidor na leitura atual da planilha. Tente informar mais uma parte do nome.';
+    }
+    const nomePrincipal = normalizarTextoBuscaEntidade_(encontrados[0].nome);
+    const tokensBusca = termoBusca.split(' ').filter(function(token) { return token.length >= 2; });
+    const matchPrincipalForte = nomePrincipal === termoBusca || (tokensBusca.length >= 2 && nomePrincipal.indexOf(termoBusca) !== -1 && encontrados.length <= 3);
+    if (encontrados.length === 1 || matchPrincipalForte) {
+      const s = encontrados[0];
+      return '**' + String(s.nome || 'Servidor') + '** — matrícula **' + String(s.matricula || '-') + '**' +
+        (s.lotacao ? ', lotação ' + String(s.lotacao) : '') +
+        (s.status ? ', status ' + String(s.status) : '') + '.';
+    }
+    const opcoes = encontrados.slice(0, 6).map(function(s) {
+      return '**' + String(s.matricula || '-') + '** — ' + String(s.nome || 'Servidor') + (s.lotacao ? ' (' + String(s.lotacao) + ')' : '');
+    });
+    return 'Encontrei mais de um servidor parecido. Veja as opções mais prováveis:\n' + opcoes.join('\n') + '\n\nMe diga mais uma parte do nome para eu cravar a matrícula.';
+  }
+
   const pediuDistribuicao = /(?:distribui.{0,50}lota[cç][aã]o|lota[cç][aã]o.{0,50}(?:distribui|quantidade|n[uú]meros?))/i.test(pergunta);
   if (!pediuDistribuicao) return '';
 
@@ -562,7 +668,7 @@ function extrairTermosMemoriaEntidade_(texto) {
  */
 function obterContextoEntidadeServidor_() {
   const cache = CacheService.getScriptCache();
-  const chaveCache = 'entidade_contexto_planilha_v3';
+  const chaveCache = 'entidade_contexto_planilha_v4';
   const salvo = cache.get(chaveCache);
   if (salvo) {
     try { return JSON.parse(salvo); } catch (e) {}
@@ -715,6 +821,15 @@ function obterContextoEntidadeServidor_() {
     ausenciasHoje: (dashboard.listaAusentes || []).slice(0, 15),
     servidoresEmFeriasCompulsorias: feriasCompulsorias,
     pendenciasDe1Doc: pendencias1Doc,
+    servidoresIdentificacao: servidores.map(function(s) {
+      return {
+        nome: s.nome,
+        matricula: s.matricula,
+        cargo: s.cargo,
+        lotacao: s.lotacao,
+        status: s.status
+      };
+    }),
     distribuicaoPorLotacao: Object.keys(lotacoes)
       .map(function(nome) { return { lotacao: nome, quantidade: lotacoes[nome] }; })
       .sort(function(a, b) { return b.quantidade - a.quantidade; })

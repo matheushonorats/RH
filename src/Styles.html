@@ -1390,34 +1390,49 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 .sync-bar.sync-pending { background: linear-gradient(90deg, #f59e0b20, #f59e0b10); color: #fbbf24; border-bottom: 1px solid #f59e0b30; }
 .sync-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
-/* Detailed Sync Status Box - CNN Ticker Style */
+/* Detailed Sync Status Box - Banner Ticker (Surgimento de Cima para Baixo / Fecha de Baixo para Cima) */
 .sync-detailed-status {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translate(-50%, -100%) scaleY(0.7);
+  transform-origin: top center;
+  width: min(780px, calc(100% - 32px));
+  height: 38px;
   display: flex;
   align-items: center;
-  width: 0px;
-  opacity: 0;
-  padding: 0;
-  border-width: 0;
   overflow: hidden;
-  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
-  
-  font-size: 11px;
-  color: #a5f3fc;
-  background: rgba(255, 255, 255, 0.08);
-  border: 0px solid rgba(255, 255, 255, 0.15);
-  height: 38px;
-  margin-right: 0;
-  border-radius: 8px;
+  font-size: 11.5px;
   font-weight: 500;
+  color: #a5f3fc;
+  background: rgba(11, 28, 40, 0.95);
+  border: 1px solid rgba(165, 243, 252, 0.25);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45), 0 0 16px rgba(14, 165, 233, 0.18);
+  backdrop-filter: blur(12px);
+  z-index: 99;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease, visibility 0.42s;
+  padding: 0 14px;
+  margin: 0;
 }
 
 .sync-detailed-status.show {
-  width: 260px;
+  transform: translate(-50%, 0) scaleY(1);
   opacity: 1;
-  padding: 0 10px;
-  border-width: 1px;
-  margin-right: 8px;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.sync-detailed-status.entidade-insight {
+  background: rgba(15, 23, 42, 0.95);
+  border-color: rgba(129, 140, 248, 0.4);
+  color: #e0e7ff;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.25);
 }
 
 .sync-ticker-wrapper {
@@ -2297,25 +2312,6 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
   flex: 0 0 auto;
 }
 
-.sync-detailed-status {
-  min-width: 0;
-  max-width: 0;
-  flex: 0 1 0;
-}
-
-.sync-detailed-status.show {
-  width: clamp(150px, 14vw, 260px);
-  max-width: 260px;
-  flex-basis: clamp(150px, 14vw, 260px);
-  margin-right: 0;
-}
-
-.sync-detailed-status.entidade-insight.show {
-  width: clamp(180px, 20vw, 340px);
-  max-width: 340px;
-  flex-basis: clamp(180px, 20vw, 340px);
-}
-
 .sync-ticker-wrapper,
 .sync-ticker-content {
   min-width: 0;
@@ -2333,34 +2329,14 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
     font-size: 11px;
     gap: 4px;
   }
-  .sync-detailed-status.entidade-insight.show {
-    width: clamp(170px, 18vw, 280px);
-    max-width: 280px;
-    flex-basis: clamp(170px, 18vw, 280px);
-  }
 }
 
 @media (max-width: 1100px) and (min-width: 921px) {
   .app-header { padding-left: 16px; padding-right: 16px; }
   .desktop-navigation .menu-link { font-size: 11px; padding-left: 6px; padding-right: 6px; }
-  .sync-detailed-status.show,
-  .sync-detailed-status.entidade-insight.show {
-    width: 150px;
-    max-width: 150px;
-    flex-basis: 150px;
-  }
 }
 
 @media (max-width: 920px) {
-  .app-container:has(.sync-detailed-status.show) {
-    grid-template-rows: 108px minmax(0, 1fr);
-  }
-
-  .app-header:has(.sync-detailed-status.show) {
-    align-items: flex-start;
-    padding-top: 13px;
-  }
-
   .header-actions {
     flex: 1 1 auto;
     justify-content: flex-end;
@@ -2374,19 +2350,6 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
     position: relative;
     z-index: 2;
   }
-
-  .sync-detailed-status.show,
-  .sync-detailed-status.entidade-insight.show {
-    position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 6px;
-    width: auto;
-    max-width: none;
-    height: 32px;
-    flex: none;
-    margin: 0;
-  }
 }
 
 @media (max-width: 620px) {
@@ -2394,14 +2357,6 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
   .brand-logo { width: 92px; }
   .header-actions { max-width: calc(100% - 100px); }
   .header-actions > button[aria-label="Sincronizar dados"] { display: none; }
-  .sync-detailed-status.show,
-  .sync-detailed-status.entidade-insight.show {
-    max-width: none;
-    min-width: 0;
-    flex: none;
-    padding-left: 7px;
-    padding-right: 7px;
-  }
 }
 
 @media (max-width: 430px) {
