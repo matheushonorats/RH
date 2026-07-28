@@ -1,6 +1,6 @@
 {
   "name": "rh-central-documentos-v2",
-  "version": "2.3.34",
+  "version": "2.3.35",
   "description": "Sistema de Gestão de RH - SETUR - São Sebastião",
   "main": "src/Code.js",
   "scripts": {
