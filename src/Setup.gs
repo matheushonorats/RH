@@ -76,13 +76,14 @@ const CONFIG_SETUP = {
       }
     },
     "Lançamentos": {
-      "colunasNovas": ["ID_Protocolo", "Criado_Por", "Criado_Em", "Editado_Por", "Editado_Em"],
+      "colunasNovas": ["ID_Protocolo", "Criado_Por", "Criado_Em", "Editado_Por", "Editado_Em", "Dias_Pecunia"],
       "valoresPadrao": {
         "ID_Protocolo": "",
         "Criado_Por": "Sistema (Migração)",
         "Criado_Em": new Date(),
         "Editado_Por": "Sistema (Migração)",
-        "Editado_Em": new Date()
+        "Editado_Em": new Date(),
+        "Dias_Pecunia": ""
       }
     },
     "Protocolos": {
@@ -275,7 +276,7 @@ function popularDadosPadrao(ss) {
       ["abonada_natalicia", "Abonada Natalícia", "Não", "Não", "[\"data_falta\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["abonada_eleitoral", "Abonada Eleitoral", "Não", "Não", "[\"data_falta\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["ferias", "Férias", "Sim", "Não", "[\"data_inicio\", \"dias_ferias\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
-      ["ferias_pecunia", "Férias (1/3 Pecúnia)", "Sim", "Não", "[\"data_inicio\", \"dias_ferias\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
+      ["ferias_pecunia", "Férias (1/3 Pecúnia)", "Sim", "Não", "[\"data_inicio\", \"dias_ferias\", \"dias_pecunia\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["licenca_premio", "Licença Prêmio", "Não", "Não", "[\"data_inicio\", \"dias_ferias\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["hora_extra", "Hora Extra", "Não", "Não", "[\"data_falta\", \"quant_horas\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["estagio_probatorio", "Avaliação do Estágio Probatório", "Não", "Não", "[\"data_falta\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],

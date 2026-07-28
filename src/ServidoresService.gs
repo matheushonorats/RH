@@ -556,7 +556,9 @@ function construirResumoFerias_(ss) {
           const efetivado = !tipo.includes("NAO EFETIVAD") && !tipo.includes("ANULAD");
           const descontaFerias = tipo.includes("FERIAS") || tipo.includes("PENALIDADE") || tipo.includes("AJUSTE");
           const eAbono = (tipo.includes("ABONADA") || tipo.includes("ABONO")) && !tipo.includes("NATALICIA") && !tipo.includes("ELEITORAL");
-          const dias = obterDiasLancamento_(linha, idx);
+          const dias = descontaFerias
+            ? obterTotalDebitoFerias_(linha, idx)
+            : obterDiasLancamento_(linha, idx);
 
           if (matricula && efetivado) {
             if (descontaFerias && dias > 0) {

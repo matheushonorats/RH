@@ -7,6 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <script>if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+    <script>window.__MODO_LABORATORIO_ENTIDADE__ = <?!= modoLaboratorioEntidade ? 'true' : 'false' ?>;</script>
     <?!= incluir("Styles"); ?>
   </head>
   <body class="dark-mode">
@@ -801,8 +802,30 @@
               <span data-lucide="user" style="width: 32px; height: 32px;"></span>
             </div>
             <div class="profile-info">
-              <h3 id="ficha-nome">NOME DO SERVIDOR</h3>
-              <p><span id="ficha-cargo">CARGO</span> | Lotação: <span id="ficha-lotacao">LOTAÇÃO</span> | Matrícula: <strong id="ficha-matricula">00000</strong></p>
+              <div class="ficha-campo-copiavel ficha-nome-copiavel">
+                <h3 id="ficha-nome">NOME DO SERVIDOR</h3>
+                <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-nome', 'Nome')" title="Copiar nome" aria-label="Copiar nome">
+                  <span data-lucide="copy"></span>
+                </button>
+              </div>
+              <div class="ficha-metadados">
+                <span class="ficha-campo-copiavel">
+                  <span id="ficha-cargo">CARGO</span>
+                  <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-cargo', 'Cargo')" title="Copiar cargo" aria-label="Copiar cargo"><span data-lucide="copy"></span></button>
+                </span>
+                <span class="ficha-separador">|</span>
+                <span>Lotação:</span>
+                <span class="ficha-campo-copiavel">
+                  <span id="ficha-lotacao">LOTAÇÃO</span>
+                  <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-lotacao', 'Lotação')" title="Copiar lotação" aria-label="Copiar lotação"><span data-lucide="copy"></span></button>
+                </span>
+                <span class="ficha-separador">|</span>
+                <span>Matrícula:</span>
+                <span class="ficha-campo-copiavel">
+                  <strong id="ficha-matricula">00000</strong>
+                  <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-matricula', 'Matrícula')" title="Copiar matrícula" aria-label="Copiar matrícula"><span data-lucide="copy"></span></button>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -827,7 +850,12 @@
                 </tr>
                 <tr>
                   <td style="font-weight: 600; color: var(--text-secondary);">E-mail Cadastrado:</td>
-                  <td id="ficha-dados-email">-</td>
+                  <td>
+                    <span class="ficha-campo-copiavel">
+                      <span id="ficha-dados-email">-</span>
+                      <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-dados-email', 'E-mail')" title="Copiar e-mail" aria-label="Copiar e-mail"><span data-lucide="copy"></span></button>
+                    </span>
+                  </td>
                 </tr>
                 <tr>
                   <td style="font-weight: 600; color: var(--text-secondary);">Status de Cadastro:</td>
@@ -948,8 +976,13 @@
                   <input type="date" id="lanc-data-inicio" class="form-control">
                 </div>
                 <div class="form-group">
-                  <label class="form-label">Quantidade de Dias *</label>
+                  <label class="form-label" id="lanc-dias-label">Quantidade de Dias *</label>
                   <input type="number" id="lanc-dias" class="form-control" value="30" min="1" max="90" oninput="sugerirDespacho()">
+                </div>
+                <div class="form-group" id="bloco-dias-pecunia" style="display: none;">
+                  <label class="form-label">Dias em Pecúnia *</label>
+                  <input type="number" id="lanc-dias-pecunia" class="form-control" value="0" min="1" max="90" oninput="sugerirDespacho()">
+                  <p class="form-help">Reduzem o saldo, mas não ampliam o período de afastamento.</p>
                 </div>
               </div>
 
@@ -992,10 +1025,19 @@
               <!-- Uploads de Anexos (Até 3 PDFs) -->
               <div class="form-group" style="margin-top: 16px;">
                 <label class="form-label">Anexar Documentos (PDF)</label>
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                  <input type="file" id="lanc-file-1" class="form-control" accept="application/pdf">
-                  <input type="file" id="lanc-file-2" class="form-control" accept="application/pdf">
-                  <input type="file" id="lanc-file-3" class="form-control" accept="application/pdf">
+                <div class="anexo-dropzone-lista">
+                  <label class="anexo-dropzone" data-file-input="lanc-file-1" for="lanc-file-1">
+                    <input type="file" id="lanc-file-1" accept="application/pdf,.pdf">
+                    <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Anexo 1 — clique ou arraste o PDF</span>
+                  </label>
+                  <label class="anexo-dropzone" data-file-input="lanc-file-2" for="lanc-file-2">
+                    <input type="file" id="lanc-file-2" accept="application/pdf,.pdf">
+                    <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Anexo 2 — clique ou arraste o PDF</span>
+                  </label>
+                  <label class="anexo-dropzone" data-file-input="lanc-file-3" for="lanc-file-3">
+                    <input type="file" id="lanc-file-3" accept="application/pdf,.pdf">
+                    <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Anexo 3 — clique ou arraste o PDF</span>
+                  </label>
                 </div>
                 <div id="anexos-existentes" style="margin-top: 10px; display: none;">
                   <p style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Anexos cadastrados:</p>
@@ -1292,10 +1334,18 @@
             </div>
             <input type="hidden" id="quick-idoc-linha" value="">
           </div>
+          <div class="form-group" id="quick-1doc-anexo-container" style="display: none; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border-color);">
+            <label class="form-label">Adicionar anexo PDF (opcional)</label>
+            <label class="anexo-dropzone" data-file-input="quick-1doc-anexo" for="quick-1doc-anexo">
+              <input type="file" id="quick-1doc-anexo" accept="application/pdf,.pdf">
+              <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Clique ou arraste o PDF</span>
+            </label>
+            <p class="form-help" style="font-size: 11px; margin-top: 5px; color: var(--text-muted);">Disponível porque este lançamento ainda não possui anexos. Limite de 10 MB.</p>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="fecharModal('modal-quick-1doc')">Cancelar</button>
-          <button class="btn btn-primary" onclick="salvarQuick1Doc()">Salvar Protocolo</button>
+          <button class="btn btn-primary" id="quick-1doc-salvar" onclick="salvarQuick1Doc()">Salvar Protocolo</button>
         </div>
       </div>
     </div>

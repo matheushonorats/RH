@@ -9,6 +9,9 @@
 function doGet(e) {
   // Configuração para servir o HTML principal
   const template = HtmlService.createTemplateFromFile("index");
+  template.modoLaboratorioEntidade = Boolean(
+    e && e.parameter && String(e.parameter.testeAnimacoesEntidade || "") === "1"
+  );
   
   return template.evaluate()
     .setTitle("RHv2")

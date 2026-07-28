@@ -196,6 +196,7 @@ function obterLancamentosVinculados(idProtocolo) {
       let observacao = idx.observacao !== -1 ? String(dados[i][idx.observacao]).trim() : "";
       let tipo = idx.tipo !== -1 ? String(dados[i][idx.tipo]).trim() : "";
       let diasL = obterDiasLancamento_(dados[i], idx);
+      let diasPecuniaL = obterDiasPecuniaLancamento_(dados[i], idx);
       
       let retornoStr = "";
       if (normalizarCabecalho_(tipo).includes("FERIAS") && diasL > 0 && idx.dataInicio !== -1) {
@@ -216,6 +217,8 @@ function obterLancamentosVinculados(idProtocolo) {
         dataInicio: idx.dataInicio !== -1 ? formatarDataApenas_(dados[i][idx.dataInicio]) : "",
         retorno: retornoStr,
         dias: diasL,
+        diasPecunia: diasPecuniaL,
+        diasDebitados: diasL + diasPecuniaL,
         qtdHoras: idx.qtdHoras !== -1 ? String(dados[i][idx.qtdHoras]).trim() : "",
         despacho: despacho,
         observacao: observacao,
@@ -265,6 +268,7 @@ function obterLancamentosPendentesProtocolo() {
       matricula: idx.matricula !== -1 ? String(dados[i][idx.matricula]).trim() : "",
       dataInicio: idx.dataInicio !== -1 ? formatarDataApenas_(dados[i][idx.dataInicio]) : "",
       dias: obterDiasLancamento_(dados[i], idx),
+      diasPecunia: obterDiasPecuniaLancamento_(dados[i], idx),
       qtdHoras: idx.qtdHoras !== -1 ? String(dados[i][idx.qtdHoras]).trim() : "",
       linhaPlanilha: i + 1
     });
@@ -361,7 +365,7 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
         <tr>
           <td style="border: 1px solid #222; padding: 8px;"><strong>${l.nome}</strong><br><span style="color:#555; font-size:11px;">${l.matricula}</span></td>
           <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dataInicio}${retornoHtml}</td>
-          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-')}</td>
+          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.diasPecunia > 0 ? l.dias + ' gozo + ' + l.diasPecunia + ' pecúnia' : (l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-'))}</td>
           <td style="border: 1px solid #222; padding: 8px;">${infoAdicional || '-'}</td>
         </tr>
       `;

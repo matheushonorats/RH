@@ -418,8 +418,13 @@ function abrirConfirm(mensagem, titulo = 'Atenção') {
 
 // Executa automaticamente ao carregar a página
 window.addEventListener('DOMContentLoaded', () => {
+  if (window.__MODO_LABORATORIO_ENTIDADE__ === true || new URLSearchParams(window.location.search).get('testeAnimacoesEntidade') === '1') {
+    inicializarLaboratorioAnimacoesEntidade_();
+    return;
+  }
   inicializarInterface();
   renderizarIcones();
+  inicializarDropzonesAnexos();
 
   // 1. Restaurar cache local (renderiza dados antigos imediatamente)
   const temCache = restaurarCacheLocal();
@@ -1043,6 +1048,17 @@ function renderizarDistribuicaoLotacoesDashboard() {
   }).join('');
 }
 
+function alertaDashboardEntidadeAcionavel(resposta) {
+  const original = String(resposta || '').trim();
+  if (!original || /tudo em ordem/i.test(original)) return false;
+  const texto = original.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const temProblema = /\b(aguarda|pendente|pendencia|inconsistencia|divergencia|conferir|corrigir|regularizar|vencido|vencimento|atraso|duplicado|faltando|ausente|sem matricula|sem lotacao)\b/.test(texto);
+  const temReferencia = /\b(matricula|1doc|campo|motivo|prazo|data)\b/.test(texto)
+    || /\b\d+\s+dias?\b/.test(texto)
+    || /\b\d{2}[\/-]\d{2}(?:[\/-]\d{2,4})?\b/.test(original);
+  return temProblema && temReferencia;
+}
+
 function renderizarCardInteligenteDashboard(insight) {
   const card = document.getElementById('smart-dashboard-card');
   const alertState = document.getElementById('dashboard-ai-alert-state');
@@ -1053,7 +1069,7 @@ function renderizarCardInteligenteDashboard(insight) {
   if (!card || !alertState || !locationState) return;
 
   const briefing = AppState.briefingDiarioEntidade;
-  const temAlertas = Boolean(insight && insight.temAlertas && insight.resposta);
+  const temAlertas = Boolean(insight && insight.temAlertas && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta));
   const temBriefing = Boolean(briefing && briefing.disponivel && briefing.resposta);
   const chaveMensagem = temAlertas
     ? 'insight:' + String(insight.geradoEm || '') + ':' + String(insight.resposta || '').slice(0, 80)
@@ -1621,6 +1637,14 @@ function carregarListaLancamentos() {
 /**
  * Renderiza linhas da tabela de Lançamentos
  */
+function formatarQuantidadeLancamento(lancamento) {
+  const diasGozo = parseInt(lancamento && lancamento.dias, 10) || 0;
+  const diasPecunia = parseInt(lancamento && lancamento.diasPecunia, 10) || 0;
+  if (diasPecunia > 0) return `${diasGozo} gozo + ${diasPecunia} pecúnia`;
+  if (diasGozo > 0) return `${diasGozo} dias`;
+  return escapeHtml((lancamento && lancamento.qtdHoras) || '-');
+}
+
 function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
   const listaOriginal = Array.isArray(listaFiltrada)
     ? listaFiltrada
@@ -1678,7 +1702,7 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
       <td>${escapeHtml(l.tipo)}</td>
       <td>${escapeHtml(l.nome)} <br><small>(${escapeHtml(l.matricula)})</small></td>
       <td>${escapeHtml(dataShow)}</td>
-      <td style="text-align: center;">${l.dias > 0 ? l.dias + ' dias' : (escapeHtml(l.qtdHoras) || '-')}</td>
+      <td style="text-align: center;">${formatarQuantidadeLancamento(l)}</td>
       <td><span class="badge ${badgeClass}">${escapeHtml(l.status)}</span></td>
       <td>
         <div class="action-buttons" style="justify-content: flex-end;">
@@ -1754,14 +1778,18 @@ function ajustarCamposFormularioLancamento() {
   const blocoFerias = document.getElementById('bloco-ferias');
   const blocoFalta = document.getElementById('bloco-falta');
   const blocoHoras = document.getElementById('bloco-horas');
+  const blocoDiasPecunia = document.getElementById('bloco-dias-pecunia');
+  const labelDias = document.getElementById('lanc-dias-label');
   
   // Esconde todos inicialmente
   blocoFerias.style.display = "none";
   blocoFalta.style.display = "none";
   blocoHoras.style.display = "none";
+  blocoDiasPecunia.style.display = "none";
+  labelDias.textContent = "Quantidade de Dias *";
   
   // Força remoção de obrigatoriedade temporária e desabilita os inputs invisíveis
-  const inputs = ['lanc-data-inicio', 'lanc-dias', 'lanc-data-falta', 'lanc-qtd-horas'];
+  const inputs = ['lanc-data-inicio', 'lanc-dias', 'lanc-dias-pecunia', 'lanc-data-falta', 'lanc-qtd-horas'];
   inputs.forEach(id => {
     document.getElementById(id).required = false;
     document.getElementById(id).disabled = true;
@@ -1773,6 +1801,12 @@ function ajustarCamposFormularioLancamento() {
     document.getElementById('lanc-data-inicio').required = true;
     document.getElementById('lanc-dias').disabled = false;
     document.getElementById('lanc-dias').required = true;
+    if (tipo === "Férias (1/3 Pecúnia)") {
+      blocoDiasPecunia.style.display = "block";
+      labelDias.textContent = "Dias de Gozo *";
+      document.getElementById('lanc-dias-pecunia').disabled = false;
+      document.getElementById('lanc-dias-pecunia').required = true;
+    }
   } else if (tipo === "Autorização de Horas Extras") {
     blocoHoras.style.display = "block";
     document.getElementById('lanc-qtd-horas').disabled = false;
@@ -1810,10 +1844,16 @@ function sugerirDespacho() {
   let texto = "";
   
   if (tipo.toLowerCase().includes("férias") || tipo.toLowerCase().includes("ferias")) {
-    const diasInput = parseInt(document.getElementById('lanc-dias').value) || 0;
+    const diasGozo = parseInt(document.getElementById('lanc-dias').value) || 0;
+    const diasPecunia = tipo === "Férias (1/3 Pecúnia)"
+      ? (parseInt(document.getElementById('lanc-dias-pecunia').value) || 0)
+      : 0;
+    const diasInput = diasGozo + diasPecunia;
     const saldo = parseInt(servidor.saldoHoje) || 0;
     const restante = Math.max(0, saldo - diasInput);
-    texto = `Possuía ${saldo} dias disponíveis. Solicitou ${diasInput} dias. Restam ${restante} dias.`;
+    texto = diasPecunia > 0
+      ? `Possuía ${saldo} dias disponíveis. Solicitou ${diasGozo} dias de gozo e ${diasPecunia} dias em pecúnia, totalizando ${diasInput} dias. Restam ${restante} dias.`
+      : `Possuía ${saldo} dias disponíveis. Solicitou ${diasInput} dias. Restam ${restante} dias.`;
     
   } else if ((tipo.toLowerCase().includes("abonada") || tipo.toLowerCase().includes("abono")) && !tipo.toLowerCase().includes("natal") && !tipo.toLowerCase().includes("eleitor")) {
     const usados = parseInt(servidor.abonosUsados) || 0;
@@ -1935,6 +1975,9 @@ function abrirModalLancamento(linhaPlanilha) {
   document.getElementById('lanc-file-1').value = "";
   document.getElementById('lanc-file-2').value = "";
   document.getElementById('lanc-file-3').value = "";
+  atualizarVisualDropzoneAnexo(document.getElementById('lanc-file-1'));
+  atualizarVisualDropzoneAnexo(document.getElementById('lanc-file-2'));
+  atualizarVisualDropzoneAnexo(document.getElementById('lanc-file-3'));
   
   const titulo = document.getElementById('modal-lancamento-titulo');
   const buscaServidorInput = document.getElementById('lanc-busca-servidor');
@@ -1977,6 +2020,7 @@ function abrirModalLancamento(linhaPlanilha) {
       document.getElementById('lanc-mes-he').value = (l.mes && l.mes.charAt(0).toUpperCase() + l.mes.slice(1).toLowerCase()) || "";
       document.getElementById('lanc-ano-he').value = l.ano || "";
       document.getElementById('lanc-dias').value = l.dias;
+      document.getElementById('lanc-dias-pecunia').value = l.diasPecunia || 0;
       
       // Parse de Data Solicitação
       if (l.dataSolicitacao) {
@@ -2130,11 +2174,39 @@ async function salvarDadosLancamento(event) {
   }
   let dataInicioInput = "";
   let diasInput = 0;
+  let diasPecuniaInput = 0;
   let qtdHorasInput = "";
   
   if (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)" || tipoDoc === "Licença Prêmio") {
     dataInicioInput = document.getElementById('lanc-data-inicio').value;
     diasInput = parseInt(document.getElementById('lanc-dias').value) || 0;
+    diasPecuniaInput = tipoDoc === "Férias (1/3 Pecúnia)"
+      ? (parseInt(document.getElementById('lanc-dias-pecunia').value) || 0)
+      : 0;
+
+    if (tipoDoc === "Férias (1/3 Pecúnia)" && (diasInput <= 0 || diasPecuniaInput <= 0)) {
+      exibirLoader(false);
+      mostrarToast("Informe os dias de gozo e os dias convertidos em pecúnia.", 'error');
+      return;
+    }
+
+    if (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)") {
+      const servidorSaldo = AppState.servidores.find(s => s.matricula === matricula);
+      const totalSolicitado = diasInput + diasPecuniaInput;
+      const lancamentoEditado = linhaAtual > 1 && AppState.lancamentos
+        ? AppState.lancamentos.find(l => l.linhaPlanilha === linhaAtual)
+        : null;
+      const saldoRecomposto = (parseInt(servidorSaldo && servidorSaldo.saldoHoje, 10) || 0)
+        + (lancamentoEditado
+          ? (parseInt(lancamentoEditado.diasDebitados, 10) || parseInt(lancamentoEditado.dias, 10) || 0)
+          : 0);
+
+      if (totalSolicitado > saldoRecomposto) {
+        exibirLoader(false);
+        mostrarToast(`O total solicitado (${totalSolicitado} dias) ultrapassa o saldo disponível (${saldoRecomposto} dias).`, 'error');
+        return;
+      }
+    }
     
     const linhaPlanilha = document.getElementById('lanc-linha').value;
     if (!linhaPlanilha && (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)")) {
@@ -2143,7 +2215,7 @@ async function salvarDadosLancamento(event) {
         const periodosAbertos = servidor.periodosFerias.filter(p => p.saldo > 0 && p.status === "Disponível");
         if (periodosAbertos.length > 0) {
           const periodoMaisAntigo = periodosAbertos[0];
-          if (diasInput > periodoMaisAntigo.saldo) {
+          if ((diasInput + diasPecuniaInput) > periodoMaisAntigo.saldo) {
             const prosseguir = await abrirConfirm(`Aviso: O servidor possui o período mais antigo (${periodoMaisAntigo.referencia}) com saldo residual de apenas ${periodoMaisAntigo.saldo} dias.\n\nO ideal seria liquidar esta pendência primeiro antes de agrupar mais dias.\n\nDeseja prosseguir com o lançamento mesmo assim?`);
             if (!prosseguir) {
               exibirLoader(false);
@@ -2173,6 +2245,7 @@ async function salvarDadosLancamento(event) {
     dataSolicitacao: document.getElementById('lanc-data-solicitacao').value,
     dataInicio: dataInicioInput,
     dias: diasInput,
+    diasPecunia: diasPecuniaInput,
     qtdHoras: qtdHorasInput,
     mesHE: document.getElementById('lanc-mes-he') ? document.getElementById('lanc-mes-he').value : "",
     anoHE: document.getElementById('lanc-ano-he') ? document.getElementById('lanc-ano-he').value : "",
@@ -2233,6 +2306,64 @@ async function salvarDadosLancamento(event) {
 /**
  * Função utilitária em JS para converter e enviar arquivo no Drive de forma síncrona/prometida
  */
+function validarPdfDropzoneAnexo(arquivo) {
+  if (!arquivo) return 'Nenhum arquivo selecionado.';
+  if (!arquivo.name.toLowerCase().endsWith('.pdf') || (arquivo.type && arquivo.type !== 'application/pdf')) {
+    return 'Selecione somente arquivos PDF.';
+  }
+  if (arquivo.size > 10 * 1024 * 1024) return 'O arquivo excede o limite de 10 MB.';
+  return '';
+}
+
+function atualizarVisualDropzoneAnexo(input) {
+  if (!input) return;
+  const zona = input.closest('.anexo-dropzone');
+  if (!zona) return;
+  const texto = zona.querySelector('.anexo-dropzone-texto');
+  if (texto && !zona.dataset.rotuloPadrao) zona.dataset.rotuloPadrao = texto.textContent;
+  const arquivo = input.files && input.files[0];
+  zona.classList.toggle('tem-arquivo', Boolean(arquivo));
+  if (texto) texto.textContent = arquivo ? arquivo.name : zona.dataset.rotuloPadrao;
+}
+
+function inicializarDropzonesAnexos() {
+  document.querySelectorAll('.anexo-dropzone[data-file-input]').forEach(zona => {
+    if (zona.dataset.dropzoneInicializada === '1') return;
+    zona.dataset.dropzoneInicializada = '1';
+    const input = document.getElementById(zona.dataset.fileInput);
+    if (!input) return;
+    atualizarVisualDropzoneAnexo(input);
+    input.addEventListener('change', function() {
+      const arquivo = input.files && input.files[0];
+      const erro = arquivo ? validarPdfDropzoneAnexo(arquivo) : '';
+      if (erro) {
+        input.value = '';
+        mostrarToast(erro, 'error');
+      }
+      atualizarVisualDropzoneAnexo(input);
+    });
+    ['dragenter', 'dragover'].forEach(evento => zona.addEventListener(evento, function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      zona.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach(evento => zona.addEventListener(evento, function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      zona.classList.remove('dragover');
+    }));
+    zona.addEventListener('drop', function(e) {
+      const arquivo = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      const erro = validarPdfDropzoneAnexo(arquivo);
+      if (erro) return mostrarToast(erro, 'error');
+      const transferencia = new DataTransfer();
+      transferencia.items.add(arquivo);
+      input.files = transferencia.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
+}
+
 function uploadArquivoPromessa(arquivo) {
   return new Promise((resolver, rejeitar) => {
     const leitor = new FileReader();
@@ -2246,7 +2377,7 @@ function uploadArquivoPromessa(arquivo) {
         .withFailureHandler(function(erro) {
           rejeitar(erro);
         })
-        .salvarArquivoNoDrive(base64, arquivo.name, arquivo.type);
+        .salvarArquivoNoDrive(base64, arquivo.name, arquivo.type || 'application/pdf');
     };
     leitor.onerror = function(e) {
       rejeitar("Falha ao ler arquivo físico local.");
@@ -2360,7 +2491,7 @@ function abrirModalCriarProtocolo() {
       
       let html = "";
       pendentes.forEach(p => {
-        html += `<tr>           <td style="text-align: center;">             <input type="checkbox" name="chk-lancamento-pendente" value="${p.linhaPlanilha}" onchange="atualizarQuantidadeSelecionadosProtocolo()">           </td>           <td><strong>${escapeHtml(p.nome)}</strong> (${escapeHtml(p.matricula)})</td>           <td>${escapeHtml(p.tipo)}</td>           <td>${escapeHtml(p.dataInicio)}</td>           <td style="text-align: center;">${p.dias > 0 ? p.dias + ' dias' : (escapeHtml(p.qtdHoras) || '-')}</td>           <td>${escapeHtml(p.idoc) || 'Aguardando Assinatura'}</td>         </tr>`;
+        html += `<tr>           <td style="text-align: center;">             <input type="checkbox" name="chk-lancamento-pendente" value="${p.linhaPlanilha}" onchange="atualizarQuantidadeSelecionadosProtocolo()">           </td>           <td><strong>${escapeHtml(p.nome)}</strong> (${escapeHtml(p.matricula)})</td>           <td>${escapeHtml(p.tipo)}</td>           <td>${escapeHtml(p.dataInicio)}</td>           <td style="text-align: center;">${formatarQuantidadeLancamento(p)}</td>           <td>${escapeHtml(p.idoc) || 'Aguardando Assinatura'}</td>         </tr>`;
       });
       
       tbody.innerHTML = html;
@@ -2428,7 +2559,7 @@ function abrirFolhaProtocolo(idProtocolo) {
   
   backendApi()
     .withSuccessHandler(function(htmlTimbrado) {
-      document.getElementById('print-area-protocolo').innerHTML = htmlTimbrado;
+      document.getElementById('print-area-protocolo').innerHTML = htmlTimbrado + obterAssinaturaEntidadeImpressao_();
       exibirLoader(false);
       abrirModal('modal-folha-protocolo');
     })
@@ -2638,7 +2769,7 @@ function desenharTabelaRelatorio(tipo, dados) {
     htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">1Doc / Prot.</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Data Solicitação</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Tipo Documento</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Data Início</th><th onclick="ordenarTabelaRelatorio(this, 6)" style="${thStyle} text-align:center;">Duração</th><th onclick="ordenarTabelaRelatorio(this, 7)" style="${thStyle}">Status</th>`;
     
     dados.forEach((l, index) => {
-      htmlBody += `<tr data-index="${index}">         <td><strong>${escapeHtml(l.idoc)}</strong></td>         <td>${escapeHtml(l.dataSolicitacao)}</td>         <td>${escapeHtml(l.tipo)}</td>         <td>${escapeHtml(l.nome)}</td>         <td>${escapeHtml(l.matricula)}</td>         <td style='text-align:center;'>${escapeHtml(l.dataInicio)}</td>         <td style='text-align:center;'>${l.dias > 0 ? l.dias + ' d' : (escapeHtml(l.qtdHoras) || '-')}</td>         <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${escapeHtml(l.status)}</span></td>       </tr>`;
+      htmlBody += `<tr data-index="${index}">         <td><strong>${escapeHtml(l.idoc)}</strong></td>         <td>${escapeHtml(l.dataSolicitacao)}</td>         <td>${escapeHtml(l.tipo)}</td>         <td>${escapeHtml(l.nome)}</td>         <td>${escapeHtml(l.matricula)}</td>         <td style='text-align:center;'>${escapeHtml(l.dataInicio)}</td>         <td style='text-align:center;'>${formatarQuantidadeLancamento(l)}</td>         <td><span class="badge ${l.status === 'Anulado' ? 'badge-inativo' : 'badge-ativo'}">${escapeHtml(l.status)}</span></td>       </tr>`;
     });
   } else if (tipo === 'abonos_anuais') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Lotação", "Abonadas Usadas", "Cota Limite", "Saldo Restante"];
@@ -2756,7 +2887,7 @@ function exportarRelatorioExcel() {
         linha.push(item.nome || "");
         linha.push(item.matricula || "");
         linha.push(item.dataInicio || "");
-        linha.push(item.dias > 0 ? item.dias : (item.qtdHoras || ""));
+        linha.push(item.diasPecunia > 0 ? `${item.dias} gozo + ${item.diasPecunia} pecúnia` : (item.dias > 0 ? item.dias : (item.qtdHoras || "")));
         linha.push(item.status || "");
         break;
       case 'abonos_anuais':
@@ -2958,7 +3089,7 @@ function imprimirRelatorioLocal() {
           <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.nome)}</td>
           <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.matricula)}</td>
           <td style="border: 1px solid #111; padding: 8px; text-align:center;">${escapeHtml(item.dataInicio)}</td>
-          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${item.dias > 0 ? item.dias + ' d' : (escapeHtml(item.qtdHoras) || '-')}</td>
+          <td style="border: 1px solid #111; padding: 8px; text-align:center;">${formatarQuantidadeLancamento(item)}</td>
           <td style="border: 1px solid #111; padding: 8px;">${escapeHtml(item.status)}</td>
         `;
         break;
@@ -2984,7 +3115,7 @@ function imprimirRelatorioLocal() {
     html += `<tr><td colspan="6" style="border: 1px solid #111; padding: 12px; font-weight: bold; text-align: center; background-color: #f9f9f9;">${sumText}</td></tr>`;
   }
   
-  html += `</tbody></table></div>`;
+  html += `</tbody></table>${obterAssinaturaEntidadeImpressao_()}</div>`;
   
   area.innerHTML = html;
   abrirModal('modal-relatorio-impressao');
@@ -2992,6 +3123,38 @@ function imprimirRelatorioLocal() {
 
 function imprimirRelatorioLocalNativo() {
   window.print();
+}
+
+async function copiarCampoFicha(idElemento, rotulo) {
+  const texto = String(document.getElementById(idElemento)?.textContent || '').trim();
+  if (!texto || texto === '-') {
+    mostrarToast(`${rotulo || 'Informação'} não informado.`, 'warning');
+    return;
+  }
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error('Clipboard indisponível');
+    await navigator.clipboard.writeText(texto);
+  } catch (erro) {
+    const area = document.createElement('textarea');
+    area.value = texto;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    document.body.appendChild(area);
+    area.select();
+    const copiado = document.execCommand('copy');
+    document.body.removeChild(area);
+    if (!copiado) return mostrarToast(`Não foi possível copiar ${String(rotulo || 'a informação').toLowerCase()}.`, 'error');
+  }
+  mostrarToast(`${rotulo || 'Informação'} copiado com sucesso!`, 'success');
+}
+
+function obterAssinaturaEntidadeImpressao_() {
+  return `<div class="entidade-assinatura-impressao" aria-hidden="true" style="display:flex;justify-content:center;align-items:center;width:100%;margin:8px auto 0;opacity:.24;color:#6366f1;page-break-inside:avoid;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/>
+    </svg>
+  </div>`;
 }
 
 // --- PAINEL ADMINISTRATIVO (ADMIN) ---
@@ -3409,7 +3572,9 @@ function abrirViewLancamento(linhaPlanilha) {
   const dataIni = l.dataInicio || l.dataFalta || "-";
   document.getElementById('view-data-ini').innerText = dataIni ? dataIni.split('-').reverse().join('/') : "-";
   
-  document.getElementById('view-qtd').innerText = l.dias ? l.dias + " dias" : (l.qtdHoras ? l.qtdHoras + " horas" : "-");
+  document.getElementById('view-qtd').innerText = l.diasPecunia > 0
+    ? `${l.dias} dias de gozo + ${l.diasPecunia} dias em pecúnia (${l.diasDebitados} dias abatidos)`
+    : (l.dias ? l.dias + " dias" : (l.qtdHoras ? l.qtdHoras + " horas" : "-"));
   
   const idocVal = l.idoc || "-";
   document.getElementById('view-idoc').innerText = idocVal;
@@ -3474,6 +3639,14 @@ function abrirModalQuick1Doc(linhaPlanilha, nomeServidor, idocAtual) {
   document.getElementById('quick-idoc-linha').value = linhaPlanilha;
   document.getElementById('quick-1doc-servidor').innerText = nomeServidor || "";
   document.getElementById('quick-idoc-input').value = idocAtual || "";
+  const inputAnexo = document.getElementById('quick-1doc-anexo');
+  const containerAnexo = document.getElementById('quick-1doc-anexo-container');
+  const lancamento = AppState.lancamentos.find(item => item.linhaPlanilha === Number(linhaPlanilha));
+  const possuiAnexo = lancamento && [lancamento.anexo1, lancamento.anexo2, lancamento.anexo3]
+    .some(valor => valor && String(valor).trim() && String(valor).trim() !== 'undefined');
+  if (inputAnexo) inputAnexo.value = '';
+  atualizarVisualDropzoneAnexo(inputAnexo);
+  if (containerAnexo) containerAnexo.style.display = possuiAnexo ? 'none' : 'block';
   
   abrirModal('modal-quick-1doc');
   
@@ -3483,25 +3656,51 @@ function abrirModalQuick1Doc(linhaPlanilha, nomeServidor, idocAtual) {
   }, 100);
 }
 
-function salvarQuick1Doc() {
+function atualizarQuick1DocPromessa(linhaPlanilha, novo1Doc, novoAnexo) {
+  return new Promise((resolver, rejeitar) => {
+    backendApi()
+      .withSuccessHandler(resolver)
+      .withFailureHandler(rejeitar)
+      .atualizar1DocLote(linhaPlanilha, novo1Doc, novoAnexo || '');
+  });
+}
+
+async function salvarQuick1Doc() {
   const linhaPlanilha = parseInt(document.getElementById('quick-idoc-linha').value);
   const novo1Doc = document.getElementById('quick-idoc-input').value.trim();
+  const inputAnexo = document.getElementById('quick-1doc-anexo');
+  const arquivo = inputAnexo && inputAnexo.offsetParent !== null ? inputAnexo.files[0] : null;
   
   if (!linhaPlanilha) return;
-  
+  if (arquivo && ((arquivo.type && arquivo.type !== 'application/pdf') || !arquivo.name.toLowerCase().endsWith('.pdf'))) {
+    return mostrarToast('Selecione um arquivo PDF válido.', 'error');
+  }
+  if (arquivo && arquivo.size > 10 * 1024 * 1024) {
+    return mostrarToast('O anexo excede o limite de 10 MB.', 'error');
+  }
+
   exibirLoader(true);
-  
-  // Otimista: atualiza localmente e fecha modal
-  const l = AppState.lancamentos.find(item => item.linhaPlanilha === linhaPlanilha);
-  if (l) l.idoc = novo1Doc;
-
-  fecharModal('modal-quick-1doc');
-  exibirLoader(false);
-  carregarListaLancamentos();
-  mostrarToast("1Doc atualizado! Sincronizando...", 'success');
-
-  // Enfileira para o servidor
-  SyncQueue.enfileirar('atualizar_1doc', 'atualizar1DocLote', [linhaPlanilha, novo1Doc], 'Atualizar 1Doc linha ' + linhaPlanilha);
+  const botaoSalvar = document.getElementById('quick-1doc-salvar');
+  if (botaoSalvar) botaoSalvar.disabled = true;
+  let uploadCriado = null;
+  try {
+    if (arquivo) uploadCriado = await uploadArquivoPromessa(arquivo);
+    const resultado = await atualizarQuick1DocPromessa(linhaPlanilha, novo1Doc, uploadCriado ? uploadCriado.url : '');
+    const lancamento = AppState.lancamentos.find(item => item.linhaPlanilha === linhaPlanilha);
+    if (lancamento) {
+      lancamento.idoc = novo1Doc;
+      if (resultado && resultado.anexoAdicionado) lancamento.anexo1 = resultado.anexoAdicionado;
+    }
+    fecharModal('modal-quick-1doc');
+    carregarListaLancamentos();
+    mostrarToast(uploadCriado ? '1Doc e anexo atualizados com sucesso!' : '1Doc atualizado com sucesso!', 'success');
+  } catch (erro) {
+    if (uploadCriado && uploadCriado.id) backendApi().withFailureHandler(function() {}).removerArquivoDrive(uploadCriado.id);
+    mostrarToast('Não foi possível atualizar o lançamento: ' + mensagemErro(erro), 'error');
+  } finally {
+    exibirLoader(false);
+    if (botaoSalvar) botaoSalvar.disabled = false;
+  }
 }
 // ==========================================
 // FUNÇÕES DO MENU DE USUÁRIO E HEADER
@@ -3632,6 +3831,7 @@ let entidadeFantasmaPasseioTimers = [];
 let entidadeFantasmaEmPasseio = false;
 let entidadeFantasmaAnimacaoOciosaTimer = null;
 let entidadeFantasmaUltimaAnimacaoOciosa = '';
+let entidadeFantasmaFilaAtividades = [];
 let entidadePlacaPasseio = null;
 let entidadeAnimacaoOperacaoTimer = null;
 let entidadeAberturaToken = 0;
@@ -3665,7 +3865,38 @@ function toggleChatEntidade() {
   pararFantasmaErrante_();
   restaurarFantasmaNoWidget_();
 
+  const jaEstavaVisivelComMensagem = fantasma.classList.contains('has-notification');
+  function concluirAberturaChat_() {
+    if (tokenAbertura !== entidadeAberturaToken) return;
+    fantasma.classList.remove('enter-right');
+    entidadeChatAbrindo = false;
+    entidadeChatAberto = true;
+    chatWindow.style.display = 'flex';
+    document.getElementById('entidade-input').focus();
+    if (entidadeMensagemTemporariaRep) {
+      addMensagemEntidade(entidadeMensagemTemporariaRep, false);
+      entidadeHistorico.push({ role: 'assistant', content: entidadeMensagemTemporariaRep });
+      entidadeMensagemTemporariaRep = '';
+    }
+    if (!entidadeVigiaAtivo) {
+      entidadeVigiaAtivo = true;
+      iniciarVigia();
+    }
+    solicitarBriefingDiarioEntidade(true);
+  }
+
   fantasma.classList.remove('has-notification', 'chat-open', 'enter-left', 'enter-right');
+
+  // Se a Entidade já está visível por ter uma mensagem não lida, abrir o chat
+  // diretamente. A saída e a segunda entrada davam a impressão de dois fantasmas.
+  if (jaEstavaVisivelComMensagem) {
+    fantasma.classList.remove('leaving', 'exit-left', 'exit-right');
+    fantasma.style.display = 'grid';
+    fantasma.classList.add('chat-open');
+    setTimeout(concluirAberturaChat_, 180);
+    return;
+  }
+
   fantasma.classList.add('leaving', Math.random() < 0.5 ? 'exit-left' : 'exit-right');
 
   setTimeout(function() {
@@ -3675,25 +3906,7 @@ function toggleChatEntidade() {
     fantasma.style.removeProperty('top');
     fantasma.style.display = 'grid';
     fantasma.classList.add('enter-right', 'chat-open');
-
-    setTimeout(function() {
-      if (tokenAbertura !== entidadeAberturaToken) return;
-      fantasma.classList.remove('enter-right');
-      entidadeChatAbrindo = false;
-      entidadeChatAberto = true;
-      chatWindow.style.display = 'flex';
-      document.getElementById('entidade-input').focus();
-      if (entidadeMensagemTemporariaRep) {
-        addMensagemEntidade(entidadeMensagemTemporariaRep, false);
-        entidadeHistorico.push({ role: 'assistant', content: entidadeMensagemTemporariaRep });
-        entidadeMensagemTemporariaRep = '';
-      }
-      if (!entidadeVigiaAtivo) {
-        entidadeVigiaAtivo = true;
-        iniciarVigia();
-      }
-      solicitarBriefingDiarioEntidade(true);
-    }, 560);
+    setTimeout(concluirAberturaChat_, 560);
   }, 640);
 }
 
@@ -3840,8 +4053,8 @@ function pararFantasmaErrante_() {
     'colocando-placa', 'recolhendo-placa', 'jogando-placa',
     'operation-lancamento', 'operation-alteracao', 'operation-falha',
     'idle-entering', 'idle-leaving',
-    'idle-reading', 'idle-sleeping', 'idle-coffee', 'idle-orb',
-    'idle-music', 'idle-sunbathing', 'idle-dancing'
+    'idle-reading', 'idle-sleeping',
+    'idle-coffee', 'idle-orb', 'idle-juggling', 'idle-sunbathing', 'idle-dancing'
   );
 }
 
@@ -3888,8 +4101,8 @@ function limparAnimacaoOciosaFantasma_() {
   if (!fantasma) return;
   fantasma.classList.remove(
     'idle-entering', 'idle-leaving',
-    'idle-reading', 'idle-sleeping', 'idle-coffee', 'idle-orb',
-    'idle-music', 'idle-sunbathing', 'idle-dancing'
+    'idle-reading', 'idle-sleeping',
+    'idle-coffee', 'idle-orb', 'idle-juggling', 'idle-sunbathing', 'idle-dancing'
   );
 }
 
@@ -3898,14 +4111,28 @@ function agendarProximaAtividadeFantasma_() {
   entidadeFantasmaErranteTimer = null;
   if (entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo || entidadeFantasmaEmPasseio || AppState.conviteEntidadePendente) return;
   entidadeFantasmaErranteTimer = setTimeout(function() {
-    const atividades = [
-      'passeio', 'idle-reading', 'idle-sleeping', 'idle-coffee',
-      'idle-orb', 'idle-music', 'idle-sunbathing', 'idle-dancing'
-    ].filter(function(nome) { return nome !== entidadeFantasmaUltimaAnimacaoOciosa; });
-    const escolhida = atividades[Math.floor(Math.random() * atividades.length)];
+    if (!entidadeFantasmaFilaAtividades.length) {
+      entidadeFantasmaFilaAtividades = [
+        'passeio', 'idle-reading', 'idle-sleeping', 'idle-coffee',
+        'idle-orb', 'idle-juggling', 'idle-sunbathing', 'idle-dancing'
+      ];
+      // Fisher-Yates: cada cena aparece uma vez antes de qualquer repetição.
+      for (let i = entidadeFantasmaFilaAtividades.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [entidadeFantasmaFilaAtividades[i], entidadeFantasmaFilaAtividades[j]] = [entidadeFantasmaFilaAtividades[j], entidadeFantasmaFilaAtividades[i]];
+      }
+      if (entidadeFantasmaFilaAtividades[0] === entidadeFantasmaUltimaAnimacaoOciosa) {
+        const troca = 1 + Math.floor(Math.random() * (entidadeFantasmaFilaAtividades.length - 1));
+        [entidadeFantasmaFilaAtividades[0], entidadeFantasmaFilaAtividades[troca]] = [entidadeFantasmaFilaAtividades[troca], entidadeFantasmaFilaAtividades[0]];
+      }
+    }
+    const escolhida = entidadeFantasmaFilaAtividades.shift();
     entidadeFantasmaUltimaAnimacaoOciosa = escolhida;
-    if (escolhida === 'passeio') iniciarPasseioFantasma_();
-    else iniciarAnimacaoOciosaFantasma_(escolhida);
+    if (escolhida === 'passeio') {
+      iniciarPasseioFantasma_();
+    } else {
+      iniciarAnimacaoOciosaFantasma_(escolhida);
+    }
   }, 50000 + Math.round(Math.random() * 50000));
 }
 
@@ -4253,7 +4480,7 @@ function montarContextoEntidade(mensagemUsuario = '') {
     equipePorLotacao: Object.entries(porLotacao).sort((a, b) => b[1] - a[1]).slice(0, 15).map(item => ({ lotacao: item[0], quantidade: item[1] })),
     protocolosPorStatus: statusProtocolos,
     preLeituraRepTemporaria: montarContextoRepEconomicoEntidade_(mensagemUsuario),
-    ultimosLancamentos: lancamentos.slice(-15).reverse().map(l => ({ nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataInicio: l.dataInicio, dias: l.dias, status: l.status, idoc: l.idoc || '' })),
+    ultimosLancamentos: lancamentos.slice(-15).reverse().map(l => ({ nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataInicio: l.dataInicio, diasGozo: l.dias, diasPecunia: l.diasPecunia || 0, diasDebitados: l.diasDebitados || l.dias, status: l.status, idoc: l.idoc || '' })),
     limitesDeListagem: { feriasCompulsorias: 30, pendenciasDe1Doc: 30, ausenciasHoje: 20 }
   });
 }
@@ -4679,8 +4906,9 @@ function processDataRep(employees, punches) {
       const diaSemana = batidas[0].getDay();
       const diaExtra = diaSemana === 0 || diaSemana === 6 || feriados.has(diaSeguro.data);
       // Jornada continua acima de 6h sem marcacoes de almoco: presume e desconta
-      // uma hora de intervalo, inclusive aos sabados, domingos e feriados.
-      const intervaloPresumido = !isImpar && batidas.length === 2 && getHoursDiffRep(batidas[0], batidas[1]) > 6;
+      // 1 hora de intervalo (para 6h ate 9.9h) ou 2 horas (para 10h ou mais).
+      const tempoBrutoCorrido = getHoursDiffRep(batidas[0], batidas[1]);
+      const intervaloPresumido = !isImpar && batidas.length === 2 && tempoBrutoCorrido > 6;
       let totalDia = null;
       let saldoDia = null;
       let intervaloConsiderado = 0;
@@ -4688,10 +4916,9 @@ function processDataRep(employees, punches) {
       if (!isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
-        // Em jornada superior a 6 horas, o intervalo mínimo de uma hora não
-        // gera crédito. Se houve só 30 min, os 30 min restantes não contam como saldo.
+        // Em jornada superior a 6 horas sem almoco, deduz 1h (6h-9.9h) ou 2h (>=10h)
         if (intervaloPresumido) {
-          descontoIntervalo = 1;
+          descontoIntervalo = tempoBrutoCorrido >= 10 ? 2 : 1;
           totalDia = Math.max(0, totalDia - descontoIntervalo);
         } else if (batidas.length >= 4 && getHoursDiffRep(batidas[0], batidas[batidas.length - 1]) > 6) {
           for (let i = 1; i < batidas.length - 1; i += 2) {
@@ -4800,10 +5027,11 @@ function processDataRep(employees, punches) {
 
       // REGRA DO ALMOÇO (Intervalo Intrajornada):
       // Quando o servidor possui apenas 2 batidas no dia (Entrada e Saída final),
-      // e o tempo total corrido é superior a 6 horas (ex: 08:00 às 17:00 = 9h),
-      // deduz-se 1 hora referente ao intervalo de almoço obrigatório/presumido.
+      // e o tempo total corrido é superior a 6 horas, deduz-se 1 hora (para 6h até 9.9h)
+      // ou 2 horas (para 10h ou mais) referente ao intervalo de almoço obrigatório/presumido.
       if (!isImpar && batidas.length === 2 && tempoBruto > 6) {
-        horasTrabalhadas = Math.max(0, tempoBruto - 1.0);
+        const descontoAlmoco = tempoBruto >= 10 ? 2.0 : 1.0;
+        horasTrabalhadas = Math.max(0, tempoBruto - descontoAlmoco);
       }
 
       let extraDia = 0;
@@ -5294,8 +5522,8 @@ function updateDashboardRep() {
 
 function textoSituacaoRep(status) {
   const textos = {
-    intervalo_presumido: '1h de almoco descontada (nao registrada)',
-    extra_intervalo_presumido: 'Extra com 1h de almoco descontada',
+    intervalo_presumido: 'Almoço descontado (não registrado)',
+    extra_intervalo_presumido: 'Extra com almoço descontado',
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
     intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
     colisao_reps: 'Mesmo horário em REPs diferentes', batidas_excedentes: 'Mais de 4 marcações: conferir', nao_conciliado: 'Identificador não conciliado',
@@ -5705,6 +5933,162 @@ function exportarRepExcel() {
   }));
   if (ajustes.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ajustes), "Ajustes Manuais");
   XLSX.writeFile(wb, "Pre_Leitura_Ponto_RH.xlsx");
+}
+
+// Laboratório visual independente: não inicializa usuário, planilha, polling ou IA.
+let entidadeLaboratorioTimer_ = null;
+let entidadeLaboratorioSequenciaTimer_ = null;
+let entidadeLaboratorioTimers_ = [];
+
+function inicializarLaboratorioAnimacoesEntidade_() {
+  document.body.classList.add('modo-laboratorio-entidade');
+  const cenas = [
+    ['idle-reading', 'Lendo'], ['idle-sleeping', 'Dormindo'],
+    ['idle-coffee', 'Café'], ['idle-orb', 'Vagalume'],
+    ['idle-juggling', 'Malabarismo'], ['idle-sunbathing', 'Tomando sol'],
+    ['idle-dancing', 'Dançando'], ['lab-passeio', 'Passeio + post-it'],
+    ['is-thinking', 'Pensando'], ['has-notification', 'Mensagem não lida'],
+    ['operation-lancamento', 'Lançamento concluído'],
+    ['operation-alteracao', 'Alteração concluída'], ['operation-falha', 'Falha'],
+    ['enter-right', 'Entrada'], ['lab-saida', 'Saída'], ['chat-open', 'Chat aberto']
+  ];
+  const botoes = cenas.map(function(cena) {
+    return `<button type="button" data-entidade-cena="${cena[0]}">${cena[1]}</button>`;
+  }).join('');
+  const laboratorio = document.createElement('main');
+  laboratorio.className = 'entidade-animation-lab';
+  laboratorio.innerHTML = `
+    <header class="entidade-lab-header">
+      <div><span>LABORATÓRIO VISUAL</span><h1>Animações da Entidade</h1><p>Ambiente isolado — sem acesso à planilha e sem consumo da API.</p></div>
+      <button type="button" class="entidade-lab-close" aria-label="Fechar laboratório">×</button>
+    </header>
+    <section class="entidade-lab-layout">
+      <div class="entidade-lab-stage">
+        <div class="entidade-lab-grid"></div>
+        <div class="entidade-lab-ghost-scale">
+          <button type="button" id="entidade-lab-ghost" class="entidade-fab roaming" aria-label="Entidade">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M12 2a8 8 0 0 0-8 8v12l3-3 2.5 2.5L12 19l2.5 2.5L17 19l3 3V10a8 8 0 0 0-8-8z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="entidade-lab-postit"><span>Volto<br>Logo</span></div>
+        <div id="entidade-lab-status" class="entidade-lab-status">Flutuação padrão</div>
+      </div>
+      <aside class="entidade-lab-controls">
+        <div class="entidade-lab-actions">
+          <button type="button" id="entidade-lab-todas" class="primary">▶ Reproduzir todas</button>
+          <button type="button" id="entidade-lab-parar">Parar</button>
+        </div>
+        <div class="entidade-lab-buttons">${botoes}</div>
+      </aside>
+    </section>`;
+  document.body.appendChild(laboratorio);
+
+  laboratorio.querySelector('.entidade-lab-close').addEventListener('click', function() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('testeAnimacoesEntidade');
+    window.location.href = url.toString();
+  });
+  laboratorio.querySelectorAll('[data-entidade-cena]').forEach(function(botao) {
+    botao.addEventListener('click', function() {
+      pararSequenciaLaboratorioEntidade_();
+      executarCenaLaboratorioEntidade_(botao.dataset.entidadeCena, botao.textContent.trim());
+    });
+  });
+  document.getElementById('entidade-lab-todas').addEventListener('click', iniciarSequenciaLaboratorioEntidade_);
+  document.getElementById('entidade-lab-parar').addEventListener('click', function() {
+    pararSequenciaLaboratorioEntidade_();
+    limparCenaLaboratorioEntidade_();
+  });
+}
+
+function limparCenaLaboratorioEntidade_() {
+  if (entidadeLaboratorioTimer_) clearTimeout(entidadeLaboratorioTimer_);
+  entidadeLaboratorioTimer_ = null;
+  entidadeLaboratorioTimers_.forEach(clearTimeout);
+  entidadeLaboratorioTimers_ = [];
+  restaurarVisualLaboratorioEntidade_();
+}
+
+function restaurarVisualLaboratorioEntidade_() {
+  const fantasma = document.getElementById('entidade-lab-ghost');
+  if (!fantasma) return;
+  fantasma.className = 'entidade-fab roaming';
+  const escala = document.querySelector('.entidade-lab-ghost-scale');
+  if (escala) escala.classList.remove('scene-transition');
+  const postit = document.querySelector('.entidade-lab-postit');
+  if (postit) postit.classList.remove('show');
+  const status = document.getElementById('entidade-lab-status');
+  if (status) status.textContent = 'Flutuação padrão';
+}
+
+function executarCenaLaboratorioEntidade_(classe, rotulo, callback) {
+  limparCenaLaboratorioEntidade_();
+  const fantasma = document.getElementById('entidade-lab-ghost');
+  const escala = document.querySelector('.entidade-lab-ghost-scale');
+  const status = document.getElementById('entidade-lab-status');
+  if (!fantasma || !escala) return;
+  escala.classList.add('scene-transition');
+  if (status) status.textContent = `Preparando: ${rotulo}`;
+  const duracao = classe === 'lab-passeio' ? 8500 : 5200;
+
+  entidadeLaboratorioTimers_.push(setTimeout(function() {
+    fantasma.className = 'entidade-fab roaming';
+    if (classe === 'lab-saida') fantasma.classList.add('leaving', 'exit-right');
+    else fantasma.classList.add(classe);
+    if (classe === 'lab-passeio') {
+      const postit = document.querySelector('.entidade-lab-postit');
+      if (postit) postit.classList.add('show');
+    }
+    if (status) status.textContent = rotulo;
+    requestAnimationFrame(function() { escala.classList.remove('scene-transition'); });
+  }, 360));
+
+  entidadeLaboratorioTimers_.push(setTimeout(function() {
+    escala.classList.add('scene-transition');
+    if (status) status.textContent = `Encerrando: ${rotulo}`;
+  }, duracao - 360));
+
+  entidadeLaboratorioTimer_ = setTimeout(function() {
+    fantasma.className = 'entidade-fab roaming';
+    const postit = document.querySelector('.entidade-lab-postit');
+    if (postit) postit.classList.remove('show');
+    requestAnimationFrame(function() {
+      escala.classList.remove('scene-transition');
+      if (status) status.textContent = 'Flutuação padrão';
+      entidadeLaboratorioSequenciaTimer_ = setTimeout(function() {
+        if (callback) callback();
+      }, 420);
+    });
+  }, duracao);
+}
+
+function pararSequenciaLaboratorioEntidade_() {
+  if (entidadeLaboratorioSequenciaTimer_) clearTimeout(entidadeLaboratorioSequenciaTimer_);
+  entidadeLaboratorioSequenciaTimer_ = null;
+  const botao = document.getElementById('entidade-lab-todas');
+  if (botao) botao.classList.remove('running');
+}
+
+function iniciarSequenciaLaboratorioEntidade_() {
+  pararSequenciaLaboratorioEntidade_();
+  const botoes = Array.from(document.querySelectorAll('[data-entidade-cena]'));
+  const botaoTodas = document.getElementById('entidade-lab-todas');
+  if (botaoTodas) botaoTodas.classList.add('running');
+  let indice = 0;
+  function proxima() {
+    if (indice >= botoes.length) {
+      pararSequenciaLaboratorioEntidade_();
+      limparCenaLaboratorioEntidade_();
+      return;
+    }
+    const botao = botoes[indice++];
+    executarCenaLaboratorioEntidade_(botao.dataset.entidadeCena, botao.textContent.trim(), function() {
+      entidadeLaboratorioSequenciaTimer_ = setTimeout(proxima, 650);
+    });
+  }
+  proxima();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

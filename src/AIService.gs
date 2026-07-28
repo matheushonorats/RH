@@ -12,12 +12,6 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
     // A IA nunca pode contornar a autenticação normal do Web App.
     obterDadosUsuarioLogado();
 
-    const possuiGroq = Boolean(obterConfigValorInterno_('GROQ_API_KEY'));
-    const possuiFallback = Boolean(obterConfigValorInterno_('OPENROUTER_API_KEY'));
-    if (!possuiGroq && !possuiFallback) {
-      return { erro: "Nenhuma chave de IA foi configurada. Cadastre GROQ_API_KEY nas Propriedades do Script." };
-    }
-    
     let contextoLocal = {};
     try {
       contextoLocal = typeof contextoLocalStr === 'string'
@@ -29,10 +23,20 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
 
     // O servidor consulta a planilha diretamente; o contexto do navegador é apenas complementar.
     const contextoPlanilha = obterContextoEntidadeServidor_();
+    if (ehConsultaServidoresSemAdmissaoEntidade_(mensagemUsuario)) {
+      // Esta verificação cadastral deve refletir a aba Servidores no instante
+      // da pergunta, sem cache, memória conversacional ou inferência do modelo.
+      contextoPlanilha.servidoresIdentificacao = obterServidores().map(mapearIdentificacaoServidorEntidade_);
+    }
     const respostaOperacionalDireta = responderConsultaOperacionalDiretaEntidade_(mensagemUsuario, contextoPlanilha);
     if (respostaOperacionalDireta) {
       const interacaoDiretaId = registrarInteracaoEntidade_(mensagemUsuario, respostaOperacionalDireta);
       return { resposta: respostaOperacionalDireta, interacaoId: interacaoDiretaId, provedor: 'Sistema' };
+    }
+    const possuiGroq = Boolean(obterConfigValorInterno_('GROQ_API_KEY'));
+    const possuiFallback = Boolean(obterConfigValorInterno_('OPENROUTER_API_KEY'));
+    if (!possuiGroq && !possuiFallback) {
+      return { erro: "Nenhuma chave de IA foi configurada. Cadastre GROQ_API_KEY nas Propriedades do Script." };
     }
     const memoriaRelevante = obterMemoriasEntidadeRelevantes_(mensagemUsuario);
     const trechosNormativos = mensagemUsuario ? buscarTrechosNormativos_(mensagemUsuario, 3) : [];
@@ -479,9 +483,89 @@ function buscarServidoresPorNomeEntidade_(termo, servidores) {
   });
 }
 
+function mapearIdentificacaoServidorEntidade_(servidor) {
+  const s = servidor || {};
+  return {
+    nome: s.nome,
+    matricula: s.matricula,
+    cargo: s.cargo,
+    lotacao: s.lotacao,
+    status: s.status,
+    admissao: s.admissao
+  };
+}
+
+function ehConsultaServidoresSemAdmissaoEntidade_(mensagem) {
+  const texto = normalizarTextoBuscaEntidade_(mensagem);
+  if (!/\badmissao\b/.test(texto)) return false;
+  return /\b(sem|falta|faltando|ausente|pendente)\b/.test(texto)
+    || /\bnao\s+(possuem?|tem|t[eê]m|informad[ao]s?|cadastrad[ao]s?)\b/.test(texto)
+    || /\bnao\s+(foi|foram|esta|estao)\s+(informad[ao]s?|cadastrad[ao]s?)\b/.test(texto);
+}
+
+function consultaAdmissaoIncluiInativosEntidade_(mensagem) {
+  const texto = normalizarTextoBuscaEntidade_(mensagem);
+  if (!/\binativ/.test(texto)) return false;
+  if (/\b(sem|nao)\s+(incluir|considerar|contar).{0,20}\binativ/.test(texto)
+      || /\b(apenas|somente)\s+(os\s+)?ativos\b/.test(texto)) return false;
+  return /\b(inclu|inclua|incluindo|tambem|inclusive|consider|conte|contando|todos|com)\w*.{0,30}\binativ/.test(texto)
+    || /\binativ\w*.{0,30}\b(tambem|inclusive|inclu|consider|conte|todos)\w*/.test(texto);
+}
+
+function admissaoValidaEntidade_(valor) {
+  if (valor === null || valor === undefined) return false;
+  if (valor instanceof Date) return !isNaN(valor.getTime());
+  const texto = String(valor).trim();
+  if (!texto || texto === '-' || /^(nao informado|nao informada|nao cadastrada)$/i.test(normalizarTextoBuscaEntidade_(texto))) return false;
+
+  let partes = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  let dia, mes, ano;
+  if (partes) {
+    dia = Number(partes[1]); mes = Number(partes[2]); ano = Number(partes[3]);
+  } else {
+    partes = texto.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+    if (!partes) return false;
+    ano = Number(partes[1]); mes = Number(partes[2]); dia = Number(partes[3]);
+  }
+  if (ano < 1900 || mes < 1 || mes > 12 || dia < 1 || dia > 31) return false;
+  const data = new Date(ano, mes - 1, dia);
+  return !isNaN(data.getTime())
+    && data.getFullYear() === ano
+    && data.getMonth() === mes - 1
+    && data.getDate() === dia;
+}
+
+function responderServidoresSemAdmissaoEntidade_(mensagem, servidores) {
+  const incluirInativos = consultaAdmissaoIncluiInativosEntidade_(mensagem);
+  const pendentes = (Array.isArray(servidores) ? servidores : []).filter(function(servidor) {
+    const inativo = normalizarTextoBuscaEntidade_(servidor && servidor.status) === 'inativo';
+    return (incluirInativos || !inativo) && !admissaoValidaEntidade_(servidor && servidor.admissao);
+  }).sort(function(a, b) {
+    return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR', { sensitivity: 'base' });
+  });
+
+  if (!pendentes.length) {
+    return incluirInativos
+      ? 'Todos os servidores ativos e inativos possuem data de admissão cadastrada.'
+      : 'Todos os servidores ativos possuem data de admissão cadastrada.';
+  }
+
+  const limite = 30;
+  const linhas = pendentes.slice(0, limite).map(function(servidor, indice) {
+    return (indice + 1) + '. **' + String(servidor.nome || 'Servidor sem nome') + '** — matrícula **' + String(servidor.matricula || '-') + '**';
+  });
+  const escopo = incluirInativos ? 'servidores ativos e inativos' : 'servidores ativos';
+  let resposta = '**' + pendentes.length + ' ' + escopo + ' sem data de admissão cadastrada.**\n' + linhas.join('\n');
+  if (pendentes.length > limite) resposta += '\n\n' + (pendentes.length - limite) + ' registro(s) adicional(is) ficaram fora desta listagem.';
+  return resposta;
+}
+
 /** Respostas factuais recorrentes não consomem cota da IA e preservam a visualização correta. */
 function responderConsultaOperacionalDiretaEntidade_(mensagem, contexto) {
   const pergunta = String(mensagem || '');
+  if (ehConsultaServidoresSemAdmissaoEntidade_(pergunta)) {
+    return responderServidoresSemAdmissaoEntidade_(pergunta, contexto && contexto.servidoresIdentificacao);
+  }
   const pediuMatricula = /\bmatr[ií]cula\b/i.test(pergunta) && /(qual|sabe|diga|informe|consulta|consultar|procure|busque|mostre|n[uú]mero|de quem|quem)/i.test(pergunta);
   if (pediuMatricula) {
     const termoBusca = extrairTermoServidorConsultaEntidade_(pergunta);
@@ -682,7 +766,7 @@ function extrairTermosMemoriaEntidade_(texto) {
  */
 function obterContextoEntidadeServidor_() {
   const cache = CacheService.getScriptCache();
-  const chaveCache = 'entidade_contexto_planilha_v4';
+  const chaveCache = 'entidade_contexto_planilha_v5';
   const salvo = cache.get(chaveCache);
   if (salvo) {
     try { return JSON.parse(salvo); } catch (e) {}
@@ -835,15 +919,7 @@ function obterContextoEntidadeServidor_() {
     ausenciasHoje: (dashboard.listaAusentes || []).slice(0, 15),
     servidoresEmFeriasCompulsorias: feriasCompulsorias,
     pendenciasDe1Doc: pendencias1Doc,
-    servidoresIdentificacao: servidores.map(function(s) {
-      return {
-        nome: s.nome,
-        matricula: s.matricula,
-        cargo: s.cargo,
-        lotacao: s.lotacao,
-        status: s.status
-      };
-    }),
+    servidoresIdentificacao: servidores.map(mapearIdentificacaoServidorEntidade_),
     distribuicaoPorLotacao: Object.keys(lotacoes)
       .map(function(nome) { return { lotacao: nome, quantidade: lotacoes[nome] }; })
       .sort(function(a, b) { return b.quantidade - a.quantidade; })
@@ -1043,8 +1119,8 @@ function gerarInsightEntidade_(forcarAnalise) {
   }
   const agora = new Date().getTime();
   const registro = resultado && resultado.silencioso
-    ? { versao: '2.3.6-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
-    : { versao: '2.3.6-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
+    ? { versao: '2.3.7-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
+    : { versao: '2.3.7-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
 
   props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(registro));
   props.setProperty('ENTIDADE_ESTADO_ANALISADO', JSON.stringify(estadoAtual));
@@ -1181,7 +1257,7 @@ function obterInsightEntidadeAtual() {
   if (salvo) {
     try {
       const insight = JSON.parse(salvo);
-      if (insight.versao === '2.3.6-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
+      if (insight.versao === '2.3.7-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
     } catch (e) {}
   }
 
@@ -1193,7 +1269,7 @@ function obterInsightEntidadeAtual() {
     if (atualizado) {
       try {
         const insightAtual = JSON.parse(atualizado);
-        if (insightAtual.versao === '2.3.6-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
+        if (insightAtual.versao === '2.3.7-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
       } catch (e) {}
     }
     return gerarInsightEntidade_(false);
