@@ -19,7 +19,13 @@ function verificarEEnviarEmailsDiarios() {
   
   // 1. Obter parâmetros das configurações
   const config = obterMapaConfiguracoes_(abaConfig);
-  const emailDestino = config["EMAIL_DESTINO"] || "";
+  let rawEmail = config["EMAIL_DESTINO"] || "turismo.setur@saosebastiao.sp.gov.br, turismo.eventos@saosebastiao.sp.gov.br";
+  let emailsArray = rawEmail.split(/[;,]/).map(function(e) { return e.trim(); }).filter(Boolean);
+  
+  if (!emailsArray.some(function(e) { return e.toLowerCase() === "turismo.eventos@saosebastiao.sp.gov.br"; })) {
+    emailsArray.push("turismo.eventos@saosebastiao.sp.gov.br");
+  }
+  const emailDestino = emailsArray.join(", ");
   const diasAlertaFerias = parseInt(config["DIAS_INTERVALO_FERIAS"]) || 15;
   const diasAlertaAbono = parseInt(config["DIAS_INTERVALO_ABONO"]) || 5;
   

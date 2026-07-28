@@ -258,7 +258,7 @@ function popularDadosPadrao(ss) {
   const abaConfig = ss.getSheetByName("Configuracoes");
   if (abaConfig && abaConfig.getLastRow() === 1) {
     const dadosConfig = [
-      ["EMAIL_DESTINO", "turismo.setur@saosebastiao.sp.gov.br", "E-mail para onde serão enviados os alertas diários"],
+      ["EMAIL_DESTINO", "turismo.setur@saosebastiao.sp.gov.br, turismo.eventos@saosebastiao.sp.gov.br", "E-mail(s) para onde serão enviados os alertas diários (separados por vírgula)"],
       ["DIAS_INTERVALO_FERIAS", "15", "Antecedência em dias para avisar sobre início de Férias"],
       ["DIAS_INTERVALO_ABONO", "5", "Antecedência em dias para avisar sobre início de Abono/Abonada Natalícia"],
       ["LIMITE_ABONADAS_ANO", "5", "Quantidade máxima permitida de faltas abonadas no ano corrente por servidor"],
