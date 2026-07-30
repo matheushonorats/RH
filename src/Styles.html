@@ -524,7 +524,7 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 15000;
 }
 
 .loader {
@@ -588,7 +588,7 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 999;
+  z-index: 20000;
   backdrop-filter: blur(4px);
 }
 
@@ -744,6 +744,26 @@ body {
   border-color: rgba(247, 90, 90, 0.3);
 }
 
+.nome-com-acao {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.btn-action.btn-notificacao-ferias {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  color: var(--danger-color, #dc2626);
+  border-color: color-mix(in srgb, var(--danger-color, #dc2626) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--danger-color, #dc2626) 8%, var(--bg-tertiary));
+}
+.btn-action.btn-notificacao-ferias:hover {
+  color: #fff;
+  border-color: var(--danger-color, #dc2626);
+  background: var(--danger-color, #dc2626);
+}
+
 /* Layout Ficha de Servidor */
 .profile-header {
   display: flex;
@@ -800,6 +820,71 @@ body {
 }
 .ficha-btn-copiar:hover { color: var(--brand-primary); border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 10%, var(--bg-tertiary)); transform: translateY(-1px); }
 .ficha-btn-copiar svg { width: 13px; height: 13px; }
+
+.quick-1doc-dados-titulo {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.quick-1doc-dados {
+  display: grid;
+  gap: 1px;
+  margin-bottom: 18px;
+  padding: 1px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--border-color);
+}
+.quick-1doc-dado {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) 25px;
+  align-items: center;
+  gap: 8px;
+  min-height: 39px;
+  padding: 6px 8px 6px 11px;
+  background: var(--bg-secondary);
+}
+.quick-1doc-dado-rotulo { color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.quick-1doc-dado-valor { min-width: 0; color: var(--text-primary); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.quick-1doc-resumo-lancamento {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(110px, .85fr) minmax(86px, .65fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.quick-1doc-resumo-item {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand-primary) 5%, var(--bg-secondary));
+}
+.quick-1doc-resumo-item span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .025em;
+}
+.quick-1doc-resumo-item strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .quick-1doc-dado { grid-template-columns: 68px minmax(0, 1fr) 25px; }
+  .quick-1doc-resumo-lancamento { grid-template-columns: 1fr 1fr; }
+  .quick-1doc-resumo-tipo { grid-column: 1 / -1; }
+}
 
 /* Seleção de anexos por clique ou arrastar e soltar. */
 .anexo-dropzone-lista { display: grid; gap: 8px; }
@@ -1113,6 +1198,8 @@ body.dark-mode .app-header {
 .page-eyebrow { color: var(--brand-primary); font-size: 10px; font-weight: 800; letter-spacing: 0.12em; }
 .topbar-context { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; text-transform: capitalize; }
 .topbar-context svg { width: 16px; height: 16px; color: var(--brand-primary); }
+.topbar-clock-separator { color: var(--text-muted); }
+#current-time-label { min-width: 55px; font-variant-numeric: tabular-nums; text-transform: none; }
 
 .view-container {
   padding: 4px clamp(22px, 4vw, 64px) 48px;
@@ -1385,7 +1472,11 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 
   /* O mascote flutuante não invade o documento. Os modelos imprimíveis
      recebem uma pequena assinatura própria após o conteúdo. */
-  .entidade-widget {
+  .entidade-widget,
+  #entidade-fab,
+  .entidade-fab,
+  .entidade-placa-passeio,
+  .entidade-animation-lab {
     display: none !important;
   }
 
@@ -1397,8 +1488,9 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
     display: none !important;
   }
   
-  .modal-overlay#modal-folha-protocolo,
-  .modal-overlay#modal-relatorio-impressao {
+  .modal-overlay#modal-folha-protocolo.active,
+  .modal-overlay#modal-notificacao-ferias.active,
+  .modal-overlay#modal-relatorio-impressao.active {
     display: block !important;
     position: absolute !important;
     top: 0 !important;
@@ -1411,8 +1503,9 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
     padding: 0 !important;
   }
   
-  .modal-overlay#modal-folha-protocolo .modal-content,
-  .modal-overlay#modal-relatorio-impressao .modal-content {
+  .modal-overlay#modal-folha-protocolo.active .modal-content,
+  .modal-overlay#modal-notificacao-ferias.active .modal-content,
+  .modal-overlay#modal-relatorio-impressao.active .modal-content {
     border: none !important;
     box-shadow: none !important;
     max-width: 100% !important;
@@ -1423,8 +1516,9 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
     color: #000 !important;
   }
   
-  .modal-overlay#modal-folha-protocolo .modal-body,
-  .modal-overlay#modal-relatorio-impressao .modal-body {
+  .modal-overlay#modal-folha-protocolo.active .modal-body,
+  .modal-overlay#modal-notificacao-ferias.active .modal-body,
+  .modal-overlay#modal-relatorio-impressao.active .modal-body {
     padding: 0 !important;
   }
   
@@ -1432,14 +1526,20 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
     display: none !important;
   }
   
-  #print-area-protocolo, #print-area-relatorio {
+  #print-area-protocolo, #print-area-notificacao-ferias, #print-area-relatorio {
     border: none !important;
     padding: 0 !important;
+  }
+
+  .notificacao-ferias-documento {
+    padding: 12mm 15mm !important;
+    font-size: 11pt !important;
+    page-break-inside: avoid !important;
   }
 }
 
 /* Toast Notifications */
-.toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 10000; }
+.toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 90000; pointer-events: none; }
 .toast { background-color: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); padding: 16px 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 12px; min-width: 300px; max-width: 400px; animation: toastEnter 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .toast.toast-success { border-left: 4px solid var(--success-color); }
 .toast.toast-error { border-left: 4px solid var(--danger-color); }
@@ -1449,6 +1549,8 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 @keyframes toastLeave { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
 .toast-icon { display: flex; align-items: center; justify-content: center; }
 .toast-content { flex: 1; font-size: 14px; }
+.btn.is-processing { cursor: wait; opacity: .78; }
+.button-spinner { width: 15px; height: 15px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; flex: 0 0 auto; }
 /* Sync Status Bar */
 .sync-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 16px; font-size: 12px; font-weight: 500; letter-spacing: 0.02em; z-index: 50; }
 .sync-bar.sync-offline { background: linear-gradient(90deg, #dc262620, #dc262610); color: #f87171; border-bottom: 1px solid #dc262630; }
@@ -1456,6 +1558,23 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 .sync-bar.sync-pending { background: linear-gradient(90deg, #f59e0b20, #f59e0b10); color: #fbbf24; border-bottom: 1px solid #f59e0b30; }
 .sync-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.fila-modal-subtitulo { margin-top: 4px; color: var(--text-muted); font-size: 12px; }
+.fila-sincronizacao-lista { display: flex; flex-direction: column; gap: 12px; }
+.fila-item { padding: 16px; border: 1px solid var(--border-color); border-left: 4px solid var(--warning-color, #f59e0b); border-radius: 10px; background: var(--bg-tertiary); }
+.fila-item.pronta { border-left-color: var(--brand-primary); }
+.fila-item.erro { border-left-color: var(--danger-color, #dc2626); }
+.fila-item-cabecalho { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.fila-item-cabecalho > div { display: flex; min-width: 0; flex-direction: column; }
+.fila-item-cabecalho strong { color: var(--text-primary); font-size: 14px; }
+.fila-item-cabecalho small { color: var(--text-muted); font-size: 11px; }
+.fila-item p { margin: 10px 0 14px; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.fila-item-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn.btn-small { min-height: 32px; padding: 6px 10px; gap: 6px; font-size: 12px; }
+.btn.btn-small svg { width: 14px; height: 14px; }
+.fila-vazia { display: flex; min-height: 180px; align-items: center; justify-content: center; flex-direction: column; gap: 6px; color: var(--text-muted); text-align: center; }
+.fila-vazia svg { width: 32px; height: 32px; color: var(--brand-primary); }
+.fila-vazia strong { color: var(--text-primary); }
+.fila-vazia small { font-size: 12px; }
 /* Detailed Sync Status Box - Banner Ticker (Surgimento Suave por Trás do Menu) */
 .sync-detailed-status {
   position: fixed;

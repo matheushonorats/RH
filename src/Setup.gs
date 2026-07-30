@@ -39,6 +39,11 @@ const CONFIG_SETUP = {
       "Valor", 
       "Descrição"
     ],
+    "Fila_Sincronizacao": [
+      "ID_OPERACAO", "CRIADO_EM", "ATUALIZADO_EM", "USUARIO", "TIPO_OPERACAO", "DESCRICAO",
+      "PAYLOAD_JSON", "STATUS", "TENTATIVAS", "ULTIMO_ERRO", "ANEXOS_ESPERADOS",
+      "ANEXO_1_ID", "ANEXO_1_URL", "ANEXO_2_ID", "ANEXO_2_URL", "ANEXO_3_ID", "ANEXO_3_URL", "CONCLUIDO_EM"
+    ],
     "IA_Memoria": [
       "ID",
       "Data",
@@ -76,14 +81,15 @@ const CONFIG_SETUP = {
       }
     },
     "Lançamentos": {
-      "colunasNovas": ["ID_Protocolo", "Criado_Por", "Criado_Em", "Editado_Por", "Editado_Em", "Dias_Pecunia"],
+      "colunasNovas": ["ID_Protocolo", "Criado_Por", "Criado_Em", "Editado_Por", "Editado_Em", "Dias_Pecunia", "ID_Operacao"],
       "valoresPadrao": {
         "ID_Protocolo": "",
         "Criado_Por": "Sistema (Migração)",
         "Criado_Em": new Date(),
         "Editado_Por": "Sistema (Migração)",
         "Editado_Em": new Date(),
-        "Dias_Pecunia": ""
+        "Dias_Pecunia": "",
+        "ID_Operacao": ""
       }
     },
     "Protocolos": {
@@ -124,6 +130,7 @@ function executarConfiguracaoInicial() {
            .setFontColor("#ffffff")
            .setHorizontalAlignment("center");
         aba.setFrozenRows(1);
+        if (nomeAba === "Fila_Sincronizacao") aba.hideSheet();
         relatorioAbasNovas.push(`SUCESSO: Aba '${nomeAba}' criada.`);
       } else {
         relatorioAbasNovas.push(`MANTIDA: Aba '${nomeAba}' ja existe.`);

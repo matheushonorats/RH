@@ -18,6 +18,7 @@ function obterIndicesColunasLancamentos_(cabecalho) {
     diasFerias:      indiceCabecalho_(cabecalho, ["QUANTIDADE DIAS FERIAS", "QUANTIDADE DIAS", "QUANTIDADE FERIAS", "QTD FERIAS"]),
     dias:            indiceCabecalho_(cabecalho, ["DIAS", "QTD DIAS"]),
     diasPecunia:     indiceCabecalho_(cabecalho, ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"]),
+    idOperacao:      indiceCabecalho_(cabecalho, ["ID OPERACAO", "ID DA OPERACAO"]),
     mes:             indiceCabecalho_(cabecalho, ["MES HE", "MES"]),
     ano:             indiceCabecalho_(cabecalho, ["ANO HE", "ANO"]),
     qtdHoras:        indiceCabecalho_(cabecalho, ["QUANTIDADE HE", "QUANT HORAS", "QTD HORAS"]),
@@ -56,18 +57,205 @@ function obterTotalDebitoFerias_(linha, idx) {
   return obterDiasLancamento_(linha, idx) + obterDiasPecuniaLancamento_(linha, idx);
 }
 
-/** Garante a coluna nova em planilhas que já passaram pelo setup inicial. */
-function garantirColunaDiasPecunia_(aba) {
-  const cabecalho = aba.getRange(1, 1, 1, Math.max(aba.getLastColumn(), 1)).getValues()[0];
-  if (indiceCabecalho_(cabecalho, ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"]) !== -1) return;
+/** Tipos que representam ausência efetiva e não podem ocupar o mesmo dia. */
+function ehTipoAusenciaConflitante_(tipo) {
+  const texto = normalizarCabecalho_(tipo);
+  if (!texto || texto.includes("ANULAD") || texto.includes("NAO EFETIVAD")) return false;
+  if (texto.includes("HORA EXTRA") || texto.includes("ESTAGIO PROBATORIO") || texto.includes("AVALIACAO")) return false;
+  return /(FERIAS|LICENCA|ABON|AFAST|ATESTADO|FALTA)/.test(texto);
+}
 
-  const coluna = cabecalho.length + 1;
-  aba.getRange(1, coluna)
-    .setValue("Dias_Pecunia")
-    .setFontWeight("bold")
-    .setBackground("#434343")
-    .setFontColor("#ffffff")
-    .setHorizontalAlignment("center");
+function criarIntervaloAusenciaLancamento_(lancamento) {
+  if (!lancamento || String(lancamento.status || '').toLowerCase() === 'anulado') return null;
+  if (lancamento.identidadeConsistente === false) return null;
+  if (!ehTipoAusenciaConflitante_(lancamento.tipo)) return null;
+  const matricula = normalizarChaveMatricula_(lancamento.matricula);
+  const inicio = parseInputDate_(lancamento.dataInicio);
+  if (!matricula || !inicio) return null;
+  const quantidadeInformada = parseInt(lancamento.dias, 10);
+  const dias = isFinite(quantidadeInformada) && quantidadeInformada > 0 ? quantidadeInformada : 1;
+  const fim = new Date(inicio.getTime());
+  fim.setDate(fim.getDate() + dias - 1);
+  fim.setHours(0, 0, 0, 0);
+  return {
+    id: String(lancamento.id || '').trim(),
+    matricula: matricula,
+    nome: String(lancamento.nome || 'Servidor').trim(),
+    tipo: String(lancamento.tipo || 'Ausência').trim(),
+    inicio: inicio,
+    fim: fim,
+    dias: dias,
+    linhaPlanilha: Number(lancamento.linhaPlanilha || 0)
+  };
+}
+
+function extrairMatriculaDoNomeLancamento_(nomeBruto) {
+  const match = String(nomeBruto || '').trim().match(/^\s*([^:]{1,30})\s*:/);
+  return match ? normalizarChaveMatricula_(match[1]) : '';
+}
+
+function identidadeLancamentoConsistente_(matriculaColuna, nomeBruto) {
+  const matricula = normalizarChaveMatricula_(matriculaColuna);
+  const matriculaNoNome = extrairMatriculaDoNomeLancamento_(nomeBruto);
+  return !matricula || !matriculaNoNome || matricula === matriculaNoNome;
+}
+
+function intervalosAusenciaSobrepostos_(a, b) {
+  return Boolean(a && b && a.matricula === b.matricula && a.inicio <= b.fim && b.inicio <= a.fim);
+}
+
+function formatarDataConflitoLancamento_(data) {
+  return Utilities.formatDate(data, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+}
+
+function descreverIntervaloConflitoLancamento_(intervalo) {
+  const inicio = formatarDataConflitoLancamento_(intervalo.inicio);
+  const fim = formatarDataConflitoLancamento_(intervalo.fim);
+  return inicio === fim ? inicio : inicio + ' a ' + fim;
+}
+
+/** Detecta também inconsistências antigas ou inseridas diretamente na planilha. */
+function detectarSobreposicoesLancamentos_(lancamentos, limite) {
+  const grupos = {};
+  (Array.isArray(lancamentos) ? lancamentos : []).forEach(function(lancamento) {
+    const intervalo = criarIntervaloAusenciaLancamento_(lancamento);
+    if (!intervalo) return;
+    if (!grupos[intervalo.matricula]) grupos[intervalo.matricula] = [];
+    grupos[intervalo.matricula].push(intervalo);
+  });
+
+  const conflitos = [];
+  const maximo = Math.max(1, Number(limite || 20));
+  Object.keys(grupos).some(function(matricula) {
+    const intervalos = grupos[matricula].sort(function(a, b) { return a.inicio - b.inicio || a.fim - b.fim; });
+    for (let i = 0; i < intervalos.length; i++) {
+      for (let j = i + 1; j < intervalos.length; j++) {
+        if (intervalos[j].inicio > intervalos[i].fim) break;
+        if (!intervalosAusenciaSobrepostos_(intervalos[i], intervalos[j])) continue;
+        conflitos.push({
+          nome: intervalos[i].nome || intervalos[j].nome,
+          matricula: matricula,
+          primeiroId: intervalos[i].id,
+          primeiroTipo: intervalos[i].tipo,
+          primeiroPeriodo: descreverIntervaloConflitoLancamento_(intervalos[i]),
+          primeiroStatus: 'Ativo',
+          segundoId: intervalos[j].id,
+          segundoTipo: intervalos[j].tipo,
+          segundoPeriodo: descreverIntervaloConflitoLancamento_(intervalos[j]),
+          segundoStatus: 'Ativo',
+          inicioSobreposicao: formatarDataConflitoLancamento_(new Date(Math.max(intervalos[i].inicio.getTime(), intervalos[j].inicio.getTime()))),
+          fimSobreposicao: formatarDataConflitoLancamento_(new Date(Math.min(intervalos[i].fim.getTime(), intervalos[j].fim.getTime()))),
+          linhasPlanilha: [intervalos[i].linhaPlanilha, intervalos[j].linhaPlanilha]
+        });
+        if (conflitos.length >= maximo) return true;
+      }
+    }
+    return false;
+  });
+  return conflitos;
+}
+
+function mapearLinhasLancamentosParaConflitos_(dados, idx) {
+  return (dados || []).slice(1).map(function(linha, indice) {
+    const tipo = idx.tipo !== -1 ? String(linha[idx.tipo] || '').trim() : '';
+    const nomeBruto = idx.nome !== -1 ? String(linha[idx.nome] || '').trim() : '';
+    const matricula = idx.matricula !== -1 ? linha[idx.matricula] : '';
+    return {
+      nome: nomeBruto.replace(/^.*?:\s*/, '').trim(),
+      nomeBruto: nomeBruto,
+      id: idx.id !== -1 ? String(linha[idx.id] || '').trim() : '',
+      matricula: matricula,
+      matriculaNoNome: extrairMatriculaDoNomeLancamento_(nomeBruto),
+      identidadeConsistente: identidadeLancamentoConsistente_(matricula, nomeBruto),
+      tipo: tipo,
+      dataInicio: idx.dataInicio !== -1 ? linha[idx.dataInicio] : '',
+      dias: obterDiasLancamento_(linha, idx),
+      status: /ANULAD|NAO EFETIVAD/.test(normalizarCabecalho_(tipo)) ? 'Anulado' : 'Ativo',
+      linhaPlanilha: indice + 2
+    };
+  });
+}
+
+function detectarDivergenciasIdentificacaoLancamentos_(lancamentos, limite) {
+  return (Array.isArray(lancamentos) ? lancamentos : [])
+    .filter(function(item) { return item && item.identidadeConsistente === false; })
+    .slice(0, Math.max(1, Number(limite || 20)))
+    .map(function(item) {
+      return {
+        linhaPlanilha: Number(item.linhaPlanilha || 0),
+        nome: String(item.nome || 'Servidor não identificado'),
+        matriculaColuna: String(item.matricula || ''),
+        matriculaNoNome: String(item.matriculaNoNome || ''),
+        tipo: String(item.tipo || ''),
+        dataInicio: formatarDataLancamento_(item.dataInicio)
+      };
+    });
+}
+
+function encontrarConflitosCandidatoLancamento_(dadosLanc, lancamentosExistentes) {
+  const candidato = criarIntervaloAusenciaLancamento_({
+    nome: dadosLanc.nome || 'Novo lançamento',
+    matricula: dadosLanc.matricula,
+    tipo: dadosLanc.tipo,
+    dataInicio: dadosLanc.dataInicio,
+    dias: dadosLanc.dias,
+    status: 'Ativo',
+    linhaPlanilha: dadosLanc.linhaPlanilha
+  });
+  if (!candidato) return [];
+  const linhaEditada = Number(dadosLanc.linhaPlanilha || 0);
+  return (lancamentosExistentes || []).reduce(function(saida, lancamento) {
+    if (linhaEditada > 1 && Number(lancamento.linhaPlanilha || 0) === linhaEditada) return saida;
+    const existente = criarIntervaloAusenciaLancamento_(lancamento);
+    if (existente && intervalosAusenciaSobrepostos_(candidato, existente)) saida.push(existente);
+    return saida;
+  }, []);
+}
+
+function mensagemConflitoCandidatoLancamento_(dadosLanc, conflito) {
+  const candidato = criarIntervaloAusenciaLancamento_({
+    matricula: dadosLanc.matricula,
+    tipo: dadosLanc.tipo,
+    dataInicio: dadosLanc.dataInicio,
+    dias: dadosLanc.dias,
+    status: 'Ativo'
+  });
+  return 'Conflito de período: já existe um lançamento ativo de ' + conflito.tipo +
+    ' (' + descreverIntervaloConflitoLancamento_(conflito) + ') para esta matrícula. O novo lançamento de ' +
+    candidato.tipo + ' (' + descreverIntervaloConflitoLancamento_(candidato) + ') ocupa pelo menos um dos mesmos dias. Revise ou anule/corrija o registro conflitante antes de salvar.';
+}
+
+/** Pré-validação chamada antes do upload para não criar anexos órfãos. */
+function validarConflitosLancamento(dadosLanc) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para validar lançamentos de RH.');
+  const aba = obterPlanilha_().getSheetByName('Lançamentos');
+  if (!aba || aba.getLastRow() <= 1) return { valido: true, conflitos: [] };
+  const dados = aba.getDataRange().getValues();
+  const idx = obterIndicesColunasLancamentos_(dados[0]);
+  const conflitos = encontrarConflitosCandidatoLancamento_(dadosLanc || {}, mapearLinhasLancamentosParaConflitos_(dados, idx));
+  return conflitos.length
+    ? { valido: false, mensagem: mensagemConflitoCandidatoLancamento_(dadosLanc || {}, conflitos[0]), quantidade: conflitos.length }
+    : { valido: true, conflitos: [] };
+}
+
+/** Garante colunas novas em planilhas que já passaram pelo setup inicial. */
+function garantirColunasPersistenciaLancamentos_(aba) {
+  const colunas = [
+    { nome: "Dias_Pecunia", alternativas: ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"] },
+    { nome: "ID_Operacao", alternativas: ["ID OPERACAO", "ID DA OPERACAO"] }
+  ];
+
+  colunas.forEach(config => {
+    const cabecalho = aba.getRange(1, 1, 1, Math.max(aba.getLastColumn(), 1)).getValues()[0];
+    if (indiceCabecalho_(cabecalho, config.alternativas) !== -1) return;
+    const coluna = cabecalho.length + 1;
+    aba.getRange(1, coluna)
+      .setValue(config.nome)
+      .setFontWeight("bold")
+      .setBackground("#434343")
+      .setFontColor("#ffffff")
+      .setHorizontalAlignment("center");
+  });
 }
 
 /**
@@ -99,6 +287,8 @@ function obterListaLancamentos() {
     
     let nomeBruto = idx.nome !== -1 ? String(linha[idx.nome]).trim() : "";
     let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
+    let matriculaLinha = idx.matricula !== -1 ? String(linha[idx.matricula]).trim() : "";
+    let matriculaNoNome = extrairMatriculaDoNomeLancamento_(nomeBruto);
     let diasLanc = obterDiasLancamento_(linha, idx);
     let diasPecunia = obterDiasPecuniaLancamento_(linha, idx);
     
@@ -108,11 +298,14 @@ function obterListaLancamentos() {
     }
     
     lancamentos.push({
+      id: idx.id !== -1 ? String(linha[idx.id]).trim() : "",
       idoc: idx.idoc !== -1 ? String(linha[idx.idoc]).trim() : "",
       dataSolicitacao: idx.dataSolicitacao !== -1 ? formatarDataLancamento_(linha[idx.dataSolicitacao]) : "",
       tipo: tipo,
       nome: nomeLimpo,
-      matricula: idx.matricula !== -1 ? String(linha[idx.matricula]).trim() : "",
+      matricula: matriculaLinha,
+      matriculaNoNome: matriculaNoNome,
+      identidadeConsistente: identidadeLancamentoConsistente_(matriculaLinha, nomeBruto),
       dataInicio: idx.dataInicio !== -1 ? formatarDataLancamento_(linha[idx.dataInicio]) : "",
       dias: diasLanc,
       diasPecunia: diasPecunia,
@@ -142,7 +335,7 @@ function obterHistoricoServidor(matricula) {
   obterDadosUsuarioLogado();
   const todos = obterListaLancamentos();
   const chaveMatricula = normalizarChaveMatricula_(matricula);
-  return todos.filter(l => normalizarChaveMatricula_(l.matricula) === chaveMatricula);
+  return todos.filter(l => l.identidadeConsistente !== false && normalizarChaveMatricula_(l.matricula) === chaveMatricula);
 }
 
 /**
@@ -166,11 +359,20 @@ function salvarLancamento(dadosLanc) {
     const ss = obterPlanilha_();
     const aba = ss.getSheetByName("Lançamentos");
     if (!aba) throw new Error("Aba 'Lançamentos' não encontrada.");
-    garantirColunaDiasPecunia_(aba);
+    garantirColunasPersistenciaLancamentos_(aba);
     
     const dados = aba.getDataRange().getValues();
     const cabecalho = dados[0];
     const idx = obterIndicesColunasLancamentos_(cabecalho);
+    const idOperacao = dadosLanc.operacaoId ? validarIdOperacao_(dadosLanc.operacaoId) : "";
+
+    if (idOperacao && idx.idOperacao !== -1) {
+      const jaGravado = dados.slice(1).some(linha => String(linha[idx.idOperacao] || "").trim() === idOperacao);
+      if (jaGravado) {
+        marcarOperacaoConcluidaSemLock_(idOperacao);
+        return { sucesso: true, duplicadoIgnorado: true };
+      }
+    }
     const matricula = normalizarChaveMatricula_(dadosLanc.matricula);
     const tipoDoc = String(dadosLanc.tipo).trim();
     const tipoNormalizado = normalizarCabecalho_(tipoDoc);
@@ -218,6 +420,11 @@ function salvarLancamento(dadosLanc) {
     if (dadosLanc.linhaPlanilha && dadosLanc.linhaPlanilha > 1) {
       linhaEdit = parseInt(dadosLanc.linhaPlanilha);
       valorAntes = JSON.stringify(dados[linhaEdit - 1]);
+    }
+
+    const conflitosPeriodo = encontrarConflitosCandidatoLancamento_(dadosLanc, mapearLinhasLancamentosParaConflitos_(dados, idx));
+    if (conflitosPeriodo.length) {
+      throw new Error(mensagemConflitoCandidatoLancamento_(dadosLanc, conflitosPeriodo[0]));
     }
 
     if (tipoNormalizado.includes("FERIAS")) {
@@ -334,6 +541,7 @@ function salvarLancamento(dadosLanc) {
     if (idx.despacho !== -1) valoresLinha[idx.despacho] = dadosLanc.despacho || "";
     if (idx.observacao !== -1) valoresLinha[idx.observacao] = dadosLanc.observacao || "";
     if (idx.idProtocolo !== -1) valoresLinha[idx.idProtocolo] = dadosLanc.idProtocolo || (linhaEdit !== -1 ? dados[linhaEdit - 1][idx.idProtocolo] : "");
+    if (idx.idOperacao !== -1 && idOperacao) valoresLinha[idx.idOperacao] = idOperacao;
     
     if (linhaEdit !== -1) {
       // MODO EDIÇÃO: Atualiza auditoria e grava a linha inteira em lote
@@ -355,7 +563,12 @@ function salvarLancamento(dadosLanc) {
       lancarLogSemLock_("CRIAR_LANCAMENTO", "Lançamentos", "Criou novo lançamento de " + tipoDoc + " para " + servidor.nome, "", "", JSON.stringify(dadosLanc), dadosLanc.idoc || "");
     }
     
-    return true;
+    if (idOperacao) marcarOperacaoConcluidaSemLock_(idOperacao);
+    CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
+    const propsEntidade = PropertiesService.getScriptProperties();
+    propsEntidade.deleteProperty('ENTIDADE_ULTIMO_INSIGHT');
+    propsEntidade.deleteProperty('ENTIDADE_BRIEFING_DIARIO');
+    return { sucesso: true, duplicadoIgnorado: false };
   } finally {
     // Garante que o script lock seja liberado
     lock.releaseLock();
@@ -365,7 +578,7 @@ function salvarLancamento(dadosLanc) {
 /**
  * Salva arquivos de anexo em PDF de forma privada no Google Drive
  */
-function salvarArquivoNoDrive(conteudoBase64, nomeArquivo, tipoMime) {
+function salvarArquivoNoDrive(conteudoBase64, nomeArquivo, tipoMime, idOperacao, posicaoAnexo) {
   if (!verificarSeEhOperador()) {
     throw new Error("Você não possui permissão para fazer uploads de arquivos no Drive.");
   }
@@ -395,6 +608,15 @@ function salvarArquivoNoDrive(conteudoBase64, nomeArquivo, tipoMime) {
     // Converte e cria arquivo de forma privada (sem setSharing "Anyone with link" - herda pasta)
     const blob = Utilities.newBlob(Utilities.base64Decode(dadosLimpos), tipoMime, nomeArquivo);
     const arquivo = pasta.createFile(blob);
+
+    if (idOperacao) {
+      try {
+        registrarAnexoOperacaoPendente_(idOperacao, posicaoAnexo, arquivo.getId(), arquivo.getUrl());
+      } catch (erroFila) {
+        arquivo.setTrashed(true);
+        throw new Error("O anexo foi enviado, mas não pôde ser vinculado à fila segura: " + erroFila.message);
+      }
+    }
     
     return {
       nome: nomeArquivo,
@@ -443,17 +665,42 @@ function obterInfoServidorBasico_(ss, matricula) {
 }
 
 /**
- * Converte data de input do browser (yyyy-mm-dd) para Date objeto
+ * Converte datas vindas do browser ou do Sheets para um Date normalizado.
+ * Aceita Date, yyyy-mm-dd e dd/mm/yyyy sem alterar o objeto original.
  */
-function parseInputDate_(stringData) {
-  if (!stringData) return null;
-  let partes = stringData.split('-');
-  if (partes.length === 3) {
-    let d = new Date(parseInt(partes[0]), parseInt(partes[1]) - 1, parseInt(partes[2]));
-    d.setHours(0, 0, 0, 0);
-    return d;
+function parseInputDate_(valorData) {
+  if (!valorData) return null;
+
+  if (valorData instanceof Date) {
+    if (isNaN(valorData.getTime())) return null;
+    const copia = new Date(valorData.getTime());
+    copia.setHours(0, 0, 0, 0);
+    return copia;
   }
-  return null;
+
+  const texto = String(valorData).trim().split(" ")[0];
+  let partes = texto.split("-");
+  let ano;
+  let mes;
+  let dia;
+
+  if (partes.length === 3) {
+    ano = parseInt(partes[0], 10);
+    mes = parseInt(partes[1], 10);
+    dia = parseInt(partes[2], 10);
+  } else {
+    partes = texto.split("/");
+    if (partes.length !== 3) return null;
+    dia = parseInt(partes[0], 10);
+    mes = parseInt(partes[1], 10);
+    ano = parseInt(partes[2], 10);
+  }
+
+  if (!ano || !mes || !dia) return null;
+  const data = new Date(ano, mes - 1, dia);
+  if (data.getFullYear() !== ano || data.getMonth() !== mes - 1 || data.getDate() !== dia) return null;
+  data.setHours(0, 0, 0, 0);
+  return data;
 }
 
 /**

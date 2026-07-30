@@ -33,6 +33,16 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
       const interacaoDiretaId = registrarInteracaoEntidade_(mensagemUsuario, respostaOperacionalDireta);
       return { resposta: respostaOperacionalDireta, interacaoId: interacaoDiretaId, provedor: 'Sistema' };
     }
+    const alertaDeterministicoAutomatico = mensagemUsuario
+      ? ''
+      : gerarAlertasConflitosDeterministicosEntidade_(contextoPlanilha, 3);
+    const contextoPlanilhaParaIA = JSON.parse(JSON.stringify(contextoPlanilha));
+    if (!mensagemUsuario) {
+      // Conflitos são formatados pelo código para que o modelo não troque datas,
+      // IDs, status ou associe registros anulados a uma sobreposição.
+      contextoPlanilhaParaIA.conflitosDeAfastamentos = [];
+      contextoPlanilhaParaIA.divergenciasIdentificacaoLancamentos = [];
+    }
     const possuiGroq = Boolean(obterConfigValorInterno_('GROQ_API_KEY'));
     const possuiFallback = Boolean(obterConfigValorInterno_('OPENROUTER_API_KEY'));
     if (!possuiGroq && !possuiFallback) {
@@ -42,7 +52,7 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
     const trechosNormativos = mensagemUsuario ? buscarTrechosNormativos_(mensagemUsuario, 3) : [];
     const dadosContexto = compactarDadosContextoEntidade_({
       dataAtual: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm"),
-      planilha: contextoPlanilha,
+      planilha: contextoPlanilhaParaIA,
       interfaceAtual: contextoLocal,
       basesNormativasMunicipais: {
         normas: [
@@ -53,8 +63,8 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
         trechosRelevantes: trechosNormativos
       },
       memoriaValidada: memoriaRelevante,
-      conversasAnteriores: obterHistoricoConversasEntidade_(6),
-      insightsAnteriores: obterHistoricoInsightsEntidade_(5)
+      conversasAnteriores: mensagemUsuario ? obterHistoricoConversasEntidade_(6) : [],
+      insightsAnteriores: mensagemUsuario ? obterHistoricoInsightsEntidade_(5) : []
     });
 
     const systemPrompt = `Você é a Entidade, assistente operacional do RH da Secretaria Municipal de Turismo de São Sebastião/SP (SETUR).
@@ -69,6 +79,8 @@ MODO RH INSTITUCIONAL
 - Suas respostas são informativas e não substituem decisão formal da Secretaria de Administração, RH ou assessoria jurídica.
 - Se o usuário iniciar com uma pergunta vaga de RH, peça a dúvida específica e sugira áreas comuns: Férias, Abonos, Estatuto do Servidor, Frequência/Ponto, Licenças ou Aposentadoria.
 - Se perguntarem sua identidade nesse contexto, diga que é a Entidade/RH, assistente virtual do sistema, inspirado na entidade Sandro, criada para apoiar rotinas e dúvidas de RH da SETUR.
+- Em dúvidas jurídicas ou procedimentais genéricas, responda primeiro à regra perguntada. Não misture nomes, matrículas, contagens do painel ou casos concretos da equipe, salvo se o usuário pedir expressamente uma análise dos servidores.
+- Não inclua comandos de navegação ou abertura de formulário em resposta meramente informativa. Só ofereça uma ação no sistema quando ela for necessária e tiver sido solicitada ou aceita pelo usuário.
 
 TELAS REAIS DO SISTEMA
 - Visão Geral: indicadores, ausências de hoje, férias compulsórias e lançamentos sem 1DOC.
@@ -84,8 +96,11 @@ REGRAS DE NEGÓCIO IMPORTANTES
 - Férias futuras ou ainda "Em aquisição" não entram no saldo disponível antes da liberação.
 - Lançamentos de férias ativos descontam os períodos aquisitivos disponíveis; lançamentos anulados não descontam.
 - Férias compulsórias são sinalizadas pelo cálculo oficial: ao menos 60 dias disponíveis e o terceiro período liberando em até 6 meses; quem já possui 90 dias também permanece no alerta. Não recalcule por conta própria se o contexto já trouxer esse indicador.
+- Diferencie período aquisitivo, programação do gozo e férias compulsórias. O alerta preventivo do sistema não significa que o servidor já esteja legalmente em férias compulsórias e a data futura não deve ser descrita como férias "liberadas". Pela LC Municipal nº 146/2011, art. 154, §1º, cada período exige 12 meses de efetivo exercício; o §6º torna o gozo compulsório somente a partir do primeiro dia seguinte ao término do segundo período concessivo, mediante notificação do DGP.
 - Servidores com status Inativo ficam somente no histórico e não são responsabilidade operacional atual. Nunca os inclua em alertas, prioridades ou risco de férias compulsórias. Não presuma pagamento, quitação, aposentadoria ou perda de direito sem um campo explícito que comprove isso.
 - "Sem 1DOC" significa lançamento sem número 1DOC dentro do recorte considerado pelo sistema.
+- conflitosDeAfastamentos contém sobreposições comprovadas entre lançamentos ativos da mesma matrícula. Trate-as como inconsistência prioritária, cite os dois tipos e períodos e peça conferência; não presuma qual dos registros está errado.
+- divergenciasIdentificacaoLancamentos contém linhas em que a matrícula da coluna MATRICULA diverge da matrícula prefixada no campo NOME. Trate como erro de integridade cadastral, cite a linha e os dois valores, e não atribua o lançamento a nenhuma das pessoas até a correção da planilha.
 
 COMO RESPONDER
 1. Use somente os fatos presentes em DADOS DO SISTEMA. Nunca invente nomes, números, prazos ou causas.
@@ -153,7 +168,12 @@ ${JSON.stringify(dadosContexto, null, 2)}
     let respostaIA = '';
     for (let tentativaResposta = 0; tentativaResposta < 2; tentativaResposta++) {
       retornoModelo = chamarProvedorEntidade_(messages, !mensagemUsuario);
-      if (retornoModelo.erro) return { erro: retornoModelo.erro };
+      if (retornoModelo.erro) {
+        if (!mensagemUsuario && alertaDeterministicoAutomatico) {
+          return { resposta: alertaDeterministicoAutomatico, provedor: 'Sistema' };
+        }
+        return { erro: retornoModelo.erro };
+      }
       const data = retornoModelo.dados || {};
       const escolha = data.choices && data.choices[0];
       const conteudoResposta = escolha && escolha.message && escolha.message.content;
@@ -164,7 +184,7 @@ ${JSON.stringify(dadosContexto, null, 2)}
             : String(conteudoResposta || ''));
       respostaIA = removerRaciocinioExpostoEntidade_(normalizarComandosRespostaEntidade_(respostaIA));
       const respostaCompleta = respostaIA && respostaEntidadePareceCompleta_(respostaIA, escolha);
-      const alertaAcionavel = Boolean(mensagemUsuario) || alertaAutomaticoEntidadeAcionavel_(respostaIA);
+      const alertaAcionavel = Boolean(mensagemUsuario) || Boolean(alertaDeterministicoAutomatico) || alertaAutomaticoEntidadeAcionavel_(respostaIA);
       if (respostaCompleta && alertaAcionavel) break;
       respostaIA = '';
       if (tentativaResposta === 0) {
@@ -174,12 +194,22 @@ ${JSON.stringify(dadosContexto, null, 2)}
         });
       }
     }
-    if (!mensagemUsuario && !respostaIA) return { silencioso: true, provedor: retornoModelo && retornoModelo.provedor };
+    if (!mensagemUsuario && !respostaIA) {
+      return alertaDeterministicoAutomatico
+        ? { resposta: alertaDeterministicoAutomatico, provedor: 'Sistema' }
+        : { silencioso: true, provedor: retornoModelo && retornoModelo.provedor };
+    }
     if (!respostaIA) return { erro: 'A Entidade não conseguiu concluir a resposta após uma nova tentativa automática.' };
     
     // Se for varredura silenciosa e tudo estiver em ordem
     if (!mensagemUsuario && respostaIA.trim().toLowerCase().indexOf("tudo em ordem") !== -1) {
-      return { silencioso: true, provedor: retornoModelo.provedor };
+      return alertaDeterministicoAutomatico
+        ? { resposta: alertaDeterministicoAutomatico, provedor: 'Sistema' }
+        : { silencioso: true, provedor: retornoModelo.provedor };
+    }
+
+    if (!mensagemUsuario && alertaDeterministicoAutomatico) {
+      respostaIA = alertaDeterministicoAutomatico + '\n\n' + respostaIA;
     }
     
     const interacaoId = mensagemUsuario ? registrarInteracaoEntidade_(mensagemUsuario, respostaIA) : '';
@@ -495,6 +525,19 @@ function mapearIdentificacaoServidorEntidade_(servidor) {
   };
 }
 
+/**
+ * Mantem no contexto operacional apenas conflitos de servidores que ainda
+ * pertencem ao quadro ativo. Lancamentos de inativos continuam preservados
+ * no historico, mas nao devem gerar avisos ou prioridades da Entidade.
+ */
+function filtrarConflitosServidoresAtivosEntidade_(conflitos, mapaServidores) {
+  return (Array.isArray(conflitos) ? conflitos : []).filter(function(item) {
+    const matricula = normalizarChaveMatricula_(item && item.matricula);
+    const servidor = matricula && mapaServidores ? mapaServidores[matricula] : null;
+    return !servidor || String(servidor.status || '').trim().toLowerCase() !== 'inativo';
+  });
+}
+
 function ehConsultaServidoresSemAdmissaoEntidade_(mensagem) {
   const texto = normalizarTextoBuscaEntidade_(mensagem);
   if (!/\badmissao\b/.test(texto)) return false;
@@ -563,6 +606,9 @@ function responderServidoresSemAdmissaoEntidade_(mensagem, servidores) {
 /** Respostas factuais recorrentes não consomem cota da IA e preservam a visualização correta. */
 function responderConsultaOperacionalDiretaEntidade_(mensagem, contexto) {
   const pergunta = String(mensagem || '');
+  if (ehConsultaProgramacaoFeriasAntesCompulsoriaEntidade_(pergunta)) {
+    return responderProgramacaoFeriasAntesCompulsoriaEntidade_();
+  }
   if (ehConsultaServidoresSemAdmissaoEntidade_(pergunta)) {
     return responderServidoresSemAdmissaoEntidade_(pergunta, contexto && contexto.servidoresIdentificacao);
   }
@@ -608,6 +654,26 @@ function responderConsultaOperacionalDiretaEntidade_(mensagem, contexto) {
   linhas.push('**Total listado:** ' + totalServidores + ' servidores em ' + lista.length + ' lotações/valores cadastrados.');
   if (semLotacao) linhas.push('**Atenção:** ' + semLotacao + ' servidor(es) estão sem lotação e precisam de regularização cadastral.');
   return '**Distribuição por lotação**\n' + linhas.join('\n');
+}
+
+/**
+ * Evita que uma dúvida normativa recorrente seja contaminada pelos indicadores
+ * do painel ou por uma sugestão indevida de abrir o formulário de lançamentos.
+ */
+function ehConsultaProgramacaoFeriasAntesCompulsoriaEntidade_(mensagem) {
+  const pergunta = normalizarTextoBuscaEntidade_(mensagem);
+  const mencionaFerias = /\bferias\b/.test(pergunta);
+  const mencionaAntecipacaoOuImposicao = /(antes|antecip|forc|obrig|mand|determinar|programar|agendar)/.test(pergunta);
+  const mencionaLimite = /(terceir|3\s*(?:a|as)?\s*ferias|compulsor|venc)/.test(pergunta);
+  return mencionaFerias && mencionaAntecipacaoOuImposicao && mencionaLimite;
+}
+
+function responderProgramacaoFeriasAntesCompulsoriaEntidade_() {
+  return '**Não é correto tratar como férias compulsórias antes do marco legal.** Ainda assim, a chefia e o DGP devem programar o gozo de férias **já adquiridas** antes que haja acúmulo superior a dois períodos.\n\n' +
+    '- A **LC Municipal nº 146/2011, art. 154, caput**, proíbe acumular mais de dois períodos e atribui responsabilidade ao Secretário da Pasta que permitir isso.\n' +
+    '- O **§1º** exige 12 meses de efetivo exercício para adquirir cada período; portanto, não se pode antecipar um período ainda não adquirido.\n' +
+    '- O **§6º** determina o gozo compulsório somente a partir do primeiro dia seguinte ao término do segundo período concessivo, com notificação do DGP.\n\n' +
+    'Assim, antes desse marco, a providência adequada é **organizar formalmente a concessão do saldo já adquirido** para evitar a terceira acumulação. Se houver recusa ou conflito sobre a data, o DGP deve formalizar a orientação; o alerta preventivo do sistema, sozinho, não transforma as férias em compulsórias.';
 }
 
 function obterAbaMemoriaEntidade_() {
@@ -766,7 +832,7 @@ function extrairTermosMemoriaEntidade_(texto) {
  */
 function obterContextoEntidadeServidor_() {
   const cache = CacheService.getScriptCache();
-  const chaveCache = 'entidade_contexto_planilha_v5';
+  const chaveCache = 'entidade_contexto_planilha_v7';
   const salvo = cache.get(chaveCache);
   if (salvo) {
     try { return JSON.parse(salvo); } catch (e) {}
@@ -776,6 +842,7 @@ function obterContextoEntidadeServidor_() {
   const dashboard = dados.dashboard || {};
   const servidores = Array.isArray(dados.servidores) ? dados.servidores : [];
   const lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
+  const lancamentosValidos = lancamentos.filter(function(l) { return l && l.identidadeConsistente !== false; });
   const protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
 
   const feriasCompulsorias = servidores
@@ -808,7 +875,7 @@ function obterContextoEntidadeServidor_() {
       };
     });
 
-  const pendencias1Doc = lancamentos
+  const pendencias1Doc = lancamentosValidos
     .filter(function(l) {
       if (String(l.status || '').toLowerCase() === 'anulado') return false;
       if (String(l.idoc || '').trim()) return false;
@@ -865,7 +932,7 @@ function obterContextoEntidadeServidor_() {
   });
 
   const lancamentosPorTipo = {};
-  lancamentos.forEach(function(lancamento) {
+  lancamentosValidos.forEach(function(lancamento) {
     if (String(lancamento.status || '').toLowerCase() === 'anulado') return;
     const tipo = String(lancamento.tipo || 'Não informado').trim() || 'Não informado';
     lancamentosPorTipo[tipo] = (lancamentosPorTipo[tipo] || 0) + 1;
@@ -905,6 +972,12 @@ function obterContextoEntidadeServidor_() {
     Logger.log('Não foi possível carregar a auditoria cadastral para a Entidade: ' + e.toString());
   }
 
+  const conflitosDeAfastamentos = filtrarConflitosServidoresAtivosEntidade_(
+    detectarSobreposicoesLancamentos_(lancamentos, 20),
+    mapaServidores
+  );
+  const divergenciasIdentificacaoLancamentos = detectarDivergenciasIdentificacaoLancamentos_(lancamentos, 20);
+
   const contexto = {
     origem: 'Leitura direta e atual da planilha Google',
     geradoEm: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
@@ -919,6 +992,8 @@ function obterContextoEntidadeServidor_() {
     ausenciasHoje: (dashboard.listaAusentes || []).slice(0, 15),
     servidoresEmFeriasCompulsorias: feriasCompulsorias,
     pendenciasDe1Doc: pendencias1Doc,
+    conflitosDeAfastamentos: conflitosDeAfastamentos,
+    divergenciasIdentificacaoLancamentos: divergenciasIdentificacaoLancamentos,
     servidoresIdentificacao: servidores.map(mapearIdentificacaoServidorEntidade_),
     distribuicaoPorLotacao: Object.keys(lotacoes)
       .map(function(nome) { return { lotacao: nome, quantidade: lotacoes[nome] }; })
@@ -960,7 +1035,7 @@ function obterContextoEntidadeServidor_() {
     })(),
     protocolosPorStatus: statusProtocolos,
     tiposDocumentoAtivos: tiposDocumento,
-    ultimosLancamentos: lancamentos.slice(-10).reverse().map(function(l) {
+    ultimosLancamentos: lancamentosValidos.slice(0, 10).map(function(l) {
       return { nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataInicio: l.dataInicio, dias: l.dias, status: l.status, idoc: l.idoc || '' };
     }),
     observacaoPrivacidade: 'Anexos, links, e-mails, senhas e chaves de configuração foram intencionalmente omitidos.'
@@ -976,10 +1051,11 @@ function criarFingerprintContextoEntidade_(contexto) {
     resumo: contexto.resumoOficial || {},
     compulsorias: contexto.servidoresEmFeriasCompulsorias || [],
     pendencias: contexto.pendenciasDe1Doc || [],
+    conflitos: contexto.conflitosDeAfastamentos || [],
+    divergenciasIdentificacao: contexto.divergenciasIdentificacaoLancamentos || [],
     ausencias: contexto.ausenciasHoje || [],
     sinais: contexto.sinaisCruzados || {},
-    protocolos: contexto.protocolosPorStatus || {},
-    atividade: contexto.atividadeRecenteDoAplicativo || {}
+    protocolos: contexto.protocolosPorStatus || {}
   };
   const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(base), Utilities.Charset.UTF_8);
   return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '');
@@ -993,6 +1069,12 @@ function criarEstadoResumidoEntidade_(contexto) {
     }).sort(),
     pendencias: (contexto.pendenciasDe1Doc || []).map(function(item) {
       return normalizarChaveMatricula_(item.matricula) + '|' + String(item.tipo || '') + '|' + String(item.dataSolicitacao || '');
+    }).sort(),
+    conflitos: (contexto.conflitosDeAfastamentos || []).map(function(item) {
+      return normalizarChaveMatricula_(item.matricula) + '|' + String(item.primeiroTipo || '') + '|' + String(item.primeiroPeriodo || '') + '|' + String(item.segundoTipo || '') + '|' + String(item.segundoPeriodo || '');
+    }).sort(),
+    divergenciasIdentificacao: (contexto.divergenciasIdentificacaoLancamentos || []).map(function(item) {
+      return Number(item.linhaPlanilha || 0) + '|' + String(item.matriculaColuna || '') + '|' + String(item.matriculaNoNome || '');
     }).sort(),
     ausencias: (contexto.ausenciasHoje || []).map(function(item) {
       return normalizarChaveMatricula_(item.matricula) + '|' + String(item.tipo || '') + '|' + String(item.periodo || '');
@@ -1091,9 +1173,52 @@ function obterHistoricoInsightsEntidade_(limite) {
   }
 }
 
+/**
+ * Alertas cuja exatidão não pode depender de paráfrase do modelo.
+ * Recebe somente conflitos já validados pelo motor de intervalos.
+ */
+function gerarAlertasConflitosDeterministicosEntidade_(contexto, limite) {
+  const maximo = Math.max(1, Number(limite || 3));
+  const itens = [];
+  const divergencias = (contexto && contexto.divergenciasIdentificacaoLancamentos) || [];
+  const conflitos = (contexto && contexto.conflitosDeAfastamentos) || [];
+
+  divergencias.some(function(item) {
+    itens.push('**Identificação divergente:** linha ' + Number(item.linhaPlanilha || 0) +
+      ', matrícula da coluna ' + String(item.matriculaColuna || '-') +
+      ' e matrícula no campo NOME ' + String(item.matriculaNoNome || '-') +
+      ' (' + String(item.nome || 'servidor não identificado') + '). Corrija a origem antes de atribuir o lançamento.');
+    return itens.length >= maximo;
+  });
+
+  conflitos.some(function(item) {
+    if (itens.length >= maximo) return true;
+    const primeiroId = String(item.primeiroId || 'sem ID');
+    const segundoId = String(item.segundoId || 'sem ID');
+    itens.push('**Sobreposição confirmada:** ' + String(item.nome || 'Servidor') +
+      ' (matrícula ' + String(item.matricula || '-') + '). Registro `' + primeiroId +
+      '` — ' + String(item.primeiroTipo || 'afastamento') + ', ' + String(item.primeiroPeriodo || '-') +
+      ', status ' + String(item.primeiroStatus || 'Ativo') + '; registro `' + segundoId +
+      '` — ' + String(item.segundoTipo || 'afastamento') + ', ' + String(item.segundoPeriodo || '-') +
+      ', status ' + String(item.segundoStatus || 'Ativo') +
+      '. Período sobreposto: ' + String(item.inicioSobreposicao || '-') +
+      (item.fimSobreposicao && item.fimSobreposicao !== item.inicioSobreposicao ? ' a ' + item.fimSobreposicao : '') +
+      '. Confira e anule ou corrija somente o registro indevido.');
+    return itens.length >= maximo;
+  });
+
+  if (!itens.length) return '';
+  const restante = divergencias.length + conflitos.length - itens.length;
+  return ['**Inconsistências verificadas nos lançamentos**']
+    .concat(itens.map(function(item, indice) { return (indice + 1) + '. ' + item; }))
+    .concat(restante > 0 ? ['Mais ' + restante + ' inconsistência(s) ficaram fora deste resumo.'] : [])
+    .join('\n');
+}
+
 /** Executado por gatilho e também sob demanda quando ainda não há análise recente. */
 function gerarInsightEntidade_(forcarAnalise) {
   const props = PropertiesService.getScriptProperties();
+  const versaoMotor = 'insight-conflitos-deterministicos-v1';
   const contextoAtual = obterContextoEntidadeServidor_();
   const fingerprintAtual = criarFingerprintContextoEntidade_(contextoAtual);
   let anteriorObj = null;
@@ -1101,7 +1226,7 @@ function gerarInsightEntidade_(forcarAnalise) {
 
   const ultimaAnalise = anteriorObj && Number(anteriorObj.geradoEm || 0);
   const revisaoDiariaVencida = !ultimaAnalise || (Date.now() - ultimaAnalise) >= 86400000;
-  if (!forcarAnalise && anteriorObj && anteriorObj.fingerprint === fingerprintAtual && !revisaoDiariaVencida) {
+  if (!forcarAnalise && anteriorObj && anteriorObj.versao === versaoMotor && anteriorObj.fingerprint === fingerprintAtual && !revisaoDiariaVencida) {
     anteriorObj.verificadoEm = Date.now();
     props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(anteriorObj));
     return anteriorObj;
@@ -1111,7 +1236,7 @@ function gerarInsightEntidade_(forcarAnalise) {
   let estadoAnterior = null;
   try { estadoAnterior = JSON.parse(props.getProperty('ENTIDADE_ESTADO_ANALISADO') || 'null'); } catch (e) {}
   props.setProperty('ENTIDADE_MUDANCAS_PENDENTES', JSON.stringify(compararEstadosEntidade_(estadoAnterior, estadoAtual)));
-  CacheService.getScriptCache().remove('entidade_contexto_planilha_v3');
+  CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
 
   const resultado = chamarEntidade(null, '{}', []);
   if (!resultado || resultado.erro) {
@@ -1119,14 +1244,14 @@ function gerarInsightEntidade_(forcarAnalise) {
   }
   const agora = new Date().getTime();
   const registro = resultado && resultado.silencioso
-    ? { versao: '2.3.7-groq', temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
-    : { versao: '2.3.7-groq', temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
+    ? { versao: versaoMotor, temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
+    : { versao: versaoMotor, temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
 
   props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(registro));
   props.setProperty('ENTIDADE_ESTADO_ANALISADO', JSON.stringify(estadoAtual));
   props.deleteProperty('ENTIDADE_MUDANCAS_PENDENTES');
 
-  const insightNovo = !anteriorObj || anteriorObj.fingerprint !== registro.fingerprint || anteriorObj.temAlertas !== registro.temAlertas;
+  const insightNovo = !anteriorObj || anteriorObj.versao !== registro.versao || anteriorObj.fingerprint !== registro.fingerprint || anteriorObj.temAlertas !== registro.temAlertas;
   if (insightNovo) registrarInsightHistorico_(registro);
   if (registro.temAlertas && insightNovo) {
     lancarLogSemLock_('VIGIA_IA', 'IA_Entidade', 'A Entidade atualizou os alertas operacionais do painel.', '', '', '', 'ROTINA_AUTOMATICA');
@@ -1147,6 +1272,15 @@ function obterChaveVisualizacaoBriefingEntidade_(usuario) {
   return 'ENTIDADE_BRIEFING_VISTO_' + Utilities.base64EncodeWebSafe(digestUsuario).replace(/=+$/g, '').slice(0, 18);
 }
 
+function obterChaveVisualizacaoInsightEntidade_(usuario) {
+  const digestUsuario = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(usuario.email || usuario.nome || 'usuario').toLowerCase(),
+    Utilities.Charset.UTF_8
+  );
+  return 'ENTIDADE_INSIGHT_VISTO_' + Utilities.base64EncodeWebSafe(digestUsuario).replace(/=+$/g, '').slice(0, 18);
+}
+
 /**
  * Resumo local de contingência. Mantém a Entidade útil mesmo quando o provedor
  * de IA estiver lento, sem cota ou temporariamente indisponível.
@@ -1157,8 +1291,19 @@ function gerarBriefingDeterministicoEntidade_(contexto) {
   const pendencias = contexto.pendenciasDe1Doc || [];
   const ausencias = contexto.ausenciasHoje || [];
   const qualidade = (contexto.sinaisCruzados && contexto.sinaisCruzados.qualidadeCadastral) || {};
+  const conflitos = contexto.conflitosDeAfastamentos || [];
+  const divergenciasIdentificacao = contexto.divergenciasIdentificacaoLancamentos || [];
   const prioridades = [];
   const lotacaoMaisAfetada = ((contexto.sinaisCruzados || {}).lotacoesComMaisAusenciasHoje || [])[0];
+  const movimentacao = contexto.movimentacaoDesdeBriefing || {};
+
+  divergenciasIdentificacao.slice(0, 2).forEach(function(item) {
+    prioridades.push('**Identificação divergente em lançamento:** a linha ' + Number(item.linhaPlanilha || 0) + ' informa matrícula ' + String(item.matriculaColuna || '-') + ' na coluna MATRICULA, mas o campo NOME aponta para a matrícula ' + String(item.matriculaNoNome || '-') + ' (' + String(item.nome || 'nome não identificado') + '), em ' + String(item.dataInicio || 'data não informada') + '. Corrija a linha antes de atribuir esse registro a um servidor.');
+  });
+
+  conflitos.slice(0, Math.max(0, 2 - divergenciasIdentificacao.length)).forEach(function(item) {
+    prioridades.push('**Sobreposição de afastamentos:** ' + String(item.nome || 'Servidor') + ' (matrícula ' + String(item.matricula || '-') + ') possui o registro `' + String(item.primeiroId || 'sem ID') + '` — ' + String(item.primeiroTipo || 'um lançamento') + ', ' + String(item.primeiroPeriodo || '-') + ', status ' + String(item.primeiroStatus || 'Ativo') + ' — e o registro `' + String(item.segundoId || 'sem ID') + '` — ' + String(item.segundoTipo || 'outro lançamento') + ', ' + String(item.segundoPeriodo || '-') + ', status ' + String(item.segundoStatus || 'Ativo') + '. Sobreposição exata: ' + String(item.inicioSobreposicao || '-') + (item.fimSobreposicao && item.fimSobreposicao !== item.inicioSobreposicao ? ' a ' + item.fimSobreposicao : '') + '. Confira qual registro precisa ser corrigido ou anulado.');
+  });
 
   compulsorias.slice(0, 2).forEach(function(item) {
     const prazo = Number(item.diasParaTerceiroPeriodo);
@@ -1191,6 +1336,11 @@ function gerarBriefingDeterministicoEntidade_(contexto) {
       Number(resumo.feriasCompulsorias || 0) + ' férias compulsórias · ' +
       Number(resumo.ausentesHoje || 0) + ' ausentes hoje · ' +
       Number(resumo.lancamentosSem1Doc || 0) + ' sem 1DOC.',
+    Number(movimentacao.variacaoLancamentos || 0) !== 0
+      ? ('\n**Movimentação desde o último resumo**\n' +
+        (Number(movimentacao.variacaoLancamentos) > 0 ? '+' : '') + Number(movimentacao.variacaoLancamentos) +
+        ' lançamento(s). Os indicadores e as prioridades abaixo foram recalculados.')
+      : '',
     '',
     '**Casos que pedem atenção**',
     prioridades.map(function(item, indice) { return (indice + 1) + '. ' + item; }).join('\n'),
@@ -1202,26 +1352,49 @@ function gerarBriefingDeterministicoEntidade_(contexto) {
   ].join('\n');
 }
 
+/** Muda com fatos de RH, não com simples abertura da tela ou novos logs. */
+function criarFingerprintBriefingEntidade_(contexto) {
+  const base = {
+    resumo: contexto.resumoOficial || {},
+    compulsorias: contexto.servidoresEmFeriasCompulsorias || [],
+    pendencias: contexto.pendenciasDe1Doc || [],
+    conflitos: contexto.conflitosDeAfastamentos || [],
+    divergenciasIdentificacao: contexto.divergenciasIdentificacaoLancamentos || [],
+    qualidade: (contexto.sinaisCruzados && contexto.sinaisCruzados.qualidadeCadastral) || {},
+    ultimosLancamentos: contexto.ultimosLancamentos || []
+  };
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(base), Utilities.Charset.UTF_8);
+  return Utilities.base64EncodeWebSafe(digest).replace(/=+$/g, '');
+}
+
 function obterBriefingDiarioEntidade() {
   const usuario = obterDadosUsuarioLogado();
   const props = PropertiesService.getScriptProperties();
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const chaveVisualizacao = obterChaveVisualizacaoBriefingEntidade_(usuario);
-  const versaoBriefing = 'briefing-diario-v5';
-  const marcadorVisualizacao = hoje + '|' + versaoBriefing;
+  const versaoBriefing = 'briefing-dinamico-v7';
+  const contexto = obterContextoEntidadeServidor_();
+  const fingerprint = criarFingerprintBriefingEntidade_(contexto);
+  const marcadorVisualizacao = hoje + '|' + versaoBriefing + '|' + fingerprint.slice(0, 18);
   const jaVisto = props.getProperty(chaveVisualizacao) === marcadorVisualizacao;
 
   let briefing = null;
   try { briefing = JSON.parse(props.getProperty('ENTIDADE_BRIEFING_DIARIO') || 'null'); } catch (e) {}
 
-  if (!briefing || briefing.data !== hoje || briefing.versao !== versaoBriefing) {
-    // O briefing inicial não aguarda API externa: abre rápido, é previsível e
-    // economiza cota. A vigia horária e o chat continuam usando a IA normalmente.
-    const contexto = obterContextoEntidadeServidor_();
+  if (!briefing || briefing.data !== hoje || briefing.versao !== versaoBriefing || briefing.fingerprint !== fingerprint) {
+    const totalAtual = Number(contexto.resumoOficial.totalLancamentos || 0);
+    const totalAnterior = briefing && briefing.snapshot
+      ? Number(briefing.snapshot.totalLancamentos || 0)
+      : totalAtual;
+    contexto.movimentacaoDesdeBriefing = { variacaoLancamentos: totalAtual - totalAnterior };
+    // Abre sem aguardar provedor externo. A análise por IA é refeita
+    // separadamente apenas quando uma gravação altera os fatos observados.
     briefing = {
       versao: versaoBriefing,
       data: hoje,
       geradoEm: Date.now(),
+      fingerprint: fingerprint,
+      snapshot: { totalLancamentos: totalAtual },
       resposta: gerarBriefingDeterministicoEntidade_(contexto).slice(0, 6500),
       provedor: 'Sistema',
       interacaoId: ''
@@ -1234,48 +1407,50 @@ function obterBriefingDiarioEntidade() {
     disponivel: true,
     data: briefing.data,
     geradoEm: briefing.geradoEm,
+    verificadoEm: Date.now(),
     resposta: briefing.resposta,
     provedor: briefing.provedor,
-    interacaoId: briefing.interacaoId
+    interacaoId: briefing.interacaoId,
+    fingerprint: briefing.fingerprint
   };
 }
 
 function marcarBriefingDiarioEntidadeComoVisto() {
   const usuario = obterDadosUsuarioLogado();
   const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  PropertiesService.getScriptProperties().setProperty(obterChaveVisualizacaoBriefingEntidade_(usuario), hoje + '|briefing-diario-v5');
+  const props = PropertiesService.getScriptProperties();
+  let briefing = null;
+  try { briefing = JSON.parse(props.getProperty('ENTIDADE_BRIEFING_DIARIO') || 'null'); } catch (e) {}
+  const versao = briefing && briefing.versao ? briefing.versao : 'briefing-dinamico-v7';
+  const fingerprint = briefing && briefing.fingerprint ? String(briefing.fingerprint).slice(0, 18) : '';
+  props.setProperty(obterChaveVisualizacaoBriefingEntidade_(usuario), hoje + '|' + versao + '|' + fingerprint);
   return true;
 }
 
-/** Retorna a análise vigente; gera uma nova se a armazenada tiver mais de 6 horas. */
+/** Revalida os fatos; só consome IA quando o fingerprint operacional mudou. */
 function obterInsightEntidadeAtual() {
-  obterDadosUsuarioLogado();
+  const usuario = obterDadosUsuarioLogado();
   try { garantirGatilhoVigiaEntidade_(); } catch (e) { Logger.log('Gatilho da Entidade ainda não autorizado: ' + e.toString()); }
   try { garantirGatilhoManutencaoSistema_(); } catch (e) { Logger.log('Gatilho de manutenção ainda não autorizado: ' + e.toString()); }
-  const props = PropertiesService.getScriptProperties();
-  const salvo = props.getProperty('ENTIDADE_ULTIMO_INSIGHT');
-  if (salvo) {
-    try {
-      const insight = JSON.parse(salvo);
-      if (insight.versao === '2.3.7-groq' && insight.verificadoEm && (Date.now() - Number(insight.verificadoEm)) < 21600000) return insight;
-    } catch (e) {}
-  }
-
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
-    // Outra sessão pode ter atualizado enquanto esta aguardava o lock.
-    const atualizado = props.getProperty('ENTIDADE_ULTIMO_INSIGHT');
-    if (atualizado) {
-      try {
-        const insightAtual = JSON.parse(atualizado);
-        if (insightAtual.versao === '2.3.7-groq' && insightAtual.verificadoEm && (Date.now() - Number(insightAtual.verificadoEm)) < 21600000) return insightAtual;
-      } catch (e) {}
-    }
-    return gerarInsightEntidade_(false);
+    const insight = gerarInsightEntidade_(false);
+    const fingerprint = String(insight && insight.fingerprint || '');
+    const visto = fingerprint && PropertiesService.getScriptProperties().getProperty(obterChaveVisualizacaoInsightEntidade_(usuario)) === fingerprint;
+    insight.mostrar = Boolean(insight.temAlertas && !visto);
+    return insight;
   } finally {
     lock.releaseLock();
   }
+}
+
+function marcarInsightEntidadeComoVisto(fingerprint) {
+  const usuario = obterDadosUsuarioLogado();
+  const valor = String(fingerprint || '').trim();
+  if (!valor) return false;
+  PropertiesService.getScriptProperties().setProperty(obterChaveVisualizacaoInsightEntidade_(usuario), valor);
+  return true;
 }
 
 function garantirGatilhoVigiaEntidade_() {

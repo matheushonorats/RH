@@ -58,3 +58,68 @@ function executarTestesConsultaAdmissaoEntidade_() {
 
   return { sucesso: true, testes: 18 };
 }
+
+/** Testes da orientação normativa direta sobre programação de férias. */
+function executarTestesOrientacaoFeriasEntidade_() {
+  function afirmar_(condicao, mensagem) {
+    if (!condicao) throw new Error('Teste de orientação de férias falhou: ' + mensagem);
+  }
+
+  const perguntas = [
+    'Podemos forçar o servidor a sair de férias antes de vencer as terceiras férias?',
+    'Posso antecipar as férias antes de ficarem compulsórias?',
+    'A chefia pode obrigar o servidor a tirar férias antes do terceiro período?'
+  ];
+  perguntas.forEach(function(pergunta) {
+    afirmar_(ehConsultaProgramacaoFeriasAntesCompulsoriaEntidade_(pergunta), 'pergunta não reconhecida: ' + pergunta);
+  });
+
+  const resposta = responderConsultaOperacionalDiretaEntidade_(perguntas[0], {
+    feriasCompulsoriasLista: [{ nome: 'Pessoa que não deve aparecer', matricula: '999' }]
+  });
+  afirmar_(resposta.indexOf('art. 154') !== -1, 'deve citar o art. 154');
+  afirmar_(resposta.indexOf('§1º') !== -1 && resposta.indexOf('§6º') !== -1, 'deve distinguir aquisição e compulsoriedade');
+  afirmar_(resposta.indexOf('já adquiridas') !== -1, 'deve limitar a orientação ao saldo adquirido');
+  afirmar_(resposta.indexOf('Pessoa que não deve aparecer') === -1, 'não deve misturar casos pessoais do painel');
+  afirmar_(resposta.indexOf('[ABRIR_') === -1 && resposta.indexOf('[NAVEGAR_') === -1, 'não deve abrir tela em dúvida informativa');
+
+  return { sucesso: true, testes: 8 };
+}
+
+/** Testes dos alertas automáticos exatos de sobreposição. */
+function executarTestesAlertasConflitosEntidade_() {
+  function afirmar_(condicao, mensagem) {
+    if (!condicao) throw new Error('Teste de alerta de conflito falhou: ' + mensagem);
+  }
+
+  const resposta = gerarAlertasConflitosDeterministicosEntidade_({
+    conflitosDeAfastamentos: [{
+      nome: 'DANIELLI OLIVEIRA GOMES', matricula: '86924',
+      primeiroId: 'a8b1d490', primeiroTipo: 'Férias', primeiroPeriodo: '29/09/2025 a 08/10/2025', primeiroStatus: 'Ativo',
+      segundoId: '25a81171', segundoTipo: 'Abonada', segundoPeriodo: '03/10/2025', segundoStatus: 'Ativo',
+      inicioSobreposicao: '03/10/2025', fimSobreposicao: '03/10/2025'
+    }]
+  }, 3);
+
+  afirmar_(resposta.indexOf('a8b1d490') !== -1 && resposta.indexOf('25a81171') !== -1,
+    'deve mostrar os dois IDs');
+  afirmar_(resposta.indexOf('29/09/2025 a 08/10/2025') !== -1 && resposta.indexOf('03/10/2025') !== -1,
+    'deve preservar os períodos exatos');
+  afirmar_(resposta.indexOf('status Ativo') !== -1, 'deve mostrar o status usado no cálculo');
+  afirmar_(gerarAlertasConflitosDeterministicosEntidade_({}, 3) === '', 'sem conflito deve permanecer silencioso');
+
+  const conflitosFiltrados = filtrarConflitosServidoresAtivosEntidade_([
+    { matricula: '100', nome: 'Servidor Ativo' },
+    { matricula: '200', nome: 'Servidor Inativo' },
+    { matricula: '300', nome: 'Cadastro Ausente' }
+  ], {
+    '100': { matricula: '100', status: 'Ativo' },
+    '200': { matricula: '200', status: 'Inativo' }
+  });
+  afirmar_(conflitosFiltrados.length === 2, 'deve remover somente conflito de inativo confirmado');
+  afirmar_(conflitosFiltrados.some(function(item) { return item.matricula === '100'; }), 'ativo deve permanecer');
+  afirmar_(!conflitosFiltrados.some(function(item) { return item.matricula === '200'; }), 'inativo nao deve gerar alerta');
+  afirmar_(conflitosFiltrados.some(function(item) { return item.matricula === '300'; }), 'cadastro ausente deve permanecer para investigacao');
+
+  return { sucesso: true, testes: 8 };
+}

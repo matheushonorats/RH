@@ -120,7 +120,12 @@
             <span class="page-eyebrow">RH · Central de Documentos</span>
             <h1 id="view-title">Visão Geral</h1>
           </div>
-          <div class="topbar-context"><span data-lucide="calendar-days"></span><span id="current-date-label"></span></div>
+          <div class="topbar-context">
+            <span data-lucide="calendar-days"></span>
+            <span id="current-date-label"></span>
+            <span class="topbar-clock-separator" aria-hidden="true">&bull;</span>
+            <time id="current-time-label" datetime="">--:--:--</time>
+          </div>
         </header>
         
         <!-- Container das Telas (Views) -->
@@ -780,7 +785,7 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-servidor')">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar Cadastro</button>
+            <button type="submit" class="btn btn-primary" id="btn-servidor-salvar">Salvar Cadastro</button>
           </div>
         </form>
       </div>
@@ -1148,7 +1153,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="fecharModal('modal-criar-protocolo')">Cancelar</button>
-          <button class="btn btn-primary" onclick="confirmarGeracaoProtocolo()">Gerar Folha de Protocolo</button>
+          <button class="btn btn-primary" id="btn-gerar-protocolo" onclick="confirmarGeracaoProtocolo()">Gerar Folha de Protocolo</button>
         </div>
       </div>
     </div>
@@ -1169,6 +1174,26 @@
         </div>
         <div class="modal-body" id="print-area-protocolo" style="padding: 0; background-color: #fff; overflow-y: auto;">
           <!-- HTML timbrado inserido aqui -->
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Notificação Preventiva de Férias Compulsórias -->
+    <div class="modal-overlay" id="modal-notificacao-ferias">
+      <div class="modal-content large" style="background-color: #fff; color: #000;">
+        <div class="modal-header" style="border-bottom-color: #ddd; background-color: #f8f9fa; color: #000;">
+          <h3 class="modal-title" style="color: #000;">Comunicado para Programação de Férias</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-primary" onclick="imprimirNotificacaoFeriasCompulsorias()">
+              <span data-lucide="printer"></span> Imprimir
+            </button>
+            <button class="modal-close" onclick="fecharModal('modal-notificacao-ferias')" style="color: #000;">
+              <span data-lucide="x"></span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-body" id="print-area-notificacao-ferias" style="padding: 0; background-color: #fff; overflow-y: auto;">
+          <!-- Notificação individual inserida aqui -->
         </div>
       </div>
     </div>
@@ -1212,7 +1237,7 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-usuario')">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Salvar Usuário</button>
+            <button type="submit" class="btn btn-primary" id="btn-usuario-salvar">Salvar Usuário</button>
           </div>
         </form>
       </div>
@@ -1317,7 +1342,7 @@
 
     <!-- MODAL 9: Preenchimento Rápido de 1Doc -->
     <div class="modal-overlay" id="modal-quick-1doc" style="z-index: 10000;">
-      <div class="modal-content small" style="max-width: 400px;">
+      <div class="modal-content small" style="max-width: 540px;">
         <div class="modal-header">
           <h3 class="modal-title">Informar Protocolo 1Doc</h3>
           <button class="modal-close" onclick="fecharModal('modal-quick-1doc')">
@@ -1325,7 +1350,49 @@
           </button>
         </div>
         <div class="modal-body">
-          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Servidor: <strong id="quick-1doc-servidor"></strong></p>
+          <p class="quick-1doc-dados-titulo">Dados para preencher o 1Doc</p>
+          <div class="quick-1doc-dados">
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Nome</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-servidor">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-servidor', 'Nome')" title="Copiar nome" aria-label="Copiar nome"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Matrícula</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-matricula">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-matricula', 'Matrícula')" title="Copiar matrícula" aria-label="Copiar matrícula"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Cargo</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-cargo">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-cargo', 'Cargo')" title="Copiar cargo" aria-label="Copiar cargo"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Lotação</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-lotacao">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-lotacao', 'Lotação')" title="Copiar lotação" aria-label="Copiar lotação"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">E-mail</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-email">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-email', 'E-mail')" title="Copiar e-mail" aria-label="Copiar e-mail"><span data-lucide="copy"></span></button>
+            </div>
+          </div>
+          <p class="quick-1doc-dados-titulo">Lançamento selecionado</p>
+          <div class="quick-1doc-resumo-lancamento">
+            <div class="quick-1doc-resumo-item quick-1doc-resumo-tipo">
+              <span>Tipo de documento</span>
+              <strong id="quick-1doc-tipo">-</strong>
+            </div>
+            <div class="quick-1doc-resumo-item">
+              <span>Saída / Falta</span>
+              <strong id="quick-1doc-data">-</strong>
+            </div>
+            <div class="quick-1doc-resumo-item">
+              <span>Dias / Qtd.</span>
+              <strong id="quick-1doc-quantidade">-</strong>
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">Nº 1Doc (Protocolo)</label>
             <div style="display: flex; gap: 8px;">
@@ -1346,6 +1413,30 @@
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="fecharModal('modal-quick-1doc')">Cancelar</button>
           <button class="btn btn-primary" id="quick-1doc-salvar" onclick="salvarQuick1Doc()">Salvar Protocolo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILA SEGURA DE SINCRONIZAÇÃO -->
+    <div class="modal-overlay" id="modal-fila-sincronizacao" style="z-index: 10001;">
+      <div class="modal-content" style="max-width: 720px;">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">Fila segura de sincronização</h3>
+            <p class="fila-modal-subtitulo">Documentos preservados mesmo após fechar ou recarregar a página.</p>
+          </div>
+          <button class="modal-close" onclick="fecharModal('modal-fila-sincronizacao')" aria-label="Fechar">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div id="fila-sincronizacao-lista" class="fila-sincronizacao-lista"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="carregarOperacoesPendentesServidor(false)">
+            <span data-lucide="refresh-cw"></span> Atualizar
+          </button>
+          <button class="btn btn-primary" onclick="fecharModal('modal-fila-sincronizacao')">Fechar</button>
         </div>
       </div>
     </div>
@@ -1385,11 +1476,7 @@
           <button class="entidade-close" onclick="fecharChatEntidade()"><span data-lucide="x" style="width: 18px; height: 18px;"></span></button>
         </div>
         
-        <div class="entidade-messages" id="entidade-messages">
-          <div class="entidade-msg ia">
-            Olá! Sou a Entidade, vigia deste sistema. Como posso ajudar?
-          </div>
-        </div>
+        <div class="entidade-messages" id="entidade-messages"></div>
         
         <div class="entidade-chips" id="entidade-chips" style="display: none;">
           <!-- Chips gerados dinamicamente via JS -->

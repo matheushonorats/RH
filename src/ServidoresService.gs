@@ -8,7 +8,11 @@
  */
 function obterListaServidores() {
   obterDadosUsuarioLogado();
-  
+  return obterListaServidoresInterno_();
+}
+
+/** Leitura interna para gatilhos confiáveis executados sem sessão de usuário. */
+function obterListaServidoresInterno_() {
   const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Servidores");
   if (!aba) return [];
@@ -338,7 +342,7 @@ function salvarServidor(dadosServidor) {
 
   try {
     auditarCadastroServidor_(dadosServidor, dadosAntesAuditoria, operacaoAuditoria);
-    CacheService.getScriptCache().remove('entidade_contexto_planilha_v3');
+    CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
     PropertiesService.getScriptProperties().deleteProperty('ENTIDADE_ULTIMO_INSIGHT');
   } catch (e) {
     lancarLog("ERRO_AUDITORIA_CADASTRO", "Servidores", "Não foi possível auditar o cadastro salvo: " + e.toString(), "", "", "", String(dadosServidor.matricula || ""));

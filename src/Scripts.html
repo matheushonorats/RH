@@ -12,6 +12,7 @@ const AppState = {
   dashboard: {},
   insightEntidade: null,
   briefingDiarioEntidade: null,
+  operacoesPendentes: [],
   mensagemEntidadeOculta: '',
   conviteEntidadePendente: false,
   dadosCompletosCarregados: false,
@@ -34,6 +35,11 @@ const SyncQueue = {
   MAX_RETRIES: 3,
 
   enfileirar(tipo, funcaoNome, args, descricao) {
+    const operacaoId = args && args[0] && args[0].operacaoId ? String(args[0].operacaoId) : "";
+    if (operacaoId) {
+      const existente = this.fila.find(item => item.operacaoId === operacaoId);
+      if (existente) return existente.id;
+    }
     const item = {
       id: Date.now() + '-' + Math.random().toString(36).substr(2, 5),
       tipo: tipo,
@@ -41,7 +47,8 @@ const SyncQueue = {
       args: args,
       descricao: descricao || tipo,
       tentativas: 0,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      operacaoId: operacaoId
     };
     this.fila.push(item);
     this.persistir();
@@ -84,13 +91,15 @@ const SyncQueue = {
         // Consulta imediatamente o novo parecer, sem aguardar o polling de 10 minutos.
         if (item.tipo === 'salvar_lancamento') {
           animarEntidadeOperacao_(item.args && item.args[0] && item.args[0].linhaPlanilha ? 'alteracao' : 'lancamento');
+          removerOperacaoPendenteEstado_(item.operacaoId);
+          setTimeout(atualizarLeiturasEntidadeAposMudanca_, 1200);
         } else if (item.tipo === 'salvar_servidor') {
           const matriculaSalva = String(item.args && item.args[0] && item.args[0].matricula || '');
           const jaExistia = (AppState.servidores || []).some(function(servidor) {
             return String(servidor.matricula || '') === matriculaSalva;
           });
           animarEntidadeOperacao_(jaExistia ? 'alteracao' : 'lancamento');
-          setTimeout(consultarInsightEntidade, 900);
+          setTimeout(atualizarLeiturasEntidadeAposMudanca_, 1200);
         }
         
         // Processa o próximo da fila
@@ -103,16 +112,24 @@ const SyncQueue = {
       })
       .withFailureHandler(function(erro) {
         self.processando = false;
-        if (item.tentativas >= self.MAX_RETRIES) {
+        const detalheErro = mensagemErro(erro);
+        const erroTemporario = /sistema ocupado|tente novamente|temporari|timeout|tempo limite|network|rede|service unavailable|internal error|lock/i.test(detalheErro);
+
+        if (item.operacaoId) {
+          backendApi().registrarFalhaOperacaoPendente(item.operacaoId, detalheErro);
+        }
+
+        if (!erroTemporario || item.tentativas >= self.MAX_RETRIES) {
           const falhou = self.fila.shift();
-          mostrarToast(`Erro permanente: ${falhou.descricao}. ${mensagemErro(erro)}`, 'error');
+          mostrarToast(`${falhou.descricao}: ${detalheErro}`, 'error');
           atualizarTextoSync(`Falhou: ${falhou.descricao}`, true, 'warning');
           animarEntidadeOperacao_('falha');
+          setTimeout(() => carregarOperacoesPendentesServidor(false), 500);
           setTimeout(() => { if(!self.processando) atualizarTextoSync("", false); }, 5000);
         } else {
           const delay = item.tentativas * 5000; // 5s, 10s, 15s
-          mostrarToast(`Retry ${item.descricao} em ${delay/1000}s...`, 'warning');
-          atualizarTextoSync(`Re-tentando em ${delay/1000}s...`, true, 'warning');
+          mostrarToast(`Falha temporária. Nova tentativa de ${item.descricao} em ${delay/1000}s...`, 'warning');
+          atualizarTextoSync(`Nova tentativa em ${delay/1000}s...`, true, 'warning');
           setTimeout(() => self.processar(), delay);
         }
         self.persistir();
@@ -145,6 +162,8 @@ const SyncQueue = {
   atualizarUI() {
     const barra = document.getElementById('sync-status-bar');
     if (!barra) return;
+    barra.onclick = null;
+    barra.style.cursor = '';
     const online = navigator.onLine;
     const pendentes = this.fila.length;
 
@@ -163,12 +182,156 @@ const SyncQueue = {
       barra.style.display = 'flex';
       atualizarTextoSync(`${pendentes} alteração(ões) pendente(s)...`, true, 'warning');
     } else {
-      barra.style.display = 'none';
+      const pendentesServidor = (AppState.operacoesPendentes || []).length;
+      if (pendentesServidor > 0) {
+        barra.className = 'sync-bar sync-pending';
+        barra.innerHTML = '<span data-lucide="shield-alert" style="width:12px;height:12px;"></span> ' + pendentesServidor + ' operação(ões) preservada(s) — clique para revisar';
+        barra.style.display = 'flex';
+        barra.style.cursor = 'pointer';
+        barra.onclick = abrirModalFilaSincronizacao;
+      } else {
+        barra.style.display = 'none';
+        barra.onclick = null;
+      }
       atualizarTextoSync("", false);
     }
     renderizarIcones();
   }
 };
+
+function gerarIdOperacaoCliente_() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  return 'op-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+function chamarBackendPromessa_(funcaoNome, args) {
+  return new Promise((resolve, reject) => {
+    backendApi()
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      [funcaoNome](...(args || []));
+  });
+}
+
+function removerOperacaoPendenteEstado_(operacaoId) {
+  if (!operacaoId) return;
+  AppState.operacoesPendentes = (AppState.operacoesPendentes || []).filter(op => op.idOperacao !== operacaoId);
+  SyncQueue.atualizarUI();
+}
+
+function carregarOperacoesPendentesServidor(recuperarAutomaticamente = true) {
+  if (typeof google === 'undefined' || !google.script || !localStorage.getItem('rh_token')) return;
+
+  backendApi()
+    .withSuccessHandler(function(operacoes) {
+      AppState.operacoesPendentes = Array.isArray(operacoes) ? operacoes : [];
+
+      if (recuperarAutomaticamente) {
+        AppState.operacoesPendentes.forEach(op => {
+          const recuperavelAutomaticamente = op.pronta && op.status !== 'ERRO';
+          if (recuperavelAutomaticamente && op.payload) {
+            SyncQueue.enfileirar(
+              op.tipoOperacao,
+              op.tipoOperacao === 'salvar_lancamento' ? 'salvarLancamento' : '',
+              [op.payload],
+              op.descricao || 'Operação recuperada'
+            );
+          }
+        });
+      }
+
+      SyncQueue.atualizarUI();
+      renderizarFilaSincronizacao_();
+      const exigeAtencao = AppState.operacoesPendentes.filter(op => !op.pronta || op.status === 'ERRO').length;
+      if (exigeAtencao > 0) {
+        mostrarToast(`${exigeAtencao} operação(ões) preservada(s) precisam de atenção.`, 'warning');
+      }
+    })
+    .withFailureHandler(function(erro) {
+      console.warn('Não foi possível consultar a fila persistente:', mensagemErro(erro));
+    })
+    .obterOperacoesPendentesUsuario();
+}
+
+function abrirModalFilaSincronizacao() {
+  renderizarFilaSincronizacao_();
+  abrirModal('modal-fila-sincronizacao');
+  carregarOperacoesPendentesServidor(false);
+}
+
+function renderizarFilaSincronizacao_() {
+  const corpo = document.getElementById('fila-sincronizacao-lista');
+  if (!corpo) return;
+  const operacoes = AppState.operacoesPendentes || [];
+
+  if (!operacoes.length) {
+    corpo.innerHTML = '<div class="fila-vazia"><span data-lucide="check-circle"></span><strong>Nenhuma operação pendente</strong><small>Todos os documentos foram sincronizados.</small></div>';
+    renderizarIcones();
+    return;
+  }
+
+  corpo.innerHTML = operacoes.map(op => {
+    const pronta = Boolean(op.pronta);
+    const classe = op.status === 'ERRO' ? 'erro' : (pronta ? 'pronta' : 'incompleta');
+    const detalhe = !pronta
+      ? `Upload incompleto: ${op.anexosEnviados}/${op.anexosEsperados} anexo(s). Os arquivos já enviados estão preservados.`
+      : (op.ultimoErro || 'Pronta para sincronizar.');
+    const anexos = Array.isArray(op.anexos) ? op.anexos : [];
+    return `<article class="fila-item ${classe}">
+      <div class="fila-item-cabecalho">
+        <div><strong>${escapeHtml(op.descricao || 'Operação pendente')}</strong><small>${escapeHtml(op.criadoEm || '')} · ${escapeHtml(op.status || '')}</small></div>
+        <span class="badge ${op.status === 'ERRO' ? 'badge-inativo' : 'badge-ativo'}">${escapeHtml(op.status || 'PENDENTE')}</span>
+      </div>
+      <p>${escapeHtml(detalhe)}</p>
+      <div class="fila-item-acoes">
+        <button class="btn btn-primary btn-small" onclick="tentarNovamenteOperacao('${escapeHtml(op.idOperacao)}')" ${pronta ? '' : 'disabled'}><span data-lucide="refresh-cw"></span>Tentar novamente</button>
+        ${anexos.length ? `<button class="btn btn-secondary btn-small" onclick="visualizarAnexosFila('${escapeHtml(op.idOperacao)}')"><span data-lucide="paperclip"></span>Ver anexo</button>` : ''}
+        <button class="btn btn-secondary btn-small" onclick="cancelarOperacaoFila('${escapeHtml(op.idOperacao)}')"><span data-lucide="x-circle"></span>Cancelar pendência</button>
+      </div>
+    </article>`;
+  }).join('');
+  renderizarIcones();
+}
+
+function tentarNovamenteOperacao(operacaoId) {
+  const op = (AppState.operacoesPendentes || []).find(item => item.idOperacao === operacaoId);
+  if (!op || !op.pronta || !op.payload) {
+    mostrarToast('Esta operação ainda não possui todos os anexos necessários.', 'warning');
+    return;
+  }
+  SyncQueue.enfileirar(op.tipoOperacao, 'salvarLancamento', [op.payload], op.descricao || 'Operação recuperada');
+  fecharModal('modal-fila-sincronizacao');
+  mostrarToast('Operação recolocada na fila de sincronização.', 'success');
+}
+
+function visualizarAnexosFila(operacaoId) {
+  const op = (AppState.operacoesPendentes || []).find(item => item.idOperacao === operacaoId);
+  const anexos = op && Array.isArray(op.anexos) ? op.anexos : [];
+  fecharModal('modal-fila-sincronizacao');
+  visualizarAnexos(anexos[0] || '', anexos[1] || '', anexos[2] || '');
+}
+
+async function cancelarOperacaoFila(operacaoId) {
+  const confirmar = await abrirConfirm('Cancelar esta pendência? Os anexos já enviados continuarão preservados no Drive.');
+  if (!confirmar) return;
+  exibirLoader(true);
+  backendApi()
+    .withSuccessHandler(function() {
+      exibirLoader(false);
+      SyncQueue.fila = SyncQueue.fila.filter(item => item.operacaoId !== operacaoId);
+      SyncQueue.persistir();
+      removerOperacaoPendenteEstado_(operacaoId);
+      renderizarFilaSincronizacao_();
+      mostrarToast('Pendência cancelada. Os anexos foram preservados.', 'success');
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      mostrarToast('Não foi possível cancelar: ' + mensagemErro(erro), 'error');
+    })
+    .cancelarOperacaoPendente(operacaoId);
+}
 
 let filaStatusInsights = [];
 let statusAtualSync = false;
@@ -349,13 +512,45 @@ function mensagemErro(erro) {
   return erro.message || String(erro);
 }
 
+const operacoesInterfaceAtivas = new Set();
+let proximoZIndexModal = 20000;
+
+function iniciarOperacaoInterface(chave, botao, texto = 'Processando...') {
+  if (operacoesInterfaceAtivas.has(chave)) {
+    mostrarToast('Esta operação já está em andamento. Aguarde a conclusão.', 'info');
+    return false;
+  }
+
+  operacoesInterfaceAtivas.add(chave);
+  if (botao) {
+    botao._htmlAntesProcessamento = botao.innerHTML;
+    botao.disabled = true;
+    botao.classList.add('is-processing');
+    botao.innerHTML = `<span class="button-spinner" aria-hidden="true"></span>${escapeHtml(texto)}`;
+  }
+  return true;
+}
+
+function finalizarOperacaoInterface(chave, botao) {
+  operacoesInterfaceAtivas.delete(chave);
+  if (botao) {
+    botao.disabled = false;
+    botao.classList.remove('is-processing');
+    if (botao._htmlAntesProcessamento != null) {
+      botao.innerHTML = botao._htmlAntesProcessamento;
+      delete botao._htmlAntesProcessamento;
+      renderizarIcones();
+    }
+  }
+}
+
 /**
  * Exibe notificação customizada "Toast" e oculta automaticamente
  */
 function mostrarToast(mensagem, tipo = 'info') {
   const container = document.getElementById('toast-container');
   if (!container) {
-    mostrarToast(mensagem, 'warning');
+    console.warn('Aviso da interface:', mensagem);
     return;
   }
   
@@ -653,6 +848,7 @@ function inicializarUsuario(temCache) {
       AppState.usuarioLogado = usuario;
       localStorage.setItem('rh_user', JSON.stringify(usuario));
       atualizarBarraUsuario();
+      carregarOperacoesPendentesServidor(true);
       
       if (temCache) {
         carregarDadosDaView('dashboard');
@@ -823,14 +1019,29 @@ function inicializarInterface() {
     if (temaSalvo === 'dark') document.body.classList.add('dark-mode');
   } catch (e) {}
 
+  atualizarDataHoraCabecalho_();
+  if (window.relogioCabecalhoTimer) clearInterval(window.relogioCabecalhoTimer);
+  window.relogioCabecalhoTimer = setInterval(atualizarDataHoraCabecalho_, 1000);
+
+  atualizarLogoTema();
+}
+
+function atualizarDataHoraCabecalho_() {
+  const agora = new Date();
   const dataLabel = document.getElementById('current-date-label');
+  const horaLabel = document.getElementById('current-time-label');
   if (dataLabel) {
     dataLabel.innerText = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long', day: '2-digit', month: 'long'
-    }).format(new Date());
+    }).format(agora);
   }
-
-  atualizarLogoTema();
+  if (horaLabel) {
+    const hora = new Intl.DateTimeFormat('pt-BR', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(agora);
+    horaLabel.innerText = hora;
+    horaLabel.setAttribute('datetime', agora.toISOString());
+  }
 }
 
 function atualizarLogoTema() {
@@ -875,6 +1086,7 @@ function obterSaudacao() {
  */
 let loaderInterval;
 let loaderSafetyTimeout;
+let loaderHideTimeout;
 function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
   const loader = document.getElementById('global-loader');
   const percText = document.getElementById('loader-percentage');
@@ -882,6 +1094,7 @@ function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
 
   if (loader) {
     if (mostrar) {
+      if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
       loader.style.display = 'flex';
       if (msgText) msgText.innerText = texto;
       if (percText) {
@@ -905,7 +1118,8 @@ function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
     } else {
       if (loaderSafetyTimeout) clearTimeout(loaderSafetyTimeout);
       if (percText) percText.innerText = "100%";
-      setTimeout(() => {
+      if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
+      loaderHideTimeout = setTimeout(() => {
         loader.style.display = 'none';
         if (loaderInterval) clearInterval(loaderInterval);
       }, 350);
@@ -1069,33 +1283,33 @@ function renderizarCardInteligenteDashboard(insight) {
   if (!card || !alertState || !locationState) return;
 
   const briefing = AppState.briefingDiarioEntidade;
-  const temAlertas = Boolean(insight && insight.temAlertas && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta));
-  const temBriefing = Boolean(briefing && briefing.disponivel && briefing.resposta);
+  const temAlertas = Boolean(insight && insight.mostrar !== false && insight.temAlertas && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta));
+  const temBriefing = Boolean(briefing && briefing.mostrar !== false && briefing.disponivel && briefing.resposta);
   const chaveMensagem = temAlertas
     ? 'insight:' + String(insight.geradoEm || '') + ':' + String(insight.resposta || '').slice(0, 80)
     : (temBriefing ? 'briefing:' + String(briefing.data || '') + ':' + String(briefing.geradoEm || '') : '');
   const mostrarEntidade = (temAlertas || temBriefing) && AppState.mensagemEntidadeOculta !== chaveMensagem;
   const botaoFechar = document.getElementById('dismiss-smart-card-message');
-  card.classList.toggle('has-alerts', mostrarEntidade && temAlertas);
-  card.classList.toggle('has-briefing', mostrarEntidade && !temAlertas && temBriefing);
+  card.classList.toggle('has-alerts', false);
+  card.classList.toggle('has-briefing', mostrarEntidade);
   if (botaoFechar) botaoFechar.style.display = mostrarEntidade ? 'grid' : 'none';
   alertState.style.display = mostrarEntidade ? 'flex' : 'none';
   locationState.style.display = mostrarEntidade ? 'none' : 'flex';
 
   if (mostrarEntidade && temAlertas) {
-    eyebrow.innerText = 'AVISOS DA ENTIDADE';
-    title.innerText = 'Pontos que exigem atenção';
-    icon.innerHTML = '<span data-lucide="bell-ring"></span>';
+    eyebrow.innerText = 'VISÃO GERAL DA ENTIDADE';
+    title.innerText = 'Resumo e prioridades atualizados';
+    icon.innerHTML = '<span data-lucide="ghost"></span>';
     document.getElementById('dashboard-ai-alert-content').innerHTML = renderizarMarkdownSeguroEntidade(limparComandosEntidade(insight.resposta));
     const data = insight.geradoEm ? new Date(Number(insight.geradoEm)) : new Date();
     document.getElementById('dashboard-ai-alert-date').innerText = `Atualizado em ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
   } else if (mostrarEntidade && temBriefing) {
     eyebrow.innerText = 'VISÃO GERAL DA ENTIDADE';
-    title.innerText = 'Resumo e prioridades do dia';
+    title.innerText = 'Resumo e prioridades atualizados';
     icon.innerHTML = '<span data-lucide="ghost"></span>';
     document.getElementById('dashboard-ai-alert-content').innerHTML = renderizarMarkdownSeguroEntidade(limparComandosEntidade(briefing.resposta));
-    const data = briefing.geradoEm ? new Date(Number(briefing.geradoEm)) : new Date();
-    document.getElementById('dashboard-ai-alert-date').innerText = `Briefing de ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+    const data = briefing.verificadoEm ? new Date(Number(briefing.verificadoEm)) : (briefing.geradoEm ? new Date(Number(briefing.geradoEm)) : new Date());
+    document.getElementById('dashboard-ai-alert-date').innerText = `Verificado em ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
   } else {
     eyebrow.innerText = 'DISTRIBUIÇÃO DA EQUIPE';
     title.innerText = 'Servidores por lotação';
@@ -1109,10 +1323,13 @@ function renderizarCardInteligenteDashboard(insight) {
 function fecharMensagemEntidadeNoCard() {
   const insight = AppState.insightEntidade;
   const briefing = AppState.briefingDiarioEntidade;
-  if (insight && insight.temAlertas && insight.resposta) {
+  const insightVisivel = insight && insight.mostrar !== false && insight.temAlertas && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta);
+  if (insightVisivel) {
     AppState.mensagemEntidadeOculta = 'insight:' + String(insight.geradoEm || '') + ':' + String(insight.resposta || '').slice(0, 80);
+    if (insight.fingerprint) backendApi().withFailureHandler(function() {}).marcarInsightEntidadeComoVisto(insight.fingerprint);
   } else if (briefing && briefing.disponivel && briefing.resposta) {
     AppState.mensagemEntidadeOculta = 'briefing:' + String(briefing.data || '') + ':' + String(briefing.geradoEm || '');
+    backendApi().withFailureHandler(function() {}).marcarBriefingDiarioEntidadeComoVisto();
   }
   renderizarCardInteligenteDashboard(insight);
 }
@@ -1141,6 +1358,8 @@ function aplicarFiltroDashboard(tipo) {
 function abrirModal(idModal) {
   const modal = document.getElementById(idModal);
   if (modal) {
+    proximoZIndexModal += 1;
+    modal.style.zIndex = String(proximoZIndexModal);
     modal.classList.add('active');
     renderizarIcones();
   }
@@ -1150,6 +1369,8 @@ function fecharModal(idModal) {
   const modal = document.getElementById(idModal);
   if (modal) {
     modal.classList.remove('active');
+    modal.style.removeProperty('z-index');
+    if (!document.querySelector('.modal-overlay.active')) proximoZIndexModal = 20000;
   }
 }
 
@@ -1203,7 +1424,10 @@ function renderizarTabelaServidores(listaFiltrada, mantemPagina = false) {
       badgeText = "Inativo";
     }
     
-    html += `<tr>       <td><strong>${escapeHtml(s.nome)}</strong></td>       <td>${escapeHtml(s.matricula)}</td>       <td>${escapeHtml(s.cargo)}</td>       <td>${escapeHtml(s.lotacao)}</td>       <td>${escapeHtml(s.situacao)}</td>       <td><span class="badge ${badgeClass}">${badgeText}</span></td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="ficha" data-mat="${escapeHtml(s.matricula)}" title="Visualizar Ficha">             <span data-lucide="eye" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="editar-servidor" data-mat="${escapeHtml(s.matricula)}" title="Editar Cadastro">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>           ${s.status !== 'Inativo' ? `<button class="btn-action btn-delete" data-action="desativar-servidor" data-mat="${escapeHtml(s.matricula)}" data-nome="${escapeHtml(s.nome)}" title="Desativar Servidor"><span data-lucide="trash-2" style="width: 14px; height: 14px;"></span></button>` : ''}         </div>       </td>     </tr>`;
+    const botaoNotificacao = s.feriasCompulsorias === true
+      ? `<button class="btn-action btn-notificacao-ferias" data-action="notificar-ferias" data-mat="${escapeHtml(s.matricula)}" title="Gerar notificação preventiva de férias"><span data-lucide="file-warning" style="width:14px;height:14px;"></span></button>`
+      : '';
+    html += `<tr>       <td><div class="nome-com-acao"><strong>${escapeHtml(s.nome)}</strong>${botaoNotificacao}</div></td>       <td>${escapeHtml(s.matricula)}</td>       <td>${escapeHtml(s.cargo)}</td>       <td>${escapeHtml(s.lotacao)}</td>       <td>${escapeHtml(s.situacao)}</td>       <td><span class="badge ${badgeClass}">${badgeText}</span></td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="ficha" data-mat="${escapeHtml(s.matricula)}" title="Visualizar Ficha">             <span data-lucide="eye" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="editar-servidor" data-mat="${escapeHtml(s.matricula)}" title="Editar Cadastro">             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>           </button>           ${s.status !== 'Inativo' ? `<button class="btn-action btn-delete" data-action="desativar-servidor" data-mat="${escapeHtml(s.matricula)}" data-nome="${escapeHtml(s.nome)}" title="Desativar Servidor"><span data-lucide="trash-2" style="width: 14px; height: 14px;"></span></button>` : ''}         </div>       </td>     </tr>`;
   });
 
   tbody.innerHTML = html;
@@ -1216,6 +1440,7 @@ function renderizarTabelaServidores(listaFiltrada, mantemPagina = false) {
       if (action === 'ficha') abrirFichaServidor(mat);
       else if (action === 'editar-servidor') abrirModalServidor(mat);
       else if (action === 'desativar-servidor') confirmarDesativacaoServidor(mat, nome);
+      else if (action === 'notificar-ferias') abrirNotificacaoFeriasCompulsorias(mat);
     });
   });
   renderizarIcones();
@@ -1358,6 +1583,10 @@ function toggleCamposObrigatoriosServidor() {
  */
 function salvarDadosServidor(event) {
   event.preventDefault();
+  const botaoSalvar = event.submitter || document.getElementById('btn-servidor-salvar');
+  if (!iniciarOperacaoInterface('salvar-servidor', botaoSalvar, 'Salvando...')) return;
+
+  try {
   exibirLoader(true);
   
   const dados = {
@@ -1389,6 +1618,9 @@ function salvarDadosServidor(event) {
   // Enfileira operação para o servidor
   SyncQueue.enfileirar('salvar_servidor', 'salvarServidor', [dados], 'Salvar servidor ' + dados.nome);
   carregarListaServidores();
+  } finally {
+    finalizarOperacaoInterface('salvar-servidor', botaoSalvar);
+  }
 }
 
 /**
@@ -2150,6 +2382,10 @@ function visualizarAnexos(anexo1, anexo2, anexo3) {
  */
 async function salvarDadosLancamento(event) {
   event.preventDefault();
+  const botaoSalvarLancamento = event.submitter || document.getElementById('btn-lanc-salvar');
+  if (!iniciarOperacaoInterface('salvar-lancamento', botaoSalvarLancamento, 'Salvando...')) return;
+
+  try {
   exibirLoader(true);
   
   const matricula = document.getElementById('lanc-matricula').value;
@@ -2237,7 +2473,9 @@ async function salvarDadosLancamento(event) {
     diasInput = 1; // abonos duram 1 dia
   }
   
+  const operacaoId = gerarIdOperacaoCliente_();
   const dados = {
+    operacaoId: operacaoId,
     linhaPlanilha: document.getElementById('lanc-linha').value,
     tipo: tipoDoc,
     idoc: document.getElementById('lanc-idoc').value.trim(),
@@ -2255,52 +2493,81 @@ async function salvarDadosLancamento(event) {
     anexo2: "",
     anexo3: ""
   };
-  
-  let arquivosCriados = [];
-  
-  // Realiza uploads paralelos de arquivos em Base64 se houver no formulário
-  try {
-    const file1 = document.getElementById('lanc-file-1').files[0];
-    const file2 = document.getElementById('lanc-file-2').files[0];
-    const file3 = document.getElementById('lanc-file-3').files[0];
-    
-    if (file1) {
-      let res = await uploadArquivoPromessa(file1);
-      dados.anexo1 = res.url;
-      arquivosCriados.push(res.id);
-    }
-    if (file2) {
-      let res = await uploadArquivoPromessa(file2);
-      dados.anexo2 = res.url;
-      arquivosCriados.push(res.id);
-    }
-    if (file3) {
-      let res = await uploadArquivoPromessa(file3);
-      dados.anexo3 = res.url;
-      arquivosCriados.push(res.id);
-    }
-  } catch (erroUpload) {
-    exibirLoader(false);
-    // Remove uploads criados de forma imediata em caso de erro na transferência
-    arquivosCriados.forEach(id => backendApi().removerArquivoDrive(id));
-    mostrarToast("Falha no upload dos anexos: " + erroUpload.toString(), 'error');
-    return;
-  }
-  
+
   if (typeof google === "undefined" || !google.script) {
     mostrarToast("Lançamento gravado em simulação local!", 'warning');
     exibirLoader(false);
     fecharModal('modal-lancamento');
     return;
   }
+
+  let operacaoRegistrada = false;
   
+  
+  // Registra a operação e envia os arquivos em Base64, vinculando cada anexo à fila segura.
+  try {
+    const validacaoPeriodo = await chamarBackendPromessa_('validarConflitosLancamento', [dados]);
+    if (validacaoPeriodo && validacaoPeriodo.valido === false) {
+      exibirLoader(false);
+      mostrarToast(validacaoPeriodo.mensagem || 'Este lançamento se sobrepõe a outra ausência ativa do servidor.', 'error');
+      return;
+    }
+
+    const file1 = document.getElementById('lanc-file-1').files[0];
+    const file2 = document.getElementById('lanc-file-2').files[0];
+    const file3 = document.getElementById('lanc-file-3').files[0];
+
+    await chamarBackendPromessa_('registrarOperacaoPendente', [{
+      idOperacao: operacaoId,
+      tipoOperacao: 'salvar_lancamento',
+      descricao: 'Salvar lançamento: ' + tipoDoc,
+      payload: dados,
+      anexosEsperados: [file1, file2, file3].filter(Boolean).length
+    }]);
+    operacaoRegistrada = true;
+    
+    if (file1) {
+      let res = await uploadArquivoPromessa(file1, operacaoId, 1);
+      dados.anexo1 = res.url;
+    }
+    if (file2) {
+      let res = await uploadArquivoPromessa(file2, operacaoId, 2);
+      dados.anexo2 = res.url;
+    }
+    if (file3) {
+      let res = await uploadArquivoPromessa(file3, operacaoId, 3);
+      dados.anexo3 = res.url;
+    }
+  } catch (erroUpload) {
+    exibirLoader(false);
+    if (!operacaoRegistrada) {
+      mostrarToast("Não foi possível preparar a fila segura: " + mensagemErro(erroUpload), 'error');
+      return;
+    }
+    // Mantém no Drive os anexos já vinculados à fila persistente.
+    backendApi().registrarFalhaOperacaoPendente(operacaoId, mensagemErro(erroUpload));
+    fecharModal('modal-lancamento');
+    setTimeout(() => carregarOperacoesPendentesServidor(false), 500);
+    mostrarToast("Upload interrompido. O lançamento e os anexos concluídos foram preservados na fila segura.", 'warning');
+    return;
+  }
+  
+  try {
+    await chamarBackendPromessa_('marcarOperacaoPronta', [dados]);
+  } catch (erroFila) {
+    console.warn('A fila segura será reconstruída pelos anexos vinculados:', mensagemErro(erroFila));
+  }
+
   // Otimista: fecha o modal imediatamente
   exibirLoader(false);
   fecharModal('modal-lancamento');
-  mostrarToast("Lançamento salvo! Sincronizando...", 'success');
+  mostrarToast("Documento protegido na fila. Sincronizando...", 'success');
 
   // Enfileira a gravação do lançamento no servidor
   SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
+  } finally {
+    finalizarOperacaoInterface('salvar-lancamento', botaoSalvarLancamento);
+  }
 }
 
 /**
@@ -2364,7 +2631,7 @@ function inicializarDropzonesAnexos() {
   });
 }
 
-function uploadArquivoPromessa(arquivo) {
+function uploadArquivoPromessa(arquivo, operacaoId, posicaoAnexo) {
   return new Promise((resolver, rejeitar) => {
     const leitor = new FileReader();
     leitor.onload = function(evento) {
@@ -2377,7 +2644,7 @@ function uploadArquivoPromessa(arquivo) {
         .withFailureHandler(function(erro) {
           rejeitar(erro);
         })
-        .salvarArquivoNoDrive(base64, arquivo.name, arquivo.type || 'application/pdf');
+        .salvarArquivoNoDrive(base64, arquivo.name, arquivo.type || 'application/pdf', operacaoId || '', posicaoAnexo || 0);
     };
     leitor.onerror = function(e) {
       rejeitar("Falha ao ler arquivo físico local.");
@@ -2534,18 +2801,23 @@ function confirmarGeracaoProtocolo() {
     mostrarToast("Selecione pelo menos um lançamento de documento físico para criar a folha de protocolo.", 'warning');
     return;
   }
+
+  const botaoGerar = document.getElementById('btn-gerar-protocolo');
+  if (!iniciarOperacaoInterface('gerar-protocolo', botaoGerar, 'Gerando...')) return;
   
   exibirLoader(true);
   
   backendApi()
     .withSuccessHandler(function(idProtocolo) {
       exibirLoader(false);
+      finalizarOperacaoInterface('gerar-protocolo', botaoGerar);
       fecharModal('modal-criar-protocolo');
       sincronizarEmSegundoPlano('protocolos');
       abrirFolhaProtocolo(idProtocolo);
     })
     .withFailureHandler(function(erro) {
       exibirLoader(false);
+      finalizarOperacaoInterface('gerar-protocolo', botaoGerar);
       mostrarToast("Erro ao gerar folha de protocolo: " + erro.toString(), 'error');
     })
     .criarProtocolo(selecionados);
@@ -2574,6 +2846,32 @@ function abrirFolhaProtocolo(idProtocolo) {
  * Aciona a impressão nativa do navegador
  */
 function imprimirFolhaProtocoloLocal() {
+  window.print();
+}
+
+/** Abre a comunicação preventiva individual para conferência e impressão. */
+function abrirNotificacaoFeriasCompulsorias(matricula) {
+  if (!matricula) return;
+  const chaveOperacao = 'gerar-comunicado-ferias-' + String(matricula);
+  if (!iniciarOperacaoInterface(chaveOperacao, null)) return;
+  exibirLoader(true);
+
+  backendApi()
+    .withSuccessHandler(function(htmlNotificacao) {
+      document.getElementById('print-area-notificacao-ferias').innerHTML = htmlNotificacao + obterAssinaturaEntidadeImpressao_();
+      exibirLoader(false);
+      finalizarOperacaoInterface(chaveOperacao, null);
+      abrirModal('modal-notificacao-ferias');
+    })
+    .withFailureHandler(function(erro) {
+      exibirLoader(false);
+      finalizarOperacaoInterface(chaveOperacao, null);
+      mostrarToast('Erro ao gerar a notificação: ' + mensagemErro(erro), 'error');
+    })
+    .obterHtmlNotificacaoFeriasCompulsorias(String(matricula));
+}
+
+function imprimirNotificacaoFeriasCompulsorias() {
   window.print();
 }
 
@@ -2741,7 +3039,7 @@ function desenharTabelaRelatorio(tipo, dados) {
         }
       }
       
-      htmlBody += `<tr data-index="${index}">         <td><strong>${escapeHtml(s.nome)}</strong></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>         <td style='text-align:center;'>${limitHtml}</td>         <td style='text-align:center;'>${limite.vencimento3}</td>       </tr>`;
+      htmlBody += `<tr data-index="${index}">         <td><div class="nome-com-acao"><strong>${escapeHtml(s.nome)}</strong><button class="btn-action btn-notificacao-ferias" data-action="notificar-ferias" data-mat="${escapeHtml(s.matricula)}" title="Gerar notificação preventiva de férias"><span data-lucide="file-warning" style="width:14px;height:14px;"></span></button></div></td>         <td>${escapeHtml(s.matricula)}</td>         <td>${escapeHtml(s.cargo)}</td>         <td>${escapeHtml(s.lotacao)}</td>         <td style='text-align:center;'>${s.saldoHoje} d</td>         <td style='text-align:center;'>${limitHtml}</td>         <td style='text-align:center;'>${limite.vencimento3}</td>       </tr>`;
     });
   } else if (tipo === 'situacao_ferias') {
     colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual"];
@@ -2783,6 +3081,12 @@ function desenharTabelaRelatorio(tipo, dados) {
   htmlHead += "</tr>";
   head.innerHTML = htmlHead;
   body.innerHTML = htmlBody;
+  body.querySelectorAll('button[data-action="notificar-ferias"]').forEach(function(botao) {
+    botao.addEventListener('click', function() {
+      abrirNotificacaoFeriasCompulsorias(this.dataset.mat);
+    });
+  });
+  renderizarIcones();
   
   document.getElementById('rep-resultado-container').style.display = "block";
 }
@@ -3266,6 +3570,8 @@ function abrirModalUsuario(email) {
 
 function salvarDadosUsuario(event) {
   event.preventDefault();
+  const botaoSalvar = event.submitter || document.getElementById('btn-usuario-salvar');
+  if (!iniciarOperacaoInterface('salvar-usuario', botaoSalvar, 'Salvando...')) return;
   exibirLoader(true);
   
   const dados = {
@@ -3277,12 +3583,15 @@ function salvarDadosUsuario(event) {
   
   backendApi()
     .withSuccessHandler(function() {
+      exibirLoader(false);
+      finalizarOperacaoInterface('salvar-usuario', botaoSalvar);
       fecharModal('modal-usuario');
       carregarListaUsuarios();
       mostrarToast("Acesso do usuário salvo com sucesso!", 'success');
     })
     .withFailureHandler(function(e) {
       exibirLoader(false);
+      finalizarOperacaoInterface('salvar-usuario', botaoSalvar);
       mostrarToast("Erro ao gerenciar usuário: " + e.toString(), 'error');
     })
     .salvarUsuario(dados);
@@ -3637,11 +3946,42 @@ function abrirViewLancamento(linhaPlanilha) {
 
 function abrirModalQuick1Doc(linhaPlanilha, nomeServidor, idocAtual) {
   document.getElementById('quick-idoc-linha').value = linhaPlanilha;
-  document.getElementById('quick-1doc-servidor').innerText = nomeServidor || "";
   document.getElementById('quick-idoc-input').value = idocAtual || "";
   const inputAnexo = document.getElementById('quick-1doc-anexo');
   const containerAnexo = document.getElementById('quick-1doc-anexo-container');
   const lancamento = AppState.lancamentos.find(item => item.linhaPlanilha === Number(linhaPlanilha));
+  const matriculaLancamento = String(lancamento?.matricula || '').trim();
+  const nomeLancamento = String(lancamento?.nome || nomeServidor || '').trim();
+  const normalizarComparacao = valor => String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+  const servidor = (AppState.servidores || []).find(item =>
+    matriculaLancamento && String(item.matricula || '').trim() === matriculaLancamento
+  ) || (AppState.servidores || []).find(item =>
+    nomeLancamento && normalizarComparacao(item.nome) === normalizarComparacao(nomeLancamento)
+  );
+  const preencherDado = (id, valor) => {
+    const elemento = document.getElementById(id);
+    if (elemento) elemento.innerText = String(valor || '').trim() || '-';
+  };
+
+  preencherDado('quick-1doc-servidor', servidor?.nome || nomeLancamento);
+  preencherDado('quick-1doc-matricula', servidor?.matricula || matriculaLancamento);
+  preencherDado('quick-1doc-cargo', servidor?.cargo);
+  preencherDado('quick-1doc-lotacao', servidor?.lotacao || lancamento?.lotacao);
+  preencherDado('quick-1doc-email', servidor?.email);
+
+  const diasGozo = parseInt(lancamento?.dias, 10) || 0;
+  const diasPecunia = parseInt(lancamento?.diasPecunia, 10) || 0;
+  let quantidadeLancamento = lancamento?.qtdHoras || '-';
+  if (diasPecunia > 0) quantidadeLancamento = `${diasGozo} gozo + ${diasPecunia} pecúnia`;
+  else if (diasGozo > 0) quantidadeLancamento = `${diasGozo} ${diasGozo === 1 ? 'dia' : 'dias'}`;
+  preencherDado('quick-1doc-tipo', lancamento?.tipo);
+  preencherDado('quick-1doc-data', lancamento?.dataInicio);
+  preencherDado('quick-1doc-quantidade', quantidadeLancamento);
+
   const possuiAnexo = lancamento && [lancamento.anexo1, lancamento.anexo2, lancamento.anexo3]
     .some(valor => valor && String(valor).trim() && String(valor).trim() !== 'undefined');
   if (inputAnexo) inputAnexo.value = '';
@@ -3649,6 +3989,7 @@ function abrirModalQuick1Doc(linhaPlanilha, nomeServidor, idocAtual) {
   if (containerAnexo) containerAnexo.style.display = possuiAnexo ? 'none' : 'block';
   
   abrirModal('modal-quick-1doc');
+  renderizarIcones();
   
   // Foca no input após abrir (pequeno delay para transição)
   setTimeout(() => {
@@ -3821,6 +4162,7 @@ let entidadeAudioContext = null;
 let entidadeSomPendente = false;
 let entidadeInsightPollingTimer = null;
 let entidadeUltimoInsightNotificado = 0;
+let entidadeUltimoResumoNotificadoEm = 0;
 let entidadeBriefingDiarioSolicitado = false;
 let entidadeBriefingExibirAoCarregar = false;
 let entidadeBriefingMensagemExibida = false;
@@ -3837,6 +4179,7 @@ let entidadeAnimacaoOperacaoTimer = null;
 let entidadeAberturaToken = 0;
 let entidadeMensagemTemporariaRep = '';
 let entidadeUltimoFingerprintRep = '';
+let entidadeSaudacaoInicialExibida = false;
 const entidadeTestePrimeiroAcesso = new URLSearchParams(window.location.search).get('testeEntidade') === '1';
 
 window.addEventListener('pointerdown', function habilitarSomEntidade() {
@@ -3873,6 +4216,10 @@ function toggleChatEntidade() {
     entidadeChatAberto = true;
     chatWindow.style.display = 'flex';
     document.getElementById('entidade-input').focus();
+    if (!jaEstavaVisivelComMensagem && !entidadeSaudacaoInicialExibida) {
+      addMensagemEntidade('Olá! Como posso ajudar?', false);
+      entidadeSaudacaoInicialExibida = true;
+    }
     if (entidadeMensagemTemporariaRep) {
       addMensagemEntidade(entidadeMensagemTemporariaRep, false);
       entidadeHistorico.push({ role: 'assistant', content: entidadeMensagemTemporariaRep });
@@ -3910,10 +4257,10 @@ function toggleChatEntidade() {
   }, 640);
 }
 
-function solicitarBriefingDiarioEntidade(exibirNoChat = false) {
+function solicitarBriefingDiarioEntidade(exibirNoChat = false, forcarAtualizacao = false, notificar = true) {
   if (exibirNoChat) entidadeBriefingExibirAoCarregar = true;
 
-  if (AppState.briefingDiarioEntidade) {
+  if (AppState.briefingDiarioEntidade && !forcarAtualizacao) {
     renderizarCardInteligenteDashboard(AppState.insightEntidade);
     apresentarBriefingDiarioNoChat_();
     return;
@@ -3924,25 +4271,44 @@ function solicitarBriefingDiarioEntidade(exibirNoChat = false) {
 
   backendApi()
     .withSuccessHandler(function(res) {
+      entidadeBriefingDiarioSolicitado = false;
       if (entidadeBriefingExibirAoCarregar) setEntidadePensando(false);
       if (!res || !res.disponivel || !res.resposta) return;
+      const briefingAnterior = AppState.briefingDiarioEntidade;
+      const briefingMudou = !briefingAnterior || String(briefingAnterior.fingerprint || '') !== String(res.fingerprint || '');
+      if (!notificar && res.mostrar && briefingMudou) {
+        res.mostrar = false;
+        backendApi().withFailureHandler(function() {}).marcarBriefingDiarioEntidadeComoVisto();
+      }
       AppState.briefingDiarioEntidade = res;
       renderizarCardInteligenteDashboard(AppState.insightEntidade);
-      if (res.mostrar || entidadeTestePrimeiroAcesso) {
+      if ((notificar && res.mostrar && briefingMudou) || entidadeTestePrimeiroAcesso) {
         // Parâmetro temporário de teste: reproduz o convite visual da primeira abertura
         // sem alterar o marcador diário salvo no servidor.
         exibirBadgeNotificacao();
         // O ticker apresenta o briefing integral; clicar nele continua sendo
         // apenas um atalho opcional para conversar com a Entidade.
         exibirInsightStatus(res.resposta);
+        entidadeUltimoResumoNotificadoEm = Date.now();
+        backendApi().withFailureHandler(function() {}).marcarBriefingDiarioEntidadeComoVisto();
       }
       apresentarBriefingDiarioNoChat_();
     })
     .withFailureHandler(function(erro) {
+      entidadeBriefingDiarioSolicitado = false;
       if (entidadeBriefingExibirAoCarregar) setEntidadePensando(false);
       console.warn('Não foi possível carregar o briefing diário da Entidade:', erro);
     })
     .obterBriefingDiarioEntidade();
+}
+
+/** Reconsulta os fatos e a IA depois de uma gravação confirmada. */
+function atualizarLeiturasEntidadeAposMudanca_() {
+  AppState.briefingDiarioEntidade = null;
+  AppState.mensagemEntidadeOculta = '';
+  entidadeBriefingDiarioSolicitado = false;
+  solicitarBriefingDiarioEntidade(false, true, false);
+  consultarInsightEntidade();
 }
 
 function apresentarBriefingDiarioNoChat_() {
@@ -4582,7 +4948,10 @@ function iniciarVigia() {
   solicitarBriefingDiarioEntidade(false);
   consultarInsightEntidade();
   if (!entidadeInsightPollingTimer) {
-    entidadeInsightPollingTimer = setInterval(consultarInsightEntidade, 10 * 60 * 1000);
+    entidadeInsightPollingTimer = setInterval(function() {
+      solicitarBriefingDiarioEntidade(false, true, false);
+      consultarInsightEntidade();
+    }, 10 * 60 * 1000);
   }
 }
 
@@ -4592,15 +4961,21 @@ function consultarInsightEntidade() {
       if (res && !mensagemEntidadeEhValida_(res.resposta)) {
         res = { temAlertas: false, resposta: '' };
       }
+      const resumoAcabouDeSerNotificado = Boolean(res && res.mostrar !== false && entidadeUltimoResumoNotificadoEm && (Date.now() - entidadeUltimoResumoNotificadoEm) < 15000);
+      if (resumoAcabouDeSerNotificado) {
+        res.mostrar = false;
+        if (res.fingerprint) backendApi().withFailureHandler(function() {}).marcarInsightEntidadeComoVisto(res.fingerprint);
+      }
       AppState.insightEntidade = res || { temAlertas: false, resposta: '' };
       renderizarCardInteligenteDashboard(AppState.insightEntidade);
-      if (res && res.temAlertas && res.resposta) {
+      if (res && res.mostrar !== false && res.temAlertas && res.resposta) {
         const geradoEm = Number(res.geradoEm || 0);
         if (!geradoEm || geradoEm > entidadeUltimoInsightNotificado) {
           entidadeUltimoInsightNotificado = geradoEm || Date.now();
           addMensagemEntidade(res.resposta);
           exibirBadgeNotificacao();
           exibirInsightStatus(res.resposta);
+          if (res.fingerprint) backendApi().withFailureHandler(function() {}).marcarInsightEntidadeComoVisto(res.fingerprint);
 
           const chipsDiv = document.getElementById('entidade-chips');
           chipsDiv.innerHTML = `
