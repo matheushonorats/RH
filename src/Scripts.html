@@ -32,7 +32,7 @@ let currentView = 'dashboard';
 const SyncQueue = {
   fila: [],
   processando: false,
-  MAX_RETRIES: 3,
+  MAX_RETRIES: 5,
 
   enfileirar(tipo, funcaoNome, args, descricao) {
     const operacaoId = args && args[0] && args[0].operacaoId ? String(args[0].operacaoId) : "";
@@ -213,6 +213,38 @@ function chamarBackendPromessa_(funcaoNome, args) {
       .withFailureHandler(reject)
       [funcaoNome](...(args || []));
   });
+}
+
+function ehErroTemporarioConcorrencia_(erro) {
+  const texto = mensagemErro(erro).toLowerCase();
+  return /tempo limite do bloqueio|manteve o bloqueio|sistema ocupado|tente novamente|temporari|timeout|lock|service unavailable|internal error|erro interno/.test(texto);
+}
+
+/**
+ * Repete automaticamente chamadas curtas que falharam apenas porque outro
+ * processo estava escrevendo na planilha. O botão permanece travado durante
+ * todo o ciclo, portanto um único clique é suficiente.
+ */
+async function chamarBackendComRetryTemporario_(funcaoNome, args, descricao) {
+  const atrasos = [1500, 3000, 6000, 10000];
+  let ultimoErro = null;
+
+  for (let tentativa = 0; tentativa <= atrasos.length; tentativa++) {
+    try {
+      return await chamarBackendPromessa_(funcaoNome, args);
+    } catch (erro) {
+      ultimoErro = erro;
+      if (!ehErroTemporarioConcorrencia_(erro) || tentativa >= atrasos.length) throw erro;
+
+      const espera = atrasos[tentativa];
+      const numeroProximaTentativa = tentativa + 2;
+      mostrarToast(`${descricao || 'Sistema ocupado'}. Nova tentativa automática ${numeroProximaTentativa}/${atrasos.length + 1} em ${espera / 1000}s...`, 'warning');
+      atualizarTextoSync(`Aguardando para tentar novamente em ${espera / 1000}s...`, true, 'warning');
+      await new Promise(resolve => setTimeout(resolve, espera));
+    }
+  }
+
+  throw ultimoErro || new Error('Não foi possível concluir a operação.');
 }
 
 function removerOperacaoPendenteEstado_(operacaoId) {
@@ -2568,13 +2600,13 @@ async function salvarDadosLancamento(event) {
     const file2 = document.getElementById('lanc-file-2').files[0];
     const file3 = document.getElementById('lanc-file-3').files[0];
 
-    await chamarBackendPromessa_('registrarOperacaoPendente', [{
+    await chamarBackendComRetryTemporario_('registrarOperacaoPendente', [{
       idOperacao: operacaoId,
       tipoOperacao: 'salvar_lancamento',
       descricao: 'Salvar lançamento: ' + tipoDoc,
       payload: dados,
       anexosEsperados: [file1, file2, file3].filter(Boolean).length
-    }]);
+    }], 'Preparando a fila segura');
     operacaoRegistrada = true;
     
     if (file1) {
@@ -2592,7 +2624,7 @@ async function salvarDadosLancamento(event) {
   } catch (erroUpload) {
     exibirLoader(false);
     if (!operacaoRegistrada) {
-      mostrarToast("Não foi possível preparar a fila segura: " + mensagemErro(erroUpload), 'error');
+      mostrarToast("O sistema permaneceu ocupado. O formulário continua preenchido e nada foi enviado: " + mensagemErro(erroUpload), 'error');
       return;
     }
     // Mantém no Drive os anexos já vinculados à fila persistente.
@@ -2604,7 +2636,7 @@ async function salvarDadosLancamento(event) {
   }
   
   try {
-    await chamarBackendPromessa_('marcarOperacaoPronta', [dados]);
+    await chamarBackendComRetryTemporario_('marcarOperacaoPronta', [dados], 'Finalizando a fila segura');
   } catch (erroFila) {
     console.warn('A fila segura será reconstruída pelos anexos vinculados:', mensagemErro(erroFila));
   }

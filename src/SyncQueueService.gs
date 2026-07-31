@@ -86,7 +86,10 @@ function registrarOperacaoPendente(dadosOperacao) {
   if (payloadJson.length > 45000) throw new Error("Os dados do lançamento excedem o limite da fila persistente.");
 
   const anexosEsperados = Math.max(0, Math.min(3, parseInt(dadosOperacao.anexosEsperados, 10) || 0));
-  const lock = LockService.getScriptLock();
+  // A fila pertence ao usuário autenticado. Um UserLock impede duplo envio
+  // em abas do mesmo usuário sem disputar o bloqueio global com relatórios,
+  // créditos, protocolos e outras rotinas independentes.
+  const lock = LockService.getUserLock();
   lock.waitLock(15000);
   try {
     const ss = obterPlanilha_();
@@ -131,7 +134,7 @@ function registrarAnexoOperacaoPendente_(idOperacao, posicao, idArquivo, urlArqu
   const slot = parseInt(posicao, 10);
   if (slot < 1 || slot > 3) throw new Error("Posição de anexo inválida.");
 
-  const lock = LockService.getScriptLock();
+  const lock = LockService.getUserLock();
   lock.waitLock(15000);
   try {
     const aba = garantirAbaFilaSincronizacao_(obterPlanilha_());
@@ -157,7 +160,7 @@ function marcarOperacaoPronta(dadosLancamento) {
   const payloadJson = JSON.stringify(dadosLancamento || {});
   if (payloadJson.length > 45000) throw new Error("Os dados do lançamento excedem o limite da fila persistente.");
 
-  const lock = LockService.getScriptLock();
+  const lock = LockService.getUserLock();
   lock.waitLock(15000);
   try {
     const aba = garantirAbaFilaSincronizacao_(obterPlanilha_());
@@ -181,7 +184,7 @@ function marcarOperacaoPronta(dadosLancamento) {
 
 function registrarFalhaOperacaoPendente(idOperacao, mensagem) {
   const id = validarIdOperacao_(idOperacao);
-  const lock = LockService.getScriptLock();
+  const lock = LockService.getUserLock();
   lock.waitLock(10000);
   try {
     const aba = garantirAbaFilaSincronizacao_(obterPlanilha_());
@@ -266,7 +269,7 @@ function cancelarOperacaoPendente(idOperacao) {
   if (!verificarSeEhOperador()) throw new Error("Você não possui permissão para cancelar esta pendência.");
   const id = validarIdOperacao_(idOperacao);
   const email = obterEmailFilaAtual_();
-  const lock = LockService.getScriptLock();
+  const lock = LockService.getUserLock();
   lock.waitLock(10000);
   try {
     const aba = garantirAbaFilaSincronizacao_(obterPlanilha_());

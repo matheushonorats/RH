@@ -1427,21 +1427,63 @@ function marcarBriefingDiarioEntidadeComoVisto() {
   return true;
 }
 
+const CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_ = 'entidade_insight_processando_v2';
+
+/**
+ * Reserva somente o processamento da Entidade. O ScriptLock fica retido por
+ * milissegundos e é liberado antes de qualquer leitura pesada ou chamada de IA.
+ */
+function reservarProcessamentoInsightEntidade_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(2000)) return '';
+  try {
+    const cache = CacheService.getScriptCache();
+    if (cache.get(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_)) return '';
+    const token = Utilities.getUuid();
+    cache.put(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_, token, 180);
+    return token;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function liberarProcessamentoInsightEntidade_(token) {
+  if (!token) return;
+  const cache = CacheService.getScriptCache();
+  if (cache.get(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_) === token) {
+    cache.remove(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_);
+  }
+}
+
+function obterInsightEntidadePersistido_(usuario) {
+  let insight = null;
+  try {
+    insight = JSON.parse(PropertiesService.getScriptProperties().getProperty('ENTIDADE_ULTIMO_INSIGHT') || 'null');
+  } catch (e) {}
+
+  if (!insight) return { temAlertas: false, resposta: '', mostrar: false, emProcessamento: true };
+  const fingerprint = String(insight.fingerprint || '');
+  const visto = fingerprint && PropertiesService.getScriptProperties().getProperty(obterChaveVisualizacaoInsightEntidade_(usuario)) === fingerprint;
+  insight.mostrar = Boolean(insight.temAlertas && !visto);
+  insight.emProcessamento = true;
+  return insight;
+}
+
 /** Revalida os fatos; só consome IA quando o fingerprint operacional mudou. */
 function obterInsightEntidadeAtual() {
   const usuario = obterDadosUsuarioLogado();
   try { garantirGatilhoVigiaEntidade_(); } catch (e) { Logger.log('Gatilho da Entidade ainda não autorizado: ' + e.toString()); }
   try { garantirGatilhoManutencaoSistema_(); } catch (e) { Logger.log('Gatilho de manutenção ainda não autorizado: ' + e.toString()); }
-  const lock = LockService.getScriptLock();
+  const tokenProcessamento = reservarProcessamentoInsightEntidade_();
+  if (!tokenProcessamento) return obterInsightEntidadePersistido_(usuario);
   try {
-    lock.waitLock(10000);
     const insight = gerarInsightEntidade_(false);
     const fingerprint = String(insight && insight.fingerprint || '');
     const visto = fingerprint && PropertiesService.getScriptProperties().getProperty(obterChaveVisualizacaoInsightEntidade_(usuario)) === fingerprint;
     insight.mostrar = Boolean(insight.temAlertas && !visto);
     return insight;
   } finally {
-    lock.releaseLock();
+    liberarProcessamentoInsightEntidade_(tokenProcessamento);
   }
 }
 
@@ -1472,8 +1514,8 @@ function garantirGatilhoVigiaEntidade_() {
 
 /** Rotina segura de background. Analisa e registra alertas, mas nunca altera dados de RH. */
 function executarVigiaEntidadeAgendado() {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) return;
+  const tokenProcessamento = reservarProcessamentoInsightEntidade_();
+  if (!tokenProcessamento) return;
   const usuarioAnterior = _usuarioSessaoAtual;
   try {
     _usuarioSessaoAtual = { email: 'rotina.interna@setur', nome: 'Rotina Entidade', papel: 'Administrador', ativo: true };
@@ -1482,7 +1524,7 @@ function executarVigiaEntidadeAgendado() {
     Logger.log('Erro na vigia agendada da Entidade: ' + e.toString());
   } finally {
     _usuarioSessaoAtual = usuarioAnterior;
-    lock.releaseLock();
+    liberarProcessamentoInsightEntidade_(tokenProcessamento);
   }
 }
 
