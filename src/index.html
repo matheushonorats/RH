@@ -742,12 +742,13 @@
               </div>
               <div class="form-group">
                 <label class="form-label">Lotação</label>
-                <select id="serv-lotacao" class="form-control">
+                <select id="serv-lotacao" class="form-control" onchange="atualizarCampoNovaLotacaoServidor()">
                   <option value="Rodoviária">Rodoviária</option>
                   <option value="Espaço Batuíra">Espaço Batuíra</option>
                   <option value="Turismo">Turismo</option>
-                  <option value="Outro">Outro</option>
+                  <option value="__NOVA_LOTACAO__">Adicionar nova lotação...</option>
                 </select>
+                <input type="text" id="serv-lotacao-nova" class="form-control" style="display: none; margin-top: 8px;" maxlength="120" placeholder="Digite o nome da nova lotação">
               </div>
             </div>
             

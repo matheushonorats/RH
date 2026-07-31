@@ -1507,8 +1507,49 @@ function popularFiltroLotacoes() {
   if (!lotacoes.includes("Turismo")) htmlForm += '<option value="Turismo">Turismo</option>';
   if (!lotacoes.includes("Rodoviária")) htmlForm += '<option value="Rodoviária">Rodoviária</option>';
   if (!lotacoes.includes("Espaço Batuíra")) htmlForm += '<option value="Espaço Batuíra">Espaço Batuíra</option>';
-  htmlForm += '<option value="Outro">Outro...</option>';
+  htmlForm += '<option value="__NOVA_LOTACAO__">Adicionar nova lotaÃ§Ã£o...</option>';
   lotacaoForm.innerHTML = htmlForm;
+}
+
+/** Exibe o campo livre somente quando for necessário cadastrar uma nova lotação. */
+function atualizarCampoNovaLotacaoServidor() {
+  const seletor = document.getElementById('serv-lotacao');
+  const campoNovo = document.getElementById('serv-lotacao-nova');
+  if (!seletor || !campoNovo) return;
+
+  const informandoNova = seletor.value === '__NOVA_LOTACAO__';
+  campoNovo.style.display = informandoNova ? 'block' : 'none';
+  campoNovo.required = informandoNova;
+  if (!informandoNova) campoNovo.value = '';
+}
+
+/** Mantém uma lotação histórica editável mesmo se ela não constar no menu atual. */
+function selecionarLotacaoServidor_(lotacao) {
+  const seletor = document.getElementById('serv-lotacao');
+  const campoNovo = document.getElementById('serv-lotacao-nova');
+  const valor = String(lotacao || '').trim();
+  if (!seletor || !campoNovo) return;
+
+  const opcaoNova = '__NOVA_LOTACAO__';
+  const existe = Array.from(seletor.options).some(opcao => opcao.value === valor);
+  if (valor && valor !== 'Outro' && !existe) {
+    const opcao = document.createElement('option');
+    opcao.value = valor;
+    opcao.textContent = valor;
+    seletor.insertBefore(opcao, Array.from(seletor.options).find(opcao => opcao.value === opcaoNova) || null);
+  }
+
+  seletor.value = valor && valor !== 'Outro' ? valor : opcaoNova;
+  campoNovo.value = '';
+  atualizarCampoNovaLotacaoServidor();
+}
+
+function obterLotacaoFormularioServidor_() {
+  const seletor = document.getElementById('serv-lotacao');
+  const campoNovo = document.getElementById('serv-lotacao-nova');
+  if (!seletor) return '';
+  if (seletor.value !== '__NOVA_LOTACAO__') return seletor.value;
+  return String(campoNovo ? campoNovo.value : '').trim();
 }
 
 /**
@@ -1521,6 +1562,8 @@ function abrirModalServidor(matricula) {
   const titulo = document.getElementById('modal-servidor-titulo');
   const inputMatricula = document.getElementById('serv-matricula');
   const wrapperAtivo = document.getElementById('serv-ativo-wrapper');
+  const campoNovaLotacao = document.getElementById('serv-lotacao-nova');
+  if (campoNovaLotacao) campoNovaLotacao.value = '';
   
   if (matricula) {
     // Modo Edição
@@ -1534,7 +1577,7 @@ function abrirModalServidor(matricula) {
       document.getElementById('serv-pis').value = s.pis || '';
       document.getElementById('serv-nome').value = s.nome;
       document.getElementById('serv-cargo').value = s.cargo;
-      document.getElementById('serv-lotacao').value = s.lotacao;
+      selecionarLotacaoServidor_(s.lotacao);
       document.getElementById('serv-situacao').value = s.situacao;
       document.getElementById('serv-email').value = s.email;
       document.getElementById('serv-ativo').value = s.status === 'Inativo' ? 'Não' : 'Sim';
@@ -1557,6 +1600,7 @@ function abrirModalServidor(matricula) {
     document.getElementById('serv-ativo').value = "Sim";
     document.getElementById('serv-penalidade-ferias').value = 0;
     document.getElementById('serv-penalidade-abonos').value = 0;
+    selecionarLotacaoServidor_(document.getElementById('serv-lotacao').value);
   }
   
   abrirModal('modal-servidor');
@@ -1588,13 +1632,20 @@ function salvarDadosServidor(event) {
 
   try {
   exibirLoader(true);
+
+  const lotacao = obterLotacaoFormularioServidor_();
+  if (!lotacao) {
+    exibirLoader(false);
+    mostrarToast('Informe o nome da nova lotaÃ§Ã£o antes de salvar.', 'warning');
+    return;
+  }
   
   const dados = {
     matricula: document.getElementById('serv-matricula').value.trim(),
     pis: document.getElementById('serv-pis').value.replace(/\D/g, ''),
     nome: document.getElementById('serv-nome').value.trim().toUpperCase(),
     cargo: document.getElementById('serv-cargo').value.trim().toUpperCase(),
-    lotacao: document.getElementById('serv-lotacao').value,
+    lotacao: lotacao,
     admissao: document.getElementById('serv-admissao').value,
     situacao: document.getElementById('serv-situacao').value,
     email: document.getElementById('serv-email').value.trim(),
