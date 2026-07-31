@@ -26,7 +26,7 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
     if (ehConsultaServidoresSemAdmissaoEntidade_(mensagemUsuario)) {
       // Esta verificação cadastral deve refletir a aba Servidores no instante
       // da pergunta, sem cache, memória conversacional ou inferência do modelo.
-      contextoPlanilha.servidoresIdentificacao = obterServidores().map(mapearIdentificacaoServidorEntidade_);
+      contextoPlanilha.servidoresIdentificacao = obterListaServidores().map(mapearIdentificacaoServidorEntidade_);
     }
     const respostaOperacionalDireta = responderConsultaOperacionalDiretaEntidade_(mensagemUsuario, contextoPlanilha);
     if (respostaOperacionalDireta) {
