@@ -1507,7 +1507,7 @@ function popularFiltroLotacoes() {
   if (!lotacoes.includes("Turismo")) htmlForm += '<option value="Turismo">Turismo</option>';
   if (!lotacoes.includes("Rodoviária")) htmlForm += '<option value="Rodoviária">Rodoviária</option>';
   if (!lotacoes.includes("Espaço Batuíra")) htmlForm += '<option value="Espaço Batuíra">Espaço Batuíra</option>';
-  htmlForm += '<option value="__NOVA_LOTACAO__">Adicionar nova lotaÃ§Ã£o...</option>';
+  htmlForm += '<option value="__NOVA_LOTACAO__">Adicionar nova lotação...</option>';
   lotacaoForm.innerHTML = htmlForm;
 }
 
@@ -1636,7 +1636,7 @@ function salvarDadosServidor(event) {
   const lotacao = obterLotacaoFormularioServidor_();
   if (!lotacao) {
     exibirLoader(false);
-    mostrarToast('Informe o nome da nova lotaÃ§Ã£o antes de salvar.', 'warning');
+    mostrarToast('Informe o nome da nova lotação antes de salvar.', 'warning');
     return;
   }
   
