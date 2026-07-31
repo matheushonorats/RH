@@ -23,7 +23,7 @@ function obterResumoDashboard() {
   // 1. Processar Servidores
   const abaServ = ss.getSheetByName("Servidores");
   if (abaServ) {
-    const dadosServ = abaServ.getDataRange().getValues();
+    const dadosServ = obterValoresAba_(abaServ);
     // Identificar a posição das colunas
     const cabecalho = dadosServ[0];
     const colAtivoIdx = indiceCabecalho_(cabecalho, ["ATIVO"]);
@@ -77,7 +77,7 @@ function obterResumoDashboard() {
   // 3. Processar Lançamentos (Ausências e Pendentes de 1DOC)
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (abaLanc) {
-    const dadosLanc = abaLanc.getDataRange().getValues();
+    const dadosLanc = obterValoresAba_(abaLanc);
     
     const cabecalhoLanc = dadosLanc[0];
     const idxLanc = obterIndicesColunasLancamentos_(cabecalhoLanc);
@@ -178,10 +178,15 @@ function formatarDataDashboard(data) {
  * Baixa todos os dados de uma única vez para otimização de performance no front-end
  */
 function obterDadosCompletos() {
-  return {
-    dashboard: obterResumoDashboard(),
-    servidores: obterListaServidores(),
-    lancamentos: obterListaLancamentos(),
-    protocolos: obterListaProtocolos()
-  };
+  iniciarLeiturasEmLote_();
+  try {
+    return {
+      dashboard: obterResumoDashboard(),
+      servidores: obterListaServidores(),
+      lancamentos: obterListaLancamentos(),
+      protocolos: obterListaProtocolos()
+    };
+  } finally {
+    finalizarLeiturasEmLote_();
+  }
 }

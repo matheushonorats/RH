@@ -14,7 +14,7 @@ function obterListaProtocolos() {
   const aba = ss.getSheetByName("Protocolos");
   if (!aba) return [];
 
-  const dados = aba.getDataRange().getValues();
+  const dados = obterValoresAba_(aba);
   if (dados.length <= 1) return [];
 
   // Constrói mapa de contagem em única leitura da aba Lançamentos
@@ -394,7 +394,7 @@ function contarLancamentosPorProtocolo_(ss) {
   const abaLanc = ss.getSheetByName("Lancamentos") || ss.getSheetByName("Lançamentos");
   if (!abaLanc) return {};
 
-  const dados = abaLanc.getDataRange().getValues();
+  const dados = obterValoresAba_(abaLanc);
   if (dados.length <= 1) return {};
 
   const cabecalho = dados[0];

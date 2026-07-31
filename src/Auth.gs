@@ -17,6 +17,60 @@ function gerarTokenAleatorio() {
   return Utilities.getUuid();
 }
 
+/** Novas senhas usam um sal aleatorio; hashes antigos migram no login. */
+function gerarHashSenhaArmazenado_(senha) {
+  const sal = Utilities.getUuid().replace(/-/g, "");
+  return "v2$" + sal + "$" + gerarHashSenha(sal + "|" + String(senha));
+}
+
+function compararTextoTempoConstante_(a, b) {
+  const textoA = String(a || "");
+  const textoB = String(b || "");
+  let diferenca = textoA.length ^ textoB.length;
+  const tamanho = Math.max(textoA.length, textoB.length);
+  for (let i = 0; i < tamanho; i++) {
+    diferenca |= (textoA.charCodeAt(i) || 0) ^ (textoB.charCodeAt(i) || 0);
+  }
+  return diferenca === 0;
+}
+
+function validarSenhaArmazenada_(senha, hashSalvo) {
+  const armazenado = String(hashSalvo || "");
+  if (armazenado.indexOf("v2$") === 0) {
+    const partes = armazenado.split("$");
+    if (partes.length !== 3 || !partes[1] || !partes[2]) return false;
+    return compararTextoTempoConstante_(gerarHashSenha(partes[1] + "|" + String(senha)), partes[2]);
+  }
+  return compararTextoTempoConstante_(gerarHashSenha(String(senha)), armazenado);
+}
+
+function chaveTentativasLogin_(email) {
+  return "rh_login_" + gerarHashSenha(String(email || "").toLowerCase()).slice(0, 32);
+}
+
+function verificarBloqueioLogin_(email) {
+  const bruto = CacheService.getScriptCache().get(chaveTentativasLogin_(email));
+  if (!bruto) return;
+  const controle = JSON.parse(bruto);
+  if (Number(controle.bloqueadoAte || 0) > Date.now()) {
+    throw new Error("Muitas tentativas incorretas. Aguarde 15 minutos e tente novamente.");
+  }
+}
+
+function registrarFalhaLogin_(email) {
+  const cache = CacheService.getScriptCache();
+  const chave = chaveTentativasLogin_(email);
+  let controle = { tentativas: 0, bloqueadoAte: 0 };
+  try { controle = JSON.parse(cache.get(chave) || "{}") || controle; } catch (e) {}
+  controle.tentativas = Number(controle.tentativas || 0) + 1;
+  if (controle.tentativas >= 5) controle.bloqueadoAte = Date.now() + (15 * 60 * 1000);
+  cache.put(chave, JSON.stringify(controle), 900);
+}
+
+function limparFalhasLogin_(email) {
+  CacheService.getScriptCache().remove(chaveTentativasLogin_(email));
+}
+
 function verificarSessao(token) {
   if (!token) throw new Error("Acesso negado: Token de sessão não fornecido.");
   const cache = CacheService.getScriptCache();
@@ -60,19 +114,62 @@ function verificarSeEhOperador() {
   }
 }
 
-/** 
- * Wrapper para TODAS as chamadas do frontend
- */
+/** Lista fechada de operacoes que a interface pode solicitar ao servidor. */
+function obterFuncoesApiPermitidas_() {
+  return {
+    verificarSessao: verificarSessao,
+    obterDadosCompletos: obterDadosCompletos,
+    obterListaServidores: obterListaServidores,
+    obterListaLancamentos: obterListaLancamentos,
+    obterListaProtocolos: obterListaProtocolos,
+    obterHistoricoServidor: obterHistoricoServidor,
+    desativarServidor: desativarServidor,
+    salvarServidor: salvarServidor,
+    validarConflitosLancamento: validarConflitosLancamento,
+    salvarLancamento: salvarLancamento,
+    registrarOperacaoPendente: registrarOperacaoPendente,
+    marcarOperacaoPronta: marcarOperacaoPronta,
+    registrarFalhaOperacaoPendente: registrarFalhaOperacaoPendente,
+    cancelarOperacaoPendente: cancelarOperacaoPendente,
+    obterOperacoesPendentesUsuario: obterOperacoesPendentesUsuario,
+    salvarArquivoNoDrive: salvarArquivoNoDrive,
+    removerArquivoDrive: removerArquivoDrive,
+    obterAnexoBase64: obterAnexoBase64,
+    atualizar1DocLote: atualizar1DocLote,
+    obterLancamentosPendentesProtocolo: obterLancamentosPendentesProtocolo,
+    criarProtocolo: criarProtocolo,
+    atualizarStatusProtocolo: atualizarStatusProtocolo,
+    obterHtmlFolhaProtocolo: obterHtmlFolhaProtocolo,
+    obterHtmlNotificacaoFeriasCompulsorias: obterHtmlNotificacaoFeriasCompulsorias,
+    obterRelatorioCompulsorias: obterRelatorioCompulsorias,
+    obterRelatorioSituacaoFerias: obterRelatorioSituacaoFerias,
+    obterRelatorioAusenciasCalendario: obterRelatorioAusenciasCalendario,
+    obterRelatorioResumoMensal: obterRelatorioResumoMensal,
+    obterRelatorioAbonosAnuais: obterRelatorioAbonosAnuais,
+    obterRelatorioLogs: obterRelatorioLogs,
+    obterListaUsuarios: obterListaUsuarios,
+    salvarUsuario: salvarUsuario,
+    resetarSenhaUsuario: resetarSenhaUsuario,
+    desativarUsuario: desativarUsuario,
+    obterListaConfiguracoes: obterListaConfiguracoes,
+    salvarConfiguracao: salvarConfiguracao,
+    obterBriefingDiarioEntidade: obterBriefingDiarioEntidade,
+    marcarBriefingDiarioEntidadeComoVisto: marcarBriefingDiarioEntidadeComoVisto,
+    obterInsightEntidadeAtual: obterInsightEntidadeAtual,
+    marcarInsightEntidadeComoVisto: marcarInsightEntidadeComoVisto,
+    chamarEntidade: chamarEntidade,
+    avaliarInteracaoEntidade: avaliarInteracaoEntidade
+  };
+}
+
+/** Wrapper autenticado para todas as chamadas da interface. */
 function executarApiBackend(token, funcName, args) {
-  // Validate token BEFORE calling the function
   verificarSessao(token);
-  
-  const func = globalThis[funcName] || this[funcName];
-  if (typeof func !== 'function') {
-    throw new Error("Função não encontrada no servidor: " + funcName);
-  }
-  
-  return func.apply(this, args);
+  const func = obterFuncoesApiPermitidas_()[String(funcName || "")];
+  if (typeof func !== "function") throw new Error("Operacao nao permitida pela API do sistema.");
+  const argumentos = Array.isArray(args) ? args : [];
+  if (argumentos.length > 20) throw new Error("Quantidade de argumentos invalida.");
+  return func.apply(this, argumentos);
 }
 
 /**
@@ -113,6 +210,7 @@ function verificarStatusEmail(email) {
 function fazerLogin(email, senha) {
   const emailBusca = String(email).toLowerCase().trim();
   if (!emailBusca || !senha) throw new Error("E-mail e senha são obrigatórios.");
+  verificarBloqueioLogin_(emailBusca);
   
   const ss = obterPlanilha_();
   const abaUsuarios = ss.getSheetByName("Usuarios");
@@ -155,6 +253,7 @@ function fazerLogin(email, senha) {
       ]);
       throw new Error("PRIMEIRO_ACESSO");
     }
+    registrarFalhaLogin_(emailBusca);
     throw new Error("E-mail não autorizado a acessar este sistema.");
   }
   
@@ -162,9 +261,14 @@ function fazerLogin(email, senha) {
     throw new Error("PRIMEIRO_ACESSO");
   }
   
-  const hashTentativa = gerarHashSenha(senha);
-  if (hashTentativa !== hashSalvo) {
+  if (!validarSenhaArmazenada_(senha, hashSalvo)) {
+    registrarFalhaLogin_(emailBusca);
     throw new Error("Senha incorreta.");
+  }
+
+  limparFalhasLogin_(emailBusca);
+  if (hashSalvo.indexOf("v2$") !== 0 && linhaEdit > 0) {
+    abaUsuarios.getRange(linhaEdit, 5).setValue(gerarHashSenhaArmazenado_(senha));
   }
   
   // Sucesso no login, gerar token válido por 24h
@@ -211,7 +315,7 @@ function definirSenhaPrimeiroAcesso(email, novaSenha) {
     if (!usuarioValido) throw new Error("E-mail não encontrado no sistema.");
     if (hashSalvo) throw new Error("A senha já foi definida para este usuário. Use a tela de login normal.");
     
-    const hashGerado = gerarHashSenha(novaSenha);
+    const hashGerado = gerarHashSenhaArmazenado_(novaSenha);
     abaUsuarios.getRange(linhaEdit, 5).setValue(hashGerado);
     
     const token = gerarTokenAleatorio();

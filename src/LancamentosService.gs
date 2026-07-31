@@ -268,7 +268,7 @@ function obterListaLancamentos() {
   const aba = ss.getSheetByName("Lançamentos");
   if (!aba) return [];
   
-  const dados = aba.getDataRange().getValues();
+  const dados = obterValoresAba_(aba);
   if (dados.length <= 1) return [];
   
   const cabecalho = dados[0];
@@ -648,7 +648,7 @@ function removerArquivoDrive(idArquivo) {
 function obterInfoServidorBasico_(ss, matricula) {
   const abaServ = ss.getSheetByName("Servidores");
   if (!abaServ) return null;
-  const dados = abaServ.getDataRange().getValues();
+  const dados = obterValoresAba_(abaServ);
   const cabecalho = dados[0];
   const idxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
   const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);

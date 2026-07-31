@@ -15,12 +15,36 @@ function doGet(e) {
   
   return template.evaluate()
     .setTitle("RHv2")
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
 
 const CHAVE_ID_PLANILHA = "ID_PLANILHA_RH";
 const CHAVE_ADMIN_INICIAL = "EMAIL_ADMIN_INICIAL_RH";
+
+let _leiturasEmLoteAtivas_ = false;
+let _cacheLeiturasEmLote_ = {};
+
+function iniciarLeiturasEmLote_() {
+  _leiturasEmLoteAtivas_ = true;
+  _cacheLeiturasEmLote_ = {};
+}
+
+function finalizarLeiturasEmLote_() {
+  _leiturasEmLoteAtivas_ = false;
+  _cacheLeiturasEmLote_ = {};
+}
+
+/** Reaproveita uma leitura da mesma aba apenas durante uma consulta completa. */
+function obterValoresAba_(aba) {
+  if (!aba) return [];
+  if (!_leiturasEmLoteAtivas_) return aba.getDataRange().getValues();
+  const chave = String(aba.getSheetId());
+  if (!Object.prototype.hasOwnProperty.call(_cacheLeiturasEmLote_, chave)) {
+    _cacheLeiturasEmLote_[chave] = aba.getDataRange().getValues();
+  }
+  return _cacheLeiturasEmLote_[chave];
+}
 
 /**
  * Retorna a planilha vinculada mesmo quando o codigo roda como Web App.

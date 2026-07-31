@@ -26,6 +26,30 @@ const AppState = {
 
 let currentView = 'dashboard';
 
+function gerarUuidSeguroCliente_() {
+  if (!window.crypto) throw new Error('Este navegador nao oferece geracao segura de identificadores.');
+  if (typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  if (typeof window.crypto.getRandomValues !== 'function') {
+    throw new Error('Este navegador nao oferece geracao segura de identificadores.');
+  }
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function obterChaveFilaSincronizacao_() {
+  try {
+    const usuario = JSON.parse(localStorage.getItem('rh_user') || '{}');
+    const email = String(usuario.email || '').toLowerCase().trim();
+    return email ? 'rh_sync_queue_v2_' + encodeURIComponent(email) : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 // ==========================================
 // SYNC QUEUE — Fila de operações pendentes
 // ==========================================
@@ -41,7 +65,7 @@ const SyncQueue = {
       if (existente) return existente.id;
     }
     const item = {
-      id: Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+      id: gerarUuidSeguroCliente_(),
       tipo: tipo,
       funcaoNome: funcaoNome,
       args: args,
@@ -142,15 +166,20 @@ const SyncQueue = {
 
   persistir() {
     try {
-      localStorage.setItem('rh_sync_queue', JSON.stringify(this.fila));
+      const chave = obterChaveFilaSincronizacao_();
+      if (chave) localStorage.setItem(chave, JSON.stringify(this.fila));
+      localStorage.removeItem('rh_sync_queue');
     } catch(e) { console.warn('Erro ao persistir fila:', e); }
   },
 
   restaurar() {
     try {
-      const raw = localStorage.getItem('rh_sync_queue');
-      if (raw) {
-        this.fila = JSON.parse(raw);
+      const chave = obterChaveFilaSincronizacao_();
+      localStorage.removeItem('rh_sync_queue');
+      this.fila = [];
+      if (chave) {
+        const raw = localStorage.getItem(chave);
+        if (raw) this.fila = JSON.parse(raw);
         if (this.fila.length > 0) {
           mostrarToast(`${this.fila.length} operação(ões) pendente(s) encontrada(s). Sincronizando...`, 'info');
           setTimeout(() => this.processar(), 2000);
@@ -200,10 +229,7 @@ const SyncQueue = {
 };
 
 function gerarIdOperacaoCliente_() {
-  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-    return window.crypto.randomUUID();
-  }
-  return 'op-' + Date.now() + '-' + Math.random().toString(36).slice(2, 12);
+  return gerarUuidSeguroCliente_();
 }
 
 function chamarBackendPromessa_(funcaoNome, args) {
@@ -458,32 +484,74 @@ function atualizarTextoSync(texto, exibir = true, icone = 'spinner') {
 // ==========================================
 // CACHE LOCAL (localStorage)
 // ==========================================
+const CACHE_LOCAL_TTL_MS = 30 * 60 * 1000;
+
+function obterEmailCacheLocal_() {
+  try {
+    const usuario = JSON.parse(localStorage.getItem('rh_user') || '{}');
+    return String(usuario.email || '').toLowerCase().trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function obterChaveCacheLocal_() {
+  const email = obterEmailCacheLocal_();
+  return email ? 'rh_cache_v2_' + encodeURIComponent(email) : '';
+}
+
+function limparCacheLocal_() {
+  const chave = obterChaveCacheLocal_();
+  if (chave) localStorage.removeItem(chave);
+  localStorage.removeItem('rh_cache');
+}
+
 function salvarCacheLocal() {
   try {
+    const email = obterEmailCacheLocal_();
+    const chave = obterChaveCacheLocal_();
+    if (!email || !chave) return;
     const cacheData = {
+      usuarioEmail: email,
       servidores: AppState.servidores,
       lancamentos: AppState.lancamentos,
       protocolos: AppState.protocolos,
       dashboard: AppState.dashboard,
       timestamp: Date.now()
     };
-    localStorage.setItem('rh_cache', JSON.stringify(cacheData));
-  } catch(e) { console.warn('Erro ao salvar cache:', e); }
+    localStorage.setItem(chave, JSON.stringify(cacheData));
+    localStorage.removeItem('rh_cache');
+  } catch(e) {
+    limparCacheLocal_();
+    console.warn('Cache local indisponivel; os dados continuarao vindo do servidor.', e);
+  }
 }
 
 function restaurarCacheLocal() {
   try {
-    const raw = localStorage.getItem('rh_cache');
+    localStorage.removeItem('rh_cache');
+    const email = obterEmailCacheLocal_();
+    const chave = obterChaveCacheLocal_();
+    if (!email || !chave) return false;
+    const raw = localStorage.getItem(chave);
     if (!raw) return false;
     const cache = JSON.parse(raw);
-    if (!cache.servidores) return false;
+    const expirado = !cache.timestamp || (Date.now() - Number(cache.timestamp)) > CACHE_LOCAL_TTL_MS;
+    const outroUsuario = String(cache.usuarioEmail || '').toLowerCase() !== email;
+    if (!Array.isArray(cache.servidores) || expirado || outroUsuario) {
+      localStorage.removeItem(chave);
+      return false;
+    }
     AppState.servidores = cache.servidores || [];
     AppState.lancamentos = cache.lancamentos || [];
     AppState.protocolos = cache.protocolos || [];
     AppState.dashboard = cache.dashboard || {};
     AppState.cacheRestaurado = true;
     return true;
-  } catch(e) { return false; }
+  } catch(e) {
+    limparCacheLocal_();
+    return false;
+  }
 }
 
 // ==========================================
@@ -659,14 +727,10 @@ window.addEventListener('DOMContentLoaded', () => {
     popularFiltroLotacoes();
   }
 
-  // 2. Restaurar fila de sync pendente
-  SyncQueue.restaurar();
-  SyncQueue.atualizarUI();
-
-  // 3. Busca usuário e faz sync (background se tem cache, pesado se não tem)
+  // 2. Busca usuário, restaura a fila dele e faz o sincronismo
   inicializarUsuario(temCache);
 
-  // 4. Inicia polling periódico
+  // 3. Inicia polling periódico
   iniciarPolling();
 });
 
@@ -835,6 +899,7 @@ function backendApi() {
           .withSuccessHandler(sHandler)
           .withFailureHandler(function(e) {
             if (e.message && (e.message.includes("Sua sessão expirou") || e.message.includes("Token de sessão não fornecido"))) {
+              limparCacheLocal_();
               localStorage.removeItem('rh_token');
               localStorage.removeItem('rh_user');
               mostrarLogin();
@@ -862,6 +927,8 @@ function inicializarUsuario(temCache) {
   
   try {
     AppState.usuarioLogado = JSON.parse(userJson);
+    SyncQueue.restaurar();
+    SyncQueue.atualizarUI();
   } catch(e) {
     mostrarLogin();
     return;
@@ -892,6 +959,7 @@ function inicializarUsuario(temCache) {
     })
     .withFailureHandler(function(erro) {
       console.error("Sessão inválida:", erro);
+      limparCacheLocal_();
       localStorage.removeItem('rh_token');
       localStorage.removeItem('rh_user');
       mostrarLogin();
@@ -904,6 +972,25 @@ function inicializarUsuario(temCache) {
  * Sincronização INICIAL ou forçada (com loader pesado).
  * Só deve ser chamada no boot da aplicação ou ao limpar cache explicitamente.
  */
+let sincronizacaoServidorEmAndamento = false;
+let sincronizacaoViewPendente = null;
+
+function reservarSincronizacaoServidor_(viewAlvo) {
+  if (sincronizacaoServidorEmAndamento) {
+    if (viewAlvo) sincronizacaoViewPendente = viewAlvo;
+    return false;
+  }
+  sincronizacaoServidorEmAndamento = true;
+  return true;
+}
+
+function concluirSincronizacaoServidor_(viewAlvo) {
+  sincronizacaoServidorEmAndamento = false;
+  const viewFinal = sincronizacaoViewPendente || viewAlvo || null;
+  sincronizacaoViewPendente = null;
+  return viewFinal;
+}
+
 function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
   if (typeof google === "undefined" || !google.script) return;
   
@@ -912,6 +999,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     return;
   }
   
+  if (!reservarSincronizacaoServidor_(viewAlvo)) return;
   const syncBtn = document.getElementById('btn-sync-icon');
   if (syncBtn) syncBtn.classList.add('spinning');
   exibirLoader(true);
@@ -936,8 +1024,9 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       popularFiltroLotacoes();
       salvarCacheLocal();
       exibirLoader(false);
-      if (viewAlvo) {
-        carregarDadosDaView(viewAlvo);
+      const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
+      if (viewFinal) {
+        carregarDadosDaView(viewFinal);
       } else {
         const activeLink = document.querySelector('.menu-link.active');
         if (activeLink) {
@@ -951,6 +1040,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
       exibirLoader(false);
+      concluirSincronizacaoServidor_(null);
       atualizarTextoSync("Falha na rede", true, 'warning');
       setTimeout(() => atualizarTextoSync("", false), 5000);
       mostrarToast("Falha ao sincronizar: " + mensagemErro(erro), 'error');
@@ -966,6 +1056,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
  */
 function sincronizarEmSegundoPlano(viewAlvo = null) {
   if (typeof google === "undefined" || !google.script) return;
+  if (!reservarSincronizacaoServidor_(viewAlvo)) return;
   const syncBtn = document.getElementById('btn-sync-icon');
   if (syncBtn) syncBtn.classList.add('spinning');
   
@@ -988,11 +1079,13 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
       salvarCacheLocal();
-      if (viewAlvo) carregarDadosDaView(viewAlvo);
+      const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
+      if (viewFinal) carregarDadosDaView(viewFinal);
     })
     .withFailureHandler(function(erro) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
+      concluirSincronizacaoServidor_(null);
       atualizarTextoSync("Falha na atualização", true, 'warning');
       setTimeout(() => atualizarTextoSync("", false), 5000);
       console.warn("Falha na sincronização em segundo plano:", erro);
@@ -1410,8 +1503,7 @@ function fecharModal(idModal) {
  * Carrega a lista completa de servidores do backend
  */
 function carregarListaServidores() {
-  // Usa os dados já cacheados no AppState
-  renderizarTabelaServidores();
+  filtrarTabelaServidores();
 }
 
 /**
@@ -1520,27 +1612,34 @@ function filtrarTabelaServidores() {
 function popularFiltroLotacoes() {
   const select = document.getElementById('filtro-lotacao-servidor');
   const lotacaoForm = document.getElementById('serv-lotacao');
+  if (!select || !lotacaoForm) return;
+  const filtroAtual = select.value;
+  const lotacaoAtual = lotacaoForm.value;
+  const campoNova = document.getElementById('serv-lotacao-nova');
+  const textoNovaAtual = campoNova ? campoNova.value : '';
   
   // Extrai lotações exclusivas
   const lotacoes = [...new Set(AppState.servidores.map(s => s.lotacao).filter(Boolean))].sort();
   
-  // Popula filtro da listagem
-  let htmlFiltro = '<option value="">Todas Lotações</option>';
-  lotacoes.forEach(l => {
-    htmlFiltro += `<option value="${l}">${l}</option>`;
+  // Usa elementos DOM, evitando interpretar como HTML uma lotacao digitada.
+  select.replaceChildren(new Option('Todas Lotações', ''));
+  lotacoes.forEach(l => select.add(new Option(l, l)));
+  if (Array.from(select.options).some(opcao => opcao.value === filtroAtual)) select.value = filtroAtual;
+
+  const opcoesFormulario = lotacoes.slice();
+  ['Turismo', 'Rodoviária', 'Espaço Batuíra'].forEach(l => {
+    if (!opcoesFormulario.includes(l)) opcoesFormulario.push(l);
   });
-  select.innerHTML = htmlFiltro;
-  
-  // Popula dropdown do formulário
-  let htmlForm = '';
-  lotacoes.forEach(l => {
-    htmlForm += `<option value="${l}">${l}</option>`;
-  });
-  if (!lotacoes.includes("Turismo")) htmlForm += '<option value="Turismo">Turismo</option>';
-  if (!lotacoes.includes("Rodoviária")) htmlForm += '<option value="Rodoviária">Rodoviária</option>';
-  if (!lotacoes.includes("Espaço Batuíra")) htmlForm += '<option value="Espaço Batuíra">Espaço Batuíra</option>';
-  htmlForm += '<option value="__NOVA_LOTACAO__">Adicionar nova lotação...</option>';
-  lotacaoForm.innerHTML = htmlForm;
+  if (lotacaoAtual && lotacaoAtual !== '__NOVA_LOTACAO__' && !opcoesFormulario.includes(lotacaoAtual)) {
+    opcoesFormulario.push(lotacaoAtual);
+  }
+  lotacaoForm.replaceChildren();
+  opcoesFormulario.forEach(l => lotacaoForm.add(new Option(l, l)));
+  lotacaoForm.add(new Option('Adicionar nova lotação...', '__NOVA_LOTACAO__'));
+  if (Array.from(lotacaoForm.options).some(opcao => opcao.value === lotacaoAtual)) {
+    lotacaoForm.value = lotacaoAtual;
+  }
+  if (lotacaoAtual === '__NOVA_LOTACAO__' && campoNova) campoNova.value = textoNovaAtual;
 }
 
 /** Exibe o campo livre somente quando for necessário cadastrar uma nova lotação. */
@@ -1945,8 +2044,7 @@ function abrirFichaServidor(matricula) {
  * Carrega o histórico geral de lançamentos de RH
  */
 function carregarListaLancamentos() {
-  // Usa os dados já cacheados no AppState
-  renderizarTabelaLancamentos();
+  filtrarTabelaLancamentos();
 }
 
 /**
@@ -2745,7 +2843,7 @@ AppState.protocolos = [];
  * Carrega a lista completa de protocolos do backend
  */
 function carregarListaProtocolos() {
-  renderizarTabelaProtocolos();
+  filtrarTabelaProtocolos();
 }
 
 /**
@@ -4204,6 +4302,7 @@ function sincronizarDadosLimpos(event) {
   if(event) event.preventDefault();
   const menu = document.getElementById('user-dropdown-menu');
   if (menu) menu.style.display = 'none';
+  limparCacheLocal_();
   AppState.dadosCompletosCarregados = false;
   mostrarToast("Cache limpo. Baixando todos os dados do servidor...", "info");
   sincronizarDados(true); // loader pesado intencional — pedido explícito do usuário
@@ -4211,6 +4310,14 @@ function sincronizarDadosLimpos(event) {
 
 function logoutUser(event) {
   if(event) event.preventDefault();
+  if (SyncQueue.processando) {
+    mostrarToast('Aguarde a gravação atual terminar antes de sair.', 'warning');
+    return;
+  }
+  SyncQueue.persistir();
+  SyncQueue.fila = [];
+  SyncQueue.processando = false;
+  limparCacheLocal_();
   localStorage.removeItem('rh_token');
   localStorage.removeItem('rh_user');
   
@@ -4220,6 +4327,10 @@ function logoutUser(event) {
   AppState.servidores = [];
   AppState.lancamentos = [];
   AppState.protocolos = [];
+  AppState.dashboard = {};
+  AppState.paginacao.servidores.listaAtual = [];
+  AppState.paginacao.lancamentos.listaAtual = [];
+  AppState.paginacao.protocolos.listaAtual = [];
   AppState.dadosCompletosCarregados = false;
   
   document.getElementById('current-user-name').innerText = '';
@@ -5933,7 +6044,7 @@ function salvarAjustesDiaRep() {
     novos.push({
       pis: ajusteRepAtual.pis, datetime: novaData, clock: local,
       deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '',
-      eventId: `MANUAL|${Date.now()}|${indice}|${Math.random().toString(36).slice(2)}`,
+      eventId: `MANUAL|${gerarUuidSeguroCliente_()}|${indice}`,
       nomeNoMomento: dadosRepCache.employees.get(ajusteRepAtual.pis) || '',
       sourceFile: 'Ajuste manual', rawTimestamp: novaData.getTime(), manual: true, justificativa
     });

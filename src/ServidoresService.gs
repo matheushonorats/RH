@@ -17,7 +17,7 @@ function obterListaServidoresInterno_() {
   const aba = ss.getSheetByName("Servidores");
   if (!aba) return [];
   
-  const dados = aba.getDataRange().getValues();
+  const dados = obterValoresAba_(aba);
   if (dados.length <= 1) return [];
   
   const cabecalho = dados[0];
@@ -393,7 +393,7 @@ function construirMapaStatusServidores_(ss) {
   const abaLanc = ss.getSheetByName("Lançamentos");
   if (!abaLanc) return {};
   
-  const dadosLanc = abaLanc.getDataRange().getValues();
+  const dadosLanc = obterValoresAba_(abaLanc);
   if (dadosLanc.length <= 1) return {};
   
   const cabecalho = dadosLanc[0];
@@ -506,7 +506,7 @@ function construirResumoFerias_(ss) {
 
   const abaCreditos = ss.getSheetByName("Creditos_Ferias");
   if (abaCreditos) {
-    const dadosCreditos = abaCreditos.getDataRange().getValues();
+    const dadosCreditos = obterValoresAba_(abaCreditos);
     if (dadosCreditos.length > 1) {
       const cabecalho = dadosCreditos[0];
       const idxMatricula = indiceCabecalho_(cabecalho, ["MATRICULA"]);
@@ -548,7 +548,7 @@ function construirResumoFerias_(ss) {
 
   const abaLancamentos = ss.getSheetByName("Lançamentos") || ss.getSheetByName("Lancamentos");
   if (abaLancamentos) {
-    const dadosLancamentos = abaLancamentos.getDataRange().getValues();
+    const dadosLancamentos = obterValoresAba_(abaLancamentos);
     if (dadosLancamentos.length > 1) {
       const idx = obterIndicesColunasLancamentos_(dadosLancamentos[0]);
 
