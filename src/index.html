@@ -470,6 +470,9 @@
                 <p>Carregue os AFDs, escolha o período e selecione um servidor para conferir cada marcação, seu local histórico e o REP de origem.</p>
               </div>
               <div style="display:flex; gap:8px;">
+                <button id="rep-btn-add" class="btn btn-secondary" style="display: none;" onclick="adicionarArquivosRep()">
+                  <span data-lucide="file-plus-2"></span> Adicionar AFDs
+                </button>
                 <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="exportarRepPdf()">
                   <span data-lucide="file-down"></span> PDF do servidor
                 </button>
@@ -524,6 +527,12 @@
                     <option value="10">Outubro</option>
                     <option value="11">Novembro</option>
                     <option value="12">Dezembro</option>
+                  </select>
+                </div>
+                <div style="min-width: 190px;">
+                  <label class="rep-filter-label" for="rep-filter-lotacao">Lotação</label>
+                  <select id="rep-filter-lotacao" class="form-control" onchange="renderizarListaRep()">
+                    <option value="all">Todas as lotações</option>
                   </select>
                 </div>
                 <div style="width: 190px;">
@@ -587,21 +596,25 @@
           <div class="modal-overlay" id="modal-fusao-rep">
             <div class="modal-content rep-fusao-modal">
               <div class="modal-header">
-                <div><span class="page-eyebrow">CONSOLIDAR IDENTIFICAÇÕES</span><h3 class="modal-title">Unir registros do mesmo servidor</h3></div>
+                <div><span class="page-eyebrow">VINCULAR AO CADASTRO</span><h3 class="modal-title">Associar registros REP ao servidor</h3></div>
                 <button class="modal-close" onclick="fecharModal('modal-fusao-rep')"><span data-lucide="x"></span></button>
               </div>
               <div class="modal-body">
-                <p class="form-help">Use quando o mesmo servidor apareceu com dois PIS/CPFs por falha no relógio. Todas as batidas serão reunidas no identificador principal, sem alterar os AFDs originais.</p>
-                <div class="rep-fusao-dados"><div><span>Manter como</span><strong id="rep-fusao-destino-nome">-</strong><small id="rep-fusao-destino-pis">-</small></div></div>
+                <p class="form-help">Escolha a pessoa correta no cadastro. O nome, a lotação e o PIS oficiais serão usados na pré-leitura, sem alterar os AFDs originais.</p>
+                <div class="rep-fusao-dados"><div><span>Registro selecionado no REP</span><strong id="rep-fusao-destino-nome">-</strong><small id="rep-fusao-destino-pis">-</small></div></div>
                 <div class="form-group" style="margin-top:16px;">
-                  <label class="form-label" for="rep-fusao-origem">Também pertence a este servidor</label>
+                  <label class="form-label" for="rep-fusao-servidor">Nome correto no cadastro *</label>
+                  <select id="rep-fusao-servidor" class="form-control"></select>
+                </div>
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label" for="rep-fusao-origem">Outro registro PIS/CPF da mesma pessoa (opcional)</label>
                   <select id="rep-fusao-origem" class="form-control"></select>
                 </div>
-                <p class="form-help">A união vale apenas para os arquivos carregados nesta sessão. A auditoria conservará o identificador original de cada batida.</p>
+                <p class="form-help">O vínculo vale para os arquivos carregados nesta sessão. A auditoria conservará o identificador original de cada batida.</p>
               </div>
               <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-fusao-rep')">Cancelar</button>
-                <button type="button" class="btn btn-primary" onclick="confirmarFusaoRep()"><span data-lucide="combine"></span> Unir registros</button>
+                <button type="button" class="btn btn-primary" onclick="confirmarFusaoRep()"><span data-lucide="link"></span> Vincular e unir</button>
               </div>
             </div>
           </div>

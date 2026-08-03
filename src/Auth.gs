@@ -120,6 +120,8 @@ function obterFuncoesApiPermitidas_() {
     verificarSessao: verificarSessao,
     obterDadosCompletos: obterDadosCompletos,
     obterListaServidores: obterListaServidores,
+    listarVinculosRep: listarVinculosRep,
+    salvarVinculosRep: salvarVinculosRep,
     obterListaLancamentos: obterListaLancamentos,
     obterListaProtocolos: obterListaProtocolos,
     obterHistoricoServidor: obterHistoricoServidor,

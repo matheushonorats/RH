@@ -3352,6 +3352,13 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-status.impar, .rep-status.colisao_reps { color: #f75a5a; background: rgba(247, 90, 90, .14); border-left-color: #f75a5a; }
 .rep-status.conflito_arredondamento { color: #d37ce8; background: rgba(211, 124, 232, .14); border-left-color: #d37ce8; }
 .rep-status.nao_conciliado { color: #a8b0bd; background: rgba(148, 163, 184, .14); border-left-color: #94a3b8; }
+.rep-status.sem_registro { color: #8fa0b4; background: rgba(100, 116, 139, .1); border-left-color: #64748b; }
+.rep-sinalizadores { display: inline-flex; gap: 4px; margin: 5px 0 0 4px; vertical-align: middle; }
+.rep-sinalizador { display: inline-block; padding: 3px 5px; border-radius: 4px; font-size: 9px; font-weight: 800; letter-spacing: .35px; line-height: 1; }
+.rep-sinalizador.he { color: #093f31; background: #2dd4a8; }
+.rep-sinalizador.vr { color: #4a2500; background: #fbbf24; }
+.rep-sem-registro { display: inline-block; padding: 9px 10px; border: 1px dashed var(--border-color); border-radius: 6px; color: var(--text-muted); font-size: 11px; }
+.rep-dia-sem-registro td { background: rgba(100, 116, 139, .035); }
 
 @media (max-width: 720px) {
   .rep-grupo-cabecalho { align-items: flex-start; flex-direction: column; }

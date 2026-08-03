@@ -5214,10 +5214,11 @@ function exibirInsightStatus(texto) {
 // ==========================================
 // MÓDULO PRÉ-LEITURA REP (100% LOCAL / CLIENT-SIDE)
 // ==========================================
-let dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
+let dadosRepCache = { employees: new Map(), lotacoes: new Map(), vinculos: new Map(), vinculosCarregados: false, punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
 let dadosRepProcessados = [];
 let paginaRepAtual = 1;
 let pisSelecionadoRep = '';
+let rolagemPessoasRep = 0;
 let ajusteRepAtual = null;
 let fusaoRepAtual = null;
 const ITENS_POR_PAGINA_REP = 250;
@@ -5484,7 +5485,7 @@ function formatHoursRep(decimalHours) {
   return `${sign}${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
-function processDataRep(employees, punches) {
+function processDataRep(employees, punches, lotacoes) {
   const dataByPisSeguro = new Map();
   const jornadaInput = document.getElementById('rep-jornada-horas');
   const jornadaReferencia = Number(jornadaInput && jornadaInput.value) || 8;
@@ -5498,6 +5499,7 @@ function processDataRep(employees, punches) {
       dataByPisSeguro.set(pis, {
         pis,
         nome: nomeConhecido || `PIS nao conciliado (${pis})`,
+        lotacao: (lotacoes && lotacoes.get(pis)) || 'Não informada',
         naoConciliado: !nomeConhecido,
         dias: new Map(),
         // extras/vr permanecem apenas como compatibilidade com a visualização antiga.
@@ -5605,10 +5607,13 @@ function processDataRep(employees, punches) {
         fontes: Array.from(diaSeguro.fontes).join(', '),
         status, isImpar,
         pendencia: isImpar || batidasExcedentes || conflitoArredondamento || colisaoReps,
-        intervaloPresumido, batidasExcedentes, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra
+        intervaloPresumido, batidasExcedentes, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra,
+        temHoraExtra: !isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps && saldoDia > 0,
+        temValeRefeicao: !isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps && diaExtra && totalDia > 6
       });
     }
-    resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
+    completarDiasSemRegistroRep_(dias, feriados);
+    resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, lotacao: empSeguro.lotacao, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
   }
   return resultadoSeguro.sort((a, b) => a.nome.localeCompare(b.nome));
 
@@ -5713,6 +5718,33 @@ function processDataRep(employees, punches) {
   return resultList;
 }
 
+/** Completa apenas o mês explicitamente escolhido, sem atribuir falta, carga horária ou saldo. */
+function completarDiasSemRegistroRep_(dias, feriados) {
+  const ano = String(document.getElementById('rep-filter-ano')?.value || '');
+  const mes = String(document.getElementById('rep-filter-mes')?.value || '');
+  if (!/^\d{4}$/.test(ano) || !/^(0[1-9]|1[0-2])$/.test(mes)) return;
+
+  const existentes = new Set(dias.map(dia => dia.dataOriginal));
+  const quantidadeDias = new Date(Number(ano), Number(mes), 0).getDate();
+  const nomesSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+  for (let numeroDia = 1; numeroDia <= quantidadeDias; numeroDia++) {
+    const data = `${ano}-${mes}-${String(numeroDia).padStart(2, '0')}`;
+    if (existentes.has(data)) continue;
+    const momento = new Date(Number(ano), Number(mes) - 1, numeroDia);
+    dias.push({
+      dataOriginal: data,
+      dataFormatada: data.split('-').reverse().join('/'),
+      diaSemana: nomesSemana[momento.getDay()],
+      batidas: [], batidasOriginais: '', batidasDetalhadas: [],
+      totalDia: null, saldoDia: null, extraDia: null,
+      relogios: '-', reps: '-', fontes: '-',
+      status: 'sem_registro', pendencia: false, semRegistro: true,
+      diaExtra: momento.getDay() === 0 || momento.getDay() === 6 || feriados.has(data)
+    });
+  }
+  dias.sort((a, b) => a.dataOriginal.localeCompare(b.dataOriginal));
+}
+
 function deduplicarBatidasRep(punches) {
   if (!punches || punches.length === 0) return [];
 
@@ -5773,23 +5805,54 @@ function deduplicarBatidasRep(punches) {
 async function processarArquivosRep(files) {
   if (!files || files.length === 0) return;
   exibirLoader(true, `Lendo ${files.length} arquivo(s) AFD...`);
+  const filtrosAnteriores = {
+    ano: document.getElementById('rep-filter-ano')?.value || 'all',
+    mes: document.getElementById('rep-filter-mes')?.value || 'all',
+    local: document.getElementById('rep-filter-local')?.value || 'all',
+    lotacao: document.getElementById('rep-filter-lotacao')?.value || 'all'
+  };
+  const jaHaviaArquivos = Boolean((dadosRepCache.arquivos || []).length);
 
   if (!dadosRepCache.employees) dadosRepCache.employees = new Map();
+  if (!dadosRepCache.lotacoes) dadosRepCache.lotacoes = new Map();
+  if (!dadosRepCache.vinculos) dadosRepCache.vinculos = new Map();
   if (!dadosRepCache.punches) dadosRepCache.punches = [];
   if (!dadosRepCache.punchesBrutos) dadosRepCache.punchesBrutos = [];
   if (!dadosRepCache.arquivos) dadosRepCache.arquivos = [];
+
+  if (!dadosRepCache.vinculosCarregados) {
+    try {
+      const vinculos = await chamarBackendPromessa_('listarVinculosRep', []);
+      dadosRepCache.vinculos = new Map((vinculos || []).map(item => [normalizarPisRep(item.identificador), item]));
+      dadosRepCache.vinculosCarregados = true;
+    } catch (erro) {
+      console.warn('Não foi possível carregar os vínculos REP:', mensagemErro(erro));
+      mostrarToast('Os AFDs serão lidos, mas os vínculos salvos não puderam ser consultados.', 'warning');
+    }
+  }
+
+  const arquivosExistentes = new Set((dadosRepCache.arquivos || []).map(arquivo => arquivo.chaveArquivo).filter(Boolean));
+  const novosArquivos = Array.from(files).filter(file => !arquivosExistentes.has(`${file.name}|${file.size}|${file.lastModified}`));
+  const ignorados = Array.from(files).length - novosArquivos.length;
+  if (!novosArquivos.length) {
+    exibirLoader(false);
+    return mostrarToast('Esses arquivos já foram carregados nesta sessão.', 'info');
+  }
 
   // O cadastro de Servidores é a fonte oficial do nome; o AFD só complementa
   // nomes quando o PIS ainda não foi cadastrado no sistema.
   (AppState.servidores || []).forEach(servidor => {
     const pis = normalizarPisRep(servidor.pis);
-    if (pis && servidor.nome) dadosRepCache.employees.set(pis, servidor.nome);
+    if (pis && servidor.nome) {
+      dadosRepCache.employees.set(pis, servidor.nome);
+      dadosRepCache.lotacoes.set(pis, String(servidor.lotacao || 'Não informada').trim() || 'Não informada');
+    }
   });
 
   let indiceArquivo = 0;
-  for (const file of files) {
+  for (const file of novosArquivos) {
     indiceArquivo++;
-    exibirLoader(true, `Interpretando ${indiceArquivo}/${files.length}: ${file.name}`);
+    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
     const text = await file.text();
     const { employees, punches, clocks, audit, metadata } = parseAFDRep(text, file.name);
     for (const [pis, nome] of employees.entries()) {
@@ -5802,7 +5865,7 @@ async function processarArquivosRep(files) {
       if (!dataFinal || p.datetime > dataFinal) dataFinal = p.datetime;
     });
     dadosRepCache.arquivos.push({
-      nome: file.name,
+      nome: file.name, chaveArquivo: `${file.name}|${file.size}|${file.lastModified}`,
       locais: clocks.length ? clocks : ['Relógio não identificado'],
       linhasLidas: audit.linhasLidas,
       marcacoesEncontradas: audit.marcacoesEncontradas,
@@ -5821,6 +5884,7 @@ async function processarArquivosRep(files) {
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
+  aplicarVinculosRepPersistidos_();
   // Unifica e remove batidas duplicadas entre relógios e arquivos
   dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punches);
 
@@ -5842,6 +5906,7 @@ async function processarArquivosRep(files) {
   const selectAno = document.getElementById('rep-filter-ano');
   const selectMes = document.getElementById('rep-filter-mes');
   const selectLocal = document.getElementById('rep-filter-local');
+  const selectLotacao = document.getElementById('rep-filter-lotacao');
 
   if (selectAno) {
     selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
@@ -5849,18 +5914,25 @@ async function processarArquivosRep(files) {
     anosSorted.forEach(a => {
       selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
     });
-    if (anoMaisRecente) selectAno.value = anoMaisRecente;
+    if (jaHaviaArquivos && Array.from(anosSet).includes(filtrosAnteriores.ano)) selectAno.value = filtrosAnteriores.ano;
+    else if (anoMaisRecente) selectAno.value = anoMaisRecente;
   }
 
   // Não seleciona o último mês automaticamente: arquivos com período anterior
   // continuariam carregados, mas desapareceriam da tela.
-  if (selectMes) selectMes.value = 'all';
+  if (selectMes) selectMes.value = jaHaviaArquivos ? filtrosAnteriores.mes : 'all';
 
   if (selectLocal) {
     const locais = Array.from(new Set(dadosRepCache.punches.map(p => p.clock).filter(Boolean))).sort();
     selectLocal.innerHTML = '<option value="all">Todos os locais/relógios</option>';
     locais.forEach(local => selectLocal.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(local)}">${escapeHtml(local)}</option>`));
-    selectLocal.value = 'all';
+    selectLocal.value = jaHaviaArquivos && locais.includes(filtrosAnteriores.local) ? filtrosAnteriores.local : 'all';
+  }
+  if (selectLotacao) {
+    const lotacoes = Array.from(new Set(Array.from(dadosRepCache.lotacoes.values()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    selectLotacao.innerHTML = '<option value="all">Todas as lotações</option>';
+    lotacoes.forEach(lotacao => selectLotacao.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(lotacao)}">${escapeHtml(lotacao)}</option>`));
+    selectLotacao.value = jaHaviaArquivos && lotacoes.includes(filtrosAnteriores.lotacao) ? filtrosAnteriores.lotacao : 'all';
   }
 
   renderizarAuditoriaArquivosRep();
@@ -5870,11 +5942,45 @@ async function processarArquivosRep(files) {
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
   const btnPdf = document.getElementById('rep-btn-pdf');
+  const btnAdicionar = document.getElementById('rep-btn-add');
   if (zone) zone.style.display = 'none';
   if (res) res.style.display = 'block';
   if (btn) btn.style.display = 'inline-flex';
   if (btnPdf) btnPdf.style.display = 'inline-flex';
+  if (btnAdicionar) btnAdicionar.style.display = 'inline-flex';
   exibirLoader(false);
+  mostrarToast(`${novosArquivos.length} arquivo(s) adicionado(s) com sucesso.${ignorados ? ` ${ignorados} já carregado(s) foram ignorado(s).` : ''}`, 'success');
+}
+
+function aplicarVinculosRepPersistidos_() {
+  const vinculos = dadosRepCache.vinculos || new Map();
+  if (!vinculos.size) return;
+  const identificadoresSubstituidos = new Set();
+  const eventos = new Set([...(dadosRepCache.punchesBrutos || []), ...(dadosRepCache.punches || [])]);
+  eventos.forEach(evento => {
+    const identificador = normalizarPisRep(evento.pis);
+    const vinculo = vinculos.get(identificador);
+    if (!vinculo || !vinculo.pisOficial) return;
+    if (identificador !== vinculo.pisOficial) {
+      evento.pisOriginal = evento.pisOriginal || identificador;
+      identificadoresSubstituidos.add(identificador);
+    }
+    evento.pis = vinculo.pisOficial;
+    evento.vinculoCadastro = true;
+    dadosRepCache.employees.set(vinculo.pisOficial, vinculo.nome || 'Servidor');
+    dadosRepCache.lotacoes.set(vinculo.pisOficial, vinculo.lotacao || 'Não informada');
+  });
+  identificadoresSubstituidos.forEach(identificador => {
+    dadosRepCache.employees.delete(identificador);
+    dadosRepCache.lotacoes.delete(identificador);
+  });
+}
+
+function adicionarArquivosRep() {
+  const input = document.getElementById('rep-file-input');
+  if (!input) return;
+  input.value = '';
+  input.click();
 }
 
 function renderizarAuditoriaArquivosRep() {
@@ -5922,7 +6028,7 @@ function atualizarProcessamentoRep() {
     return true;
   });
 
-  dadosRepProcessados = processDataRep(dadosRepCache.employees, punchesFiltrados);
+  dadosRepProcessados = processDataRep(dadosRepCache.employees, punchesFiltrados, dadosRepCache.lotacoes);
   paginaRepAtual = 1;
   updateDashboardRep();
   renderizarListaRep();
@@ -6149,53 +6255,95 @@ function restaurarAjustesDiaRep() {
   mostrarToast('Dados originais restaurados para o dia.', 'success');
 }
 
-function abrirFusaoRep(pisDestino) {
-  const destino = String(pisDestino || '');
-  const pessoas = dadosRepProcessados.filter(item => item.pis !== destino);
-  if (!destino || !pessoas.length) return mostrarToast('É preciso haver outra identificação carregada para unir os registros.', 'info');
+function abrirFusaoRep(identificadorRep) {
+  const identificador = String(identificadorRep || '');
+  if (!identificador) return;
+  fusaoRepAtual = identificador;
 
-  fusaoRepAtual = destino;
-  const nomeDestino = dadosRepCache.employees.get(destino) || dadosRepProcessados.find(item => item.pis === destino)?.nome || 'Servidor';
-  document.getElementById('rep-fusao-destino-nome').textContent = nomeDestino;
-  document.getElementById('rep-fusao-destino-pis').textContent = `PIS/CPF que será mantido: ${destino}`;
-  const seletor = document.getElementById('rep-fusao-origem');
-  seletor.innerHTML = '<option value="">Selecione a outra identificação...</option>';
-  pessoas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).forEach(item => {
-    const opcao = document.createElement('option');
-    opcao.value = item.pis;
-    opcao.textContent = `${item.nome} — ${item.pis}`;
-    seletor.appendChild(opcao);
-  });
+  const nomeAtual = dadosRepCache.employees.get(identificador) || dadosRepProcessados.find(item => item.pis === identificador)?.nome || 'Servidor não conciliado';
+  document.getElementById('rep-fusao-destino-nome').textContent = nomeAtual;
+  document.getElementById('rep-fusao-destino-pis').textContent = `Identificador encontrado no REP: ${identificador}`;
+
+  const seletorServidor = document.getElementById('rep-fusao-servidor');
+  seletorServidor.innerHTML = '<option value="">Selecione o nome no cadastro...</option>';
+  (AppState.servidores || [])
+    .filter(servidor => normalizarPisRep(servidor.pis))
+    .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'))
+    .forEach(servidor => {
+      const opcao = document.createElement('option');
+      opcao.value = normalizarPisRep(servidor.pis);
+      opcao.textContent = `${servidor.nome} — ${servidor.matricula || 'sem matrícula'} — ${servidor.lotacao || 'lotação não informada'}`;
+      seletorServidor.appendChild(opcao);
+    });
+  if (seletorServidor.options.length === 1) {
+    return mostrarToast('Nenhum servidor com PIS cadastrado foi encontrado. Atualize o cadastro primeiro.', 'warning');
+  }
+
+  const seletorOutro = document.getElementById('rep-fusao-origem');
+  seletorOutro.innerHTML = '<option value="">Nenhum outro registro</option>';
+  dadosRepProcessados
+    .filter(item => item.pis !== identificador)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    .forEach(item => {
+      const opcao = document.createElement('option');
+      opcao.value = item.pis;
+      opcao.textContent = `${item.nome} — ${item.pis}`;
+      seletorOutro.appendChild(opcao);
+    });
   abrirModal('modal-fusao-rep');
 }
 
-function confirmarFusaoRep() {
-  const destino = String(fusaoRepAtual || '');
-  const origem = String(document.getElementById('rep-fusao-origem')?.value || '');
-  if (!destino || !origem || destino === origem) return mostrarToast('Selecione a outra identificação que será unida.', 'warning');
+async function confirmarFusaoRep() {
+  const identificadorPrincipal = String(fusaoRepAtual || '');
+  const destino = normalizarPisRep(document.getElementById('rep-fusao-servidor')?.value || '');
+  const identificadorAdicional = String(document.getElementById('rep-fusao-origem')?.value || '');
+  if (!identificadorPrincipal || !destino) return mostrarToast('Selecione o nome correto no cadastro.', 'warning');
 
-  const nomeDestino = dadosRepCache.employees.get(destino) || dadosRepProcessados.find(item => item.pis === destino)?.nome || 'Servidor';
+  const servidor = (AppState.servidores || []).find(item => normalizarPisRep(item.pis) === destino);
+  if (!servidor) return mostrarToast('Servidor do cadastro não encontrado.', 'error');
+
+  const identificadores = new Set([identificadorPrincipal, identificadorAdicional, destino].filter(Boolean));
+  exibirLoader(true, 'Salvando vínculo permanente do REP...');
+  try {
+    await chamarBackendPromessa_('salvarVinculosRep', [{ identificadores: Array.from(identificadores), pisOficial: destino }]);
+  } catch (erro) {
+    exibirLoader(false);
+    return mostrarToast(`Não foi possível salvar o vínculo: ${mensagemErro(erro)}`, 'error');
+  }
   const eventos = new Set([...(dadosRepCache.punchesBrutos || []), ...(dadosRepCache.punches || [])]);
-  let totalUnido = 0;
+  let totalAssociado = 0;
   eventos.forEach(evento => {
-    if (String(evento.pis) !== origem) return;
-    evento.pisOriginal = evento.pisOriginal || origem;
+    const identificadorOriginal = String(evento.pis || '');
+    if (!identificadores.has(identificadorOriginal)) return;
+    if (identificadorOriginal !== destino) evento.pisOriginal = evento.pisOriginal || identificadorOriginal;
     evento.pis = destino;
     evento.fusaoManual = true;
-    totalUnido++;
+    totalAssociado++;
   });
-  if (!totalUnido) return mostrarToast('Não foram encontradas batidas para a identificação escolhida.', 'warning');
+  if (!totalAssociado) {
+    exibirLoader(false);
+    return mostrarToast('Não foram encontradas batidas para os registros escolhidos.', 'warning');
+  }
 
-  dadosRepCache.employees.set(destino, nomeDestino);
-  dadosRepCache.employees.delete(origem);
+  dadosRepCache.employees.set(destino, servidor.nome || 'Servidor');
+  dadosRepCache.lotacoes.set(destino, String(servidor.lotacao || 'Não informada').trim() || 'Não informada');
+  identificadores.forEach(identificador => dadosRepCache.vinculos.set(identificador, {
+    identificador, pisOficial: destino, nome: servidor.nome, matricula: servidor.matricula, lotacao: servidor.lotacao || 'Não informada'
+  }));
+  identificadores.forEach(identificador => {
+    if (identificador === destino) return;
+    dadosRepCache.employees.delete(identificador);
+    dadosRepCache.lotacoes.delete(identificador);
+  });
   dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punches || []);
   dadosRepCache.fusoes = dadosRepCache.fusoes || [];
-  dadosRepCache.fusoes.push({ destino, origem, nome: nomeDestino, batidas: totalUnido, em: new Date().toISOString() });
+  dadosRepCache.fusoes.push({ destino, origens: Array.from(identificadores), nome: servidor.nome, matricula: servidor.matricula, lotacao: servidor.lotacao, batidas: totalAssociado, em: new Date().toISOString() });
   pisSelecionadoRep = destino;
   fusaoRepAtual = null;
   fecharModal('modal-fusao-rep');
   atualizarProcessamentoRep();
-  mostrarToast(`${totalUnido} batida(s) foram reunidas em ${nomeDestino}.`, 'success');
+  exibirLoader(false);
+  mostrarToast(`${totalAssociado} batida(s) vinculadas a ${servidor.nome} (${servidor.lotacao || 'lotação não informada'}).`, 'success');
 }
 
 function updateDashboardRep() {
@@ -6223,7 +6371,7 @@ function textoSituacaoRep(status) {
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
     intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
     colisao_reps: 'Mesmo horário em REPs diferentes', batidas_excedentes: 'Mais de 4 marcações: conferir', nao_conciliado: 'Identificador não conciliado',
-    extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', ok: 'Conferido'
+    extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', sem_registro: 'Sem registros AFD', ok: 'Conferido'
   };
   return textos[status] || status;
 }
@@ -6241,48 +6389,56 @@ function categoriaSituacaoRep(status) {
     impar: 'Conferir',
     colisao_reps: 'Conferir',
     conflito_arredondamento: 'Arredondamento',
-    nao_conciliado: 'Identificação'
+    nao_conciliado: 'Identificação',
+    sem_registro: 'Sem registro'
   };
   return categorias[status] || 'Informação';
 }
 
 function selecionarServidorRep(pis) {
+  const listaPessoas = document.querySelector('#rep-servidores-list .rep-pessoas');
+  if (listaPessoas) rolagemPessoasRep = listaPessoas.scrollTop;
   pisSelecionadoRep = String(pis || '');
   renderizarListaRep();
 }
 
 function renderizarPainelRep(servidores, container) {
+  const listaAnterior = container.querySelector('.rep-pessoas');
+  if (listaAnterior) rolagemPessoasRep = listaAnterior.scrollTop;
   if (!servidores.some(emp => emp.pis === pisSelecionadoRep)) pisSelecionadoRep = servidores[0].pis;
   const selecionado = servidores.find(emp => emp.pis === pisSelecionadoRep);
   const resumo = servidores.map(emp => `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
-    <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis}</small></span>
+    <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
     <span><b>HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small>${emp.resumo.valeRefeicao} VR · ${emp.resumo.pendencias} alertas</small></span>
   </button>`).join('');
 
   const dias = selecionado.dias.map(dia => {
-    const eventos = (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
+    const eventos = dia.semRegistro ? '<span class="rep-sem-registro">Sem marcações neste dia no AFD</span>' : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
       <small>${evento.manual ? 'AJUSTE MANUAL' : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
     </div>`).join('');
-    return `<tr>
+    const sinalizadores = `${dia.temHoraExtra ? '<span class="rep-sinalizador he">HE</span>' : ''}${dia.temValeRefeicao ? '<span class="rep-sinalizador vr">VR</span>' : ''}`;
+    return `<tr class="${dia.semRegistro ? 'rep-dia-sem-registro' : ''}">
       <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button></td>
       <td><div class="rep-linha-tempo">${eventos}</div></td>
-      <td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
-      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}</td>
-      <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span></td>
+      <td>${dia.semRegistro ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
+      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
+      <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadores}</span></td>
     </tr>`;
   }).join('');
 
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis}</small><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Unir outra identificação</button></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button></div>
         <div class="rep-grupo-resumo"><span>Horas extras: <b class="rep-valor-positivo">${formatHoursRep(selecionado.resumo.horasExtras)}h</b></span><span title="Somente sábado, domingo ou feriado com mais de 6 horas">VR não útil &gt; 6h: <b>${selecionado.resumo.valeRefeicao}</b></span><span>Saldo líquido: <b>${formatHoursRep(selecionado.resumo.saldo)}h</b></span><span>Alertas: <b>${selecionado.resumo.pendencias}</b></span></div>
       </header>
       <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>
   </div>`;
+  const listaAtual = container.querySelector('.rep-pessoas');
+  if (listaAtual) listaAtual.scrollTop = rolagemPessoasRep;
 }
 
 function mudarPaginaRep(delta) {
@@ -6336,6 +6492,7 @@ function renderizarListaRep() {
 
   const searchTerm = (searchInput?.value || '').toLowerCase();
   const statusFilter = filterStatus?.value || 'all';
+  const lotacaoFilter = document.getElementById('rep-filter-lotacao')?.value || 'all';
 
   listContainer.innerHTML = '';
 
@@ -6349,7 +6506,7 @@ function renderizarListaRep() {
     } else if (statusFilter === 'saldo') {
       matchesStatus = emp.resumo.horasExtras > 0;
     }
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && (lotacaoFilter === 'all' || emp.lotacao === lotacaoFilter);
   });
 
   if (filtered.length === 0) {
@@ -6494,7 +6651,7 @@ function toggleRepCard(bodyId) {
 }
 
 function resetarLeituraRep() {
-  dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
+  dadosRepCache = { employees: new Map(), lotacoes: new Map(), vinculos: new Map(), vinculosCarregados: false, punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
   dadosRepProcessados = [];
   paginaRepAtual = 1;
   pisSelecionadoRep = '';
@@ -6502,12 +6659,14 @@ function resetarLeituraRep() {
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
   const btnPdf = document.getElementById('rep-btn-pdf');
+  const btnAdicionar = document.getElementById('rep-btn-add');
   const input = document.getElementById('rep-file-input');
   if (input) input.value = '';
   if (zone) zone.style.display = 'block';
   if (res) res.style.display = 'none';
   if (btn) btn.style.display = 'none';
   if (btnPdf) btnPdf.style.display = 'none';
+  if (btnAdicionar) btnAdicionar.style.display = 'none';
 }
 
 function exportarRepPdfUmaPagina(emp) {
@@ -6523,14 +6682,15 @@ function exportarRepPdfUmaPagina(emp) {
       .map(evento => evento.justificativa).join('; ');
     const situacao = `${textoSituacaoRep(dia.status)}${ajustes ? ` | Ajuste: ${ajustes}` : ''}`;
     const categoria = categoriaSituacaoRep(dia.status);
+    const sinalizadores = `${dia.temHoraExtra ? '<em class="sinal he">HE</em>' : ''}${dia.temValeRefeicao ? '<em class="sinal vr">VR</em>' : ''}`;
     return `<tr>
       <td class="nowrap"><b>${escapeHtml(dia.dataFormatada)}</b></td>
       <td class="nowrap">${escapeHtml((dia.diaSemana || '').replace('-feira', ''))}</td>
-      <td class="batidas">${batidas || '-'}</td>
-      <td class="numero">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
-      <td class="numero ${!dia.pendencia && dia.saldoDia > 0 ? 'positivo' : ''}">${dia.pendencia ? '-' : formatHoursRep(dia.saldoDia) + 'h'}</td>
+      <td class="batidas">${batidas || 'Sem registros AFD'}</td>
+      <td class="numero">${dia.semRegistro ? '-' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
+      <td class="numero ${!dia.pendencia && dia.saldoDia > 0 ? 'positivo' : ''}">${dia.semRegistro ? '-' : (dia.pendencia ? '-' : formatHoursRep(dia.saldoDia) + 'h')}</td>
       <td class="local" title="${escapeHtml(locais)}">${escapeHtml(locais)}</td>
-      <td class="situacao status-${escapeHtml(dia.status)}" title="${escapeHtml(situacao)}"><b>${escapeHtml(categoria)}:</b> ${escapeHtml(situacao)}</td>
+      <td class="situacao status-${escapeHtml(dia.status)}" title="${escapeHtml(situacao)}"><b>${escapeHtml(categoria)}:</b> ${escapeHtml(situacao)}${sinalizadores}</td>
     </tr>`;
   }).join('');
 
@@ -6541,15 +6701,15 @@ function exportarRepPdfUmaPagina(emp) {
     @page{size:A4 landscape;margin:5mm}
     *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
     .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
-    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-nao_conciliado{border-left-color:#667085;color:#475467}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-nao_conciliado,.status-sem_registro{border-left-color:#667085;color:#475467}.sinal{display:inline-block;margin-left:2px;padding:1px 3px;border-radius:2px;font-style:normal;font-weight:700;font-size:5.7px}.sinal.he{background:#2dd4a8;color:#093f31}.sinal.vr{background:#fbbf24;color:#4a2500}
     th:nth-child(1){width:8%}th:nth-child(2){width:8%}th:nth-child(3){width:22%}th:nth-child(4){width:8%}th:nth-child(5){width:8%}th:nth-child(6){width:21%}th:nth-child(7){width:25%}
     .rodape{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:10px;align-items:end;margin-top:5px;color:#687386}.nota{font-size:6px}.assinatura{border-top:1px solid #687386;padding-top:2px;text-align:center}.legenda{margin-top:3px;color:#687386;font-size:6px}.acoes{position:fixed;right:10px;top:8px;padding:7px 10px;background:#087f5b;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:11px}
     @media print{.acoes{display:none}.folha{page-break-after:avoid;page-break-inside:avoid}}
   </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><main class="folha">
-    <header class="topo"><div><span class="marca">SETUR</span><h1>Espelho mensal de pre-leitura de ponto</h1><div class="subtitulo">Conferencia auxiliar dos registros originais do AFD</div></div><div class="pessoa"><b>${escapeHtml(emp.nome)}</b><span>PIS/CPF: ${escapeHtml(emp.pis)} | Emitido em ${new Date().toLocaleDateString('pt-BR')}</span></div></header>
+    <header class="topo"><div><span class="marca">SETUR</span><h1>Espelho mensal de pre-leitura de ponto</h1><div class="subtitulo">Conferencia auxiliar dos registros originais do AFD</div></div><div class="pessoa"><b>${escapeHtml(emp.nome)}</b><span>Lotação: ${escapeHtml(emp.lotacao || 'Não informada')} | PIS/CPF: ${escapeHtml(emp.pis)} | Emitido em ${new Date().toLocaleDateString('pt-BR')}</span></div></header>
     <div class="resumo"><span>Horas extras <b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>VR em dia nao util &gt; 6h <b>${emp.resumo.valeRefeicao}</b></span><span>Horas apuradas <b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Alertas <b>${emp.resumo.pendencias}</b></span></div>
     <table><thead><tr><th>Data</th><th>Dia</th><th>Batidas</th><th>Horas</th><th>Saldo</th><th>Local</th><th>Situacao</th></tr></thead><tbody>${linhas}</tbody></table>
-    <div class="legenda"><b>Cores:</b> verde = conferido/saldo; roxo = extra em dia não útil; azul = cálculo automático; laranja = atenção; vermelho = conferir; cinza = identificação pendente. * Marcação incluída ou corrigida manualmente.</div>
+    <div class="legenda"><b>Cores:</b> verde = conferido/saldo; roxo = extra em dia não útil; azul = cálculo automático; laranja = atenção; vermelho = conferir; cinza = identificação pendente ou sem AFD. <b>HE</b> = hora extra estimada; <b>VR</b> = vale-refeição. * Marcação incluída ou corrigida manualmente.</div>
     <footer class="rodape"><div class="nota">Documento auxiliar; nao altera o AFD original. Horas extras dependem de validacao administrativa.</div><div class="assinatura">Responsavel pela conferencia</div><div class="assinatura">Servidor</div></footer>
   </main></body></html>`);
   janela.document.close();
