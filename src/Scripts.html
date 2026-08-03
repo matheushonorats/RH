@@ -5589,6 +5589,7 @@ function processDataRep(employees, punches, lotacoes) {
       let saldoDia = null;
       let intervaloConsiderado = 0;
       let descontoIntervalo = 0;
+      let jornadaIncompleta = false;
       if (!isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
@@ -5609,6 +5610,8 @@ function processDataRep(employees, punches, lotacoes) {
         empSeguro.resumo.extras += saldoDia;
         if (saldoDia > 0) empSeguro.resumo.horasExtras += saldoDia;
         if (diaExtra && totalDia > 6) empSeguro.resumo.valeRefeicao++;
+        jornadaIncompleta = !diaExtra && saldoDia < 0;
+        if (jornadaIncompleta) empSeguro.resumo.pendencias++;
       } else {
         empSeguro.resumo.pendencias++;
       }
@@ -5622,6 +5625,7 @@ function processDataRep(employees, punches, lotacoes) {
       else if (descontoIntervalo > 0) status = 'intervalo_inferior_minimo';
       else if (diaExtra) status = 'extra_dia_nao_util';
       else if (saldoDia > 0) status = 'saldo_positivo';
+      else if (jornadaIncompleta) status = 'jornada_incompleta';
       dias.push({
         dataOriginal: diaSeguro.data,
         dataFormatada: diaSeguro.data.split('-').reverse().join('/'),
@@ -5640,7 +5644,7 @@ function processDataRep(employees, punches, lotacoes) {
         fontes: Array.from(diaSeguro.fontes).join(', '),
         status, isImpar,
         pendencia: isImpar || batidasExcedentes || conflitoArredondamento || colisaoReps,
-        intervaloPresumido, batidasExcedentes, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra,
+        intervaloPresumido, batidasExcedentes, conflitoArredondamento, colisaoReps, intervaloConsiderado, descontoIntervalo, diaExtra, jornadaIncompleta,
         temHoraExtra: !isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps && saldoDia > 0,
         temValeRefeicao: !isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps && diaExtra && totalDia > 6
       });
@@ -6443,7 +6447,7 @@ function textoSituacaoRep(status) {
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
     intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
     colisao_reps: 'Mesmo horário em REPs diferentes', batidas_excedentes: 'Mais de 4 marcações: conferir', nao_conciliado: 'Identificador não conciliado',
-    extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', sem_registro: 'Sem registros AFD', ok: 'Conferido'
+    extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', jornada_incompleta: 'Horas abaixo da jornada prevista', sem_registro: 'Sem registros AFD', ok: 'Conferido'
   };
   return textos[status] || status;
 }
@@ -6452,6 +6456,7 @@ function categoriaSituacaoRep(status) {
   const categorias = {
     ok: 'Conferido',
     saldo_positivo: 'Saldo',
+    jornada_incompleta: 'Jornada incompleta',
     extra_dia_nao_util: 'Dia não útil',
     intervalo_presumido: 'Cálculo aplicado',
     extra_intervalo_presumido: 'Cálculo aplicado',
