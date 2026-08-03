@@ -467,11 +467,14 @@
               <div>
                 <span class="page-eyebrow">PRÉ-PROCESSAMENTO COMPARTILHADO · DRIVE</span>
                 <h2>Pré-Leitura de Arquivos de Ponto (REP / AFD)</h2>
-                <p>Os AFDs ficam disponíveis para a equipe em qualquer computador. Uma nova versão do mesmo arquivo substitui somente sua versão anterior; arquivos de outros locais permanecem separados.</p>
+                <p>Os AFDs são lidos diretamente da pasta compartilhada. Arquivos de coletas e períodos diferentes permanecem auditados separadamente, mesmo quando pertencem ao mesmo REP.</p>
               </div>
               <div style="display:flex; gap:8px;">
+                <button class="btn btn-primary" onclick="abrirPastaEntradaRep()" title="Abrir a pasta compartilhada onde os AFDs devem ser colocados">
+                  <span data-lucide="folder-open"></span> Abrir pasta dos AFDs
+                </button>
                 <button class="btn btn-secondary" onclick="resetarLeituraRep()" title="Buscar novamente os AFDs e apontamentos compartilhados">
-                  <span data-lucide="cloud-download"></span> Atualizar base online
+                  <span data-lucide="refresh-cw"></span> Sincronizar pasta
                 </button>
                 <button id="rep-btn-add" class="btn btn-secondary" style="display: none;" onclick="adicionarArquivosRep()">
                   <span data-lucide="file-plus-2"></span> Adicionar AFDs
@@ -485,7 +488,13 @@
               </div>
             </div>
 
-            <div class="upload-zone" id="rep-upload-zone" onclick="document.getElementById('rep-file-input').click()">
+            <div class="rep-drive-folder-card" id="rep-drive-folder-card">
+              <span data-lucide="shield-check"></span>
+              <div><strong id="rep-pasta-status">Pasta compartilhada do Drive</strong><p id="rep-pasta-detalhe">Coloque os AFDs na pasta e clique em <b>Sincronizar pasta</b>. Cada arquivo será conferido por SHA-256 antes da leitura.</p></div>
+              <button type="button" class="btn btn-primary" onclick="abrirPastaEntradaRep()"><span data-lucide="folder-open"></span> Abrir pasta</button>
+            </div>
+
+            <div class="upload-zone rep-upload-emergencia" id="rep-upload-zone" onclick="document.getElementById('rep-file-input').click()" style="display:none;">
               <input type="file" id="rep-file-input" multiple accept=".txt" hidden onchange="processarArquivosRep(this.files)">
               <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
                 <span data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--brand-primary);"></span>
@@ -598,6 +607,10 @@
                   </div>
                   <input id="rep-ajuste-compensacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a compensação">
                   <small class="form-help">Use 00:00 para remover. A operação não altera o AFD original.</small>
+                </div>
+                <div id="rep-ajuste-validacao" class="rep-ajuste-validacao" hidden>
+                  <label class="rep-validacao-check"><input type="checkbox" id="rep-ajuste-validado"> <span><b>Validar e desconsiderar este alerta</b><small>O AFD e as batidas permanecem visíveis, mas este dia deixa de contar em “Dias a conferir”. Desmarque para reabrir.</small></span></label>
+                  <input id="rep-ajuste-validacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a conferência">
                 </div>
                 <div class="form-group" style="margin-top:16px;">
                   <label class="form-label" for="rep-ajuste-justificativa">Justificativa (opcional)</label>

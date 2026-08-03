@@ -5244,6 +5244,9 @@ let apontamentosRep = [];
 let apontamentoRepAtual = null;
 let justificativasLancamentoRep = [];
 let compensacoesRep = [];
+let validacoesRep = [];
+let falhasIntegridadeRep = [];
+let infoPastaEntradaRep = null;
 let repOnlineCarregado = false;
 let repOnlineCarregando = false;
 const ITENS_POR_PAGINA_REP = 250;
@@ -5317,30 +5320,112 @@ async function baixarAfdRepOnline_(registro, ordem, total) {
   return new File([texto], registro.nomeOriginal || ('REP_' + (registro.numeroRep || ordem) + '.txt'), { type: 'text/plain', lastModified: Date.now() });
 }
 
+async function sha256BytesRep_(bytes) {
+  if (!window.crypto?.subtle) throw new Error('Este navegador não oferece a verificação criptográfica necessária.');
+  const digest = new Uint8Array(await window.crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest).map(valor => valor.toString(16).padStart(2, '0')).join('');
+}
+
+async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total) {
+  const partes = [];
+  let esperado = null;
+  let indice = 0;
+  do {
+    exibirLoader(true, `Verificando AFD ${ordem}/${total}: ${registro.nome} · parte ${indice + 1}${esperado ? '/' + esperado.totalPartes : ''}...`);
+    const resposta = await chamarBackendPromessa_('obterParteArquivoPastaEntradaRep', [{ arquivoId: registro.id, indice }]);
+    if (!esperado) esperado = resposta;
+    if (String(resposta.arquivoId) !== String(registro.id) || resposta.sha256 !== esperado.sha256 || Number(resposta.tamanho) !== Number(esperado.tamanho)) {
+      throw new Error('O arquivo mudou durante a leitura. Sincronize novamente.');
+    }
+    partes.push(base64ParaBytesRep_(resposta.base64));
+    indice++;
+  } while (indice < Number(esperado.totalPartes));
+  const bytes = concatenarPartesRep_(partes);
+  if (bytes.length !== Number(esperado.tamanho)) throw new Error(`Tamanho divergente: Drive ${esperado.tamanho}, recebido ${bytes.length}.`);
+  const hashRecebido = await sha256BytesRep_(bytes);
+  if (hashRecebido !== esperado.sha256) throw new Error(`SHA-256 divergente. Esperado ${esperado.sha256.slice(0, 12)}..., recebido ${hashRecebido.slice(0, 12)}...`);
+  const arquivo = new File([bytes], registro.nome, { type: registro.mimeType || 'text/plain', lastModified: Date.parse(registro.atualizadoEm) || Date.now() });
+  arquivo.repIntegridade = { confirmada: true, sha256Drive: esperado.sha256, sha256Recebido: hashRecebido, tamanhoDrive: Number(esperado.tamanho), tamanhoRecebido: bytes.length, arquivoId: registro.id };
+  return arquivo;
+}
+
+async function baixarArquivoPastaEntradaRep_(registro, ordem, total) {
+  let ultimoErro = null;
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    try { return await baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total); }
+    catch (erro) {
+      ultimoErro = erro;
+      if (tentativa < 3) exibirLoader(true, `Falha ao conferir ${registro.nome}. Nova tentativa ${tentativa + 1}/3...`);
+    }
+  }
+  throw ultimoErro || new Error('Não foi possível verificar o arquivo.');
+}
+
+async function abrirPastaEntradaRep() {
+  const janela = window.open('', '_blank');
+  try {
+    const info = infoPastaEntradaRep || await chamarBackendPromessa_('obterInfoPastaEntradaRep', []);
+    infoPastaEntradaRep = info;
+    if (janela) janela.location.href = info.url;
+    else window.open(info.url, '_blank');
+  } catch (erro) {
+    if (janela) janela.close();
+    mostrarToast('Não foi possível abrir a pasta: ' + mensagemErro(erro), 'error');
+  }
+}
+
 async function carregarModuloRepOnline(forcar) {
   if (repOnlineCarregando || (repOnlineCarregado && !forcar)) return;
   repOnlineCarregando = true;
   try {
     const resultados = await Promise.all([
-      chamarBackendPromessa_('listarArquivosRepOnline', []),
+      chamarBackendPromessa_('obterInfoPastaEntradaRep', []),
+      chamarBackendPromessa_('listarArquivosPastaEntradaRep', []),
       chamarBackendPromessa_('listarApontamentosRep', []),
       chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
-      chamarBackendPromessa_('listarCompensacoesRep', [])
+      chamarBackendPromessa_('listarCompensacoesRep', []),
+      chamarBackendPromessa_('listarValidacoesRep', [])
     ]);
-    const arquivosOnline = Array.isArray(resultados[0]) ? resultados[0] : [];
-    apontamentosRep = Array.isArray(resultados[1]) ? resultados[1] : [];
-    justificativasLancamentoRep = Array.isArray(resultados[2]) ? resultados[2] : [];
-    compensacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
+    infoPastaEntradaRep = resultados[0] || null;
+    const arquivosEntrada = Array.isArray(resultados[1]) ? resultados[1] : [];
+    apontamentosRep = Array.isArray(resultados[2]) ? resultados[2] : [];
+    justificativasLancamentoRep = Array.isArray(resultados[3]) ? resultados[3] : [];
+    compensacoesRep = Array.isArray(resultados[4]) ? resultados[4] : [];
+    validacoesRep = Array.isArray(resultados[5]) ? resultados[5] : [];
     repOnlineCarregado = true;
-    if (!arquivosOnline.length) {
-      const zone = document.getElementById('rep-upload-zone');
-      if (zone) zone.style.display = 'block';
+    falhasIntegridadeRep = [];
+    const statusPasta = document.getElementById('rep-pasta-status');
+    const detalhePasta = document.getElementById('rep-pasta-detalhe');
+    if (statusPasta) statusPasta.textContent = `${arquivosEntrada.length} arquivo(s) encontrado(s) em ${infoPastaEntradaRep?.nome || 'RHV2 - Entrada de AFDs'}`;
+    if (detalhePasta) detalhePasta.textContent = `Verificação iniciada em ${new Date().toLocaleString('pt-BR')}. Comparando tamanho e SHA-256 de cada arquivo.`;
+    if (arquivosEntrada.length) {
+      limparEstadoLeituraRep_();
+      const arquivos = [];
+      for (let i = 0; i < arquivosEntrada.length; i++) {
+        try { arquivos.push(await baixarArquivoPastaEntradaRep_(arquivosEntrada[i], i + 1, arquivosEntrada.length)); }
+        catch (erro) {
+          falhasIntegridadeRep.push({ nome: arquivosEntrada[i].nome, arquivoId: arquivosEntrada[i].id, motivo: mensagemErro(erro), tamanho: arquivosEntrada[i].tamanho });
+        }
+      }
+      if (arquivos.length) await processarArquivosRep(arquivos, { origemOnline: true, silencioso: true, origemPastaDrive: true });
+      else {
+        const resultadosContainer = document.getElementById('rep-results-container');
+        if (resultadosContainer) resultadosContainer.style.display = 'block';
+        renderizarAuditoriaArquivosRep();
+      }
+      if (falhasIntegridadeRep.length) mostrarToast(`${falhasIntegridadeRep.length} arquivo(s) foram bloqueados por falha de integridade.`, 'error');
+      if (statusPasta) statusPasta.textContent = `${arquivos.length}/${arquivosEntrada.length} AFD(s) com integridade confirmada`;
+      if (detalhePasta) detalhePasta.textContent = falhasIntegridadeRep.length
+        ? `${falhasIntegridadeRep.length} arquivo(s) bloqueado(s). Eles não foram usados na conferência; substitua-os na pasta e sincronize novamente.`
+        : `Todos os arquivos chegaram com o mesmo tamanho e SHA-256 do Drive. Última verificação: ${new Date().toLocaleString('pt-BR')}.`;
       return;
     }
-    limparEstadoLeituraRep_();
-    const arquivos = [];
-    for (let i = 0; i < arquivosOnline.length; i++) arquivos.push(await baixarAfdRepOnline_(arquivosOnline[i], i + 1, arquivosOnline.length));
-    await processarArquivosRep(arquivos, { origemOnline: true, silencioso: true });
+    if (!arquivosEntrada.length) {
+      if (statusPasta) statusPasta.textContent = 'Pasta de AFDs vazia';
+      if (detalhePasta) detalhePasta.textContent = 'Abra a pasta, envie os arquivos .txt/AFD e clique em Sincronizar pasta.';
+      mostrarToast('A pasta de AFDs está vazia. Abra a pasta, envie os arquivos e sincronize novamente.', 'info');
+      return;
+    }
   } catch (erro) {
     mostrarToast('Não foi possível carregar os AFDs online: ' + mensagemErro(erro), 'error');
   } finally {
@@ -5418,8 +5503,10 @@ function parseAFDRep(content, sourceFile) {
   const audit = {
     linhasLidas: 0, marcacoesEncontradas: 0, marcacoesValidas: 0, marcacoesInvalidas: 0,
     cadastrosEmpregado: 0, alteracoesLocal: 0, ajustesRelogio: 0, eventosTecnicos: 0,
-    quebrasNsr: 0, registrosPorTipo: {}
+    quebrasNsr: 0, registrosPorTipo: {}, linhasArquivo: lines.length, linhasVazias: 0,
+    linhasCurtas: 0, trailers: 0, assinaturas: 0, tiposDesconhecidos: 0, erros: []
   };
+  const identificadoresBatidas = new Set();
 
   // Primeira passagem, de baixo para cima: o primeiro cadastro válido encontrado
   // é o nome mais recente daquele identificador no log.
@@ -5434,14 +5521,42 @@ function parseAFDRep(content, sourceFile) {
 
   lines.forEach((rawLine, index) => {
     const line = rawLine.trim();
-    if (!line || line.length < 10) return;
+    if (!line) { audit.linhasVazias++; return; }
+    if (line.length < 10) {
+      audit.linhasCurtas++;
+      audit.erros.push({ linha: index + 1, motivo: 'Linha curta ou incompleta' });
+      return;
+    }
     audit.linhasLidas++;
+    if (line.slice(0, 9) === '999999999') {
+      audit.trailers++;
+      audit.registrosPorTipo['9'] = (audit.registrosPorTipo['9'] || 0) + 1;
+      return;
+    }
     const type = line.charAt(9);
+    if (!/[1-6]/.test(type)) {
+      const semEspacos = line.replace(/\s/g, '');
+      if (/^A[A-Z2-7]{50,}$/i.test(semEspacos) || /^[A-Za-z0-9+/]{80,}={0,2}$/.test(semEspacos)) {
+        audit.assinaturas++;
+        audit.registrosPorTipo['ASSINATURA'] = (audit.registrosPorTipo['ASSINATURA'] || 0) + 1;
+        return;
+      }
+      audit.registrosPorTipo[type] = (audit.registrosPorTipo[type] || 0) + 1;
+      audit.tiposDesconhecidos++;
+      audit.erros.push({ linha: index + 1, motivo: `Tipo de registro desconhecido: ${type || '(vazio)'}` });
+      return;
+    }
     audit.registrosPorTipo[type] = (audit.registrosPorTipo[type] || 0) + 1;
 
     if (/^\d{9}$/.test(line.slice(0, 9)) && line.slice(0, 9) !== '999999999' && type !== '1') {
       const nsrAtual = Number(line.slice(0, 9));
-      if (previousNsr !== null && nsrAtual !== previousNsr + 1) audit.quebrasNsr++;
+      if (previousNsr !== null && nsrAtual !== previousNsr + 1) {
+        audit.quebrasNsr++;
+        if (audit.erros.length < 100) audit.erros.push({
+          linha: index + 1,
+          motivo: `Sequência NSR interrompida: esperado ${String(previousNsr + 1).padStart(9, '0')}, encontrado ${String(nsrAtual).padStart(9, '0')}`
+        });
+      }
       previousNsr = nsrAtual;
     }
 
@@ -5493,8 +5608,10 @@ function parseAFDRep(content, sourceFile) {
     audit.marcacoesEncontradas++;
     const datetime = parseDataHoraAfdRep(moderno ? line.slice(10, 34) : line.slice(10, 22), moderno);
     const pis = normalizarPisRep(moderno ? line.slice(34, 46) : line.slice(22, 34));
+    if (pis) identificadoresBatidas.add(pis);
     if (!datetime || !pis) {
       audit.marcacoesInvalidas++;
+      audit.erros.push({ linha: index + 1, motivo: !pis ? 'Identificador PIS/CPF inválido' : 'Data ou horário inválido' });
       return;
     }
     const cadastro = cadastroNoMomento.get(pis);
@@ -5510,6 +5627,10 @@ function parseAFDRep(content, sourceFile) {
     });
     audit.marcacoesValidas++;
   });
+
+  audit.identificadoresBatidas = Array.from(identificadoresBatidas).sort();
+  audit.linhasClassificadas = Object.keys(audit.registrosPorTipo).reduce((total, tipo) => total + Number(audit.registrosPorTipo[tipo] || 0), 0);
+  audit.leituraCompleta = audit.linhasCurtas === 0 && audit.tiposDesconhecidos === 0 && audit.linhasLidas === audit.linhasClassificadas;
 
   return {
     employees, punches, clocks: Array.from(locations), audit,
@@ -5786,6 +5907,26 @@ function aplicarCompensacoesRep_(emp, dias) {
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
 }
 
+function aplicarValidacoesAlertasRep_(emp, dias) {
+  const registros = (validacoesRep || []).filter(item => item.validado && normalizarPisRep(item.pis) === normalizarPisRep(emp.pis));
+  registros.forEach(registro => {
+    const dia = (dias || []).find(item => item.dataOriginal === registro.data);
+    if (!dia || (!dia.pendencia && !dia.jornadaIncompleta)) return;
+    dia.statusAntesValidacao = dia.status;
+    dia.pendenciaAntesValidacao = Boolean(dia.pendencia);
+    dia.jornadaIncompletaAntesValidacao = Boolean(dia.jornadaIncompleta);
+    dia.validacaoManual = {
+      observacao: String(registro.observacao || ''),
+      atualizadoPor: String(registro.atualizadoPor || ''),
+      atualizadoEm: String(registro.atualizadoEm || '')
+    };
+    dia.status = 'validado_manualmente';
+    dia.pendencia = false;
+    dia.jornadaIncompleta = false;
+    emp.resumo.pendencias = Math.max(0, emp.resumo.pendencias - 1);
+  });
+}
+
 function processDataRep(employees, punches, lotacoes) {
   const dataByPisSeguro = new Map();
   const jornadaInput = document.getElementById('rep-jornada-horas');
@@ -5920,6 +6061,7 @@ function processDataRep(employees, punches, lotacoes) {
     completarDiasSemRegistroRep_(dias, feriados);
     aplicarAusenciasLancamentosRep_(empSeguro, dias);
     aplicarCompensacoesRep_(empSeguro, dias);
+    aplicarValidacoesAlertasRep_(empSeguro, dias);
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, lotacao: empSeguro.lotacao, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
   }
   return resultadoSeguro.sort((a, b) => a.nome.localeCompare(b.nome));
@@ -6064,17 +6206,19 @@ function deduplicarBatidasRep(punches) {
     // Mesmo PIS/horário em equipamentos distintos continua sendo evento distinto.
     const chave = `${punch.deviceSerial || punch.sourceFile}|${punch.nsr || ''}|${pis}|${punch.datetime.getTime()}`;
     if (!porEvento.has(chave)) {
-      porEvento.set(chave, { ...punch, pis, fontes: new Set([punch.sourceFile]), relogios: new Set([punch.clock]), repeticoes: 1 });
+      porEvento.set(chave, { ...punch, pis, fontes: new Set([punch.sourceFile]), fontesIds: new Set(String(punch.sourceFileId || '').split(', ').filter(Boolean)), relogios: new Set([punch.clock]), repeticoes: 1 });
       continue;
     }
     const existente = porEvento.get(chave);
     existente.repeticoes++;
     if (punch.sourceFile) existente.fontes.add(punch.sourceFile);
+    String(punch.sourceFileId || '').split(', ').filter(Boolean).forEach(id => existente.fontesIds.add(id));
     if (punch.clock) existente.relogios.add(punch.clock);
   }
   return Array.from(porEvento.values()).map(punch => ({
     ...punch,
     sourceFile: Array.from(punch.fontes).filter(Boolean).join(', '),
+    sourceFileId: Array.from(punch.fontesIds || []).filter(Boolean).join(', '),
     clock: Array.from(punch.relogios).filter(Boolean).join(', ')
   })).sort((a, b) => a.pis.localeCompare(b.pis) || a.datetime - b.datetime);
 
@@ -6150,7 +6294,7 @@ async function processarArquivosRep(files, opcoes) {
   }
 
   const arquivosExistentes = new Set((dadosRepCache.arquivos || []).filter(arquivo => arquivo.salvoOnline !== false).map(arquivo => arquivo.chaveArquivo).filter(Boolean));
-  const novosArquivos = Array.from(files).filter(file => !arquivosExistentes.has(`${file.name}|${file.size}|${file.lastModified}`));
+  const novosArquivos = Array.from(files).filter(file => !arquivosExistentes.has(`${file.repIntegridade?.arquivoId || ''}|${file.name}|${file.size}|${file.lastModified}`));
   const ignorados = Array.from(files).length - novosArquivos.length;
   if (!novosArquivos.length) {
     exibirLoader(false);
@@ -6174,6 +6318,8 @@ async function processarArquivosRep(files, opcoes) {
     const text = await file.text();
     const leitura = parseAFDRep(text, file.name);
     const { employees, punches, clocks, audit, metadata } = leitura;
+    const arquivoDriveId = String(file.repIntegridade?.arquivoId || '');
+    punches.forEach(item => { item.sourceFileId = arquivoDriveId; });
     let salvoOnline = Boolean(opcoes.origemOnline);
     for (const [pis, nome] of employees.entries()) {
       if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
@@ -6200,9 +6346,16 @@ async function processarArquivosRep(files, opcoes) {
 
     // Substitui somente uma versao anterior do mesmo arquivo. Numeros de REP
     // repetidos em arquivos/locais diferentes permanecem carregados separadamente.
-    dadosRepCache.arquivos = dadosRepCache.arquivos.filter(item => String(item.nome || '') !== String(file.name || ''));
-    dadosRepCache.punchesBrutos = dadosRepCache.punchesBrutos.filter(item => !String(item.sourceFile || '').split(', ').includes(String(file.name || '')));
+    dadosRepCache.arquivos = dadosRepCache.arquivos.filter(item => arquivoDriveId ? String(item.arquivoDriveId || '') !== arquivoDriveId : String(item.nome || '') !== String(file.name || ''));
+    dadosRepCache.punchesBrutos = dadosRepCache.punchesBrutos.filter(item => arquivoDriveId ? !String(item.sourceFileId || '').split(', ').includes(arquivoDriveId) : !String(item.sourceFile || '').split(', ').includes(String(file.name || '')));
     dadosRepCache.punches = dadosRepCache.punches.reduce((saida, item) => {
+      if (arquivoDriveId) {
+        const ids = String(item.sourceFileId || '').split(', ').filter(Boolean);
+        if (!ids.includes(arquivoDriveId)) { saida.push(item); return saida; }
+        const idsRestantes = ids.filter(id => id !== arquivoDriveId);
+        if (idsRestantes.length) saida.push({ ...item, sourceFileId: idsRestantes.join(', ') });
+        return saida;
+      }
       const fontes = String(item.sourceFile || '').split(', ').filter(Boolean);
       if (!fontes.includes(String(file.name || ''))) {
         saida.push(item);
@@ -6213,10 +6366,24 @@ async function processarArquivosRep(files, opcoes) {
       return saida;
     }, []);
     dadosRepCache.arquivos.push({
-      nome: file.name, chaveArquivo: `${file.name}|${file.size}|${file.lastModified}`,
+      nome: file.name, chaveArquivo: `${arquivoDriveId}|${file.name}|${file.size}|${file.lastModified}`,
       salvoOnline,
+      arquivoDriveId,
+      integridadeConfirmada: Boolean(file.repIntegridade?.confirmada),
+      sha256Drive: file.repIntegridade?.sha256Drive || '',
+      sha256Recebido: file.repIntegridade?.sha256Recebido || '',
+      tamanhoDrive: Number(file.repIntegridade?.tamanhoDrive || file.size || 0),
+      tamanhoRecebido: Number(file.repIntegridade?.tamanhoRecebido || file.size || 0),
       locais: clocks.length ? clocks : ['Relógio não identificado'],
       linhasLidas: audit.linhasLidas,
+      linhasArquivo: audit.linhasArquivo,
+      linhasVazias: audit.linhasVazias,
+      linhasCurtas: audit.linhasCurtas,
+      linhasClassificadas: audit.linhasClassificadas,
+      leituraCompleta: audit.leituraCompleta,
+      tiposDesconhecidos: audit.tiposDesconhecidos,
+      errosLeitura: audit.erros || [],
+      identificadoresBatidas: audit.identificadoresBatidas || [],
       marcacoesEncontradas: audit.marcacoesEncontradas,
       marcacoesValidas: audit.marcacoesValidas,
       marcacoesInvalidas: audit.marcacoesInvalidas,
@@ -6305,7 +6472,7 @@ async function processarArquivosRep(files, opcoes) {
   if (res) res.style.display = 'block';
   if (btn) btn.style.display = 'inline-flex';
   if (btnPdf) btnPdf.style.display = 'inline-flex';
-  if (btnAdicionar) btnAdicionar.style.display = 'inline-flex';
+  if (btnAdicionar) btnAdicionar.style.display = 'none';
   exibirLoader(false);
   if (falhasOnline.length) {
     mostrarToast(`${novosArquivos.length} arquivo(s) lido(s), mas ${falhasOnline.length} não puderam ser salvos online. ${falhasOnline[0]}`, 'warning');
@@ -6349,22 +6516,47 @@ function renderizarAuditoriaArquivosRep() {
   const container = document.getElementById('rep-auditoria-arquivos');
   if (!container) return;
   const arquivos = dadosRepCache.arquivos || [];
+  const falhas = falhasIntegridadeRep || [];
   const totalEncontradas = arquivos.reduce((soma, item) => soma + item.marcacoesEncontradas, 0);
   const totalValidas = arquivos.reduce((soma, item) => soma + item.marcacoesValidas, 0);
   const totalInvalidas = arquivos.reduce((soma, item) => soma + item.marcacoesInvalidas, 0);
   const consolidadas = (dadosRepCache.punches || []).length;
   const repetidas = Math.max(0, totalValidas - consolidadas);
-  const conciliado = totalEncontradas === totalValidas + totalInvalidas;
-  const linhas = arquivos.map(item => `<tr>
-    <td><strong>REP ${escapeHtml(item.numeroRep || 'não identificado')} <i class="rep-online-status ${item.salvoOnline === false ? 'falhou' : ''}">${item.salvoOnline === false ? 'Somente neste computador' : 'Online'}</i></strong><small>${escapeHtml(item.locais.join(' → '))}</small><small>${escapeHtml(item.nome)}</small></td>
+  const integridadeFisica = arquivos.length > 0 && arquivos.every(item => item.integridadeConfirmada && item.sha256Drive === item.sha256Recebido && item.tamanhoDrive === item.tamanhoRecebido) && falhas.length === 0;
+  const leituraIntegral = arquivos.length > 0 && arquivos.every(item => item.leituraCompleta && !item.marcacoesInvalidas && !item.quebrasNsr) && falhas.length === 0;
+  const conciliado = integridadeFisica && leituraIntegral && totalEncontradas === totalValidas + totalInvalidas;
+  const linhas = arquivos.map(item => {
+    const problemas = Array.isArray(item.errosLeitura) ? item.errosLeitura : [];
+    const detalheProblemas = problemas.length ? `<details class="rep-detalhes-problemas"><summary>Ver linhas</summary><ul>${problemas.slice(0, 10).map(erro => `<li>Linha ${Number(erro.linha || 0).toLocaleString('pt-BR')}: ${escapeHtml(erro.motivo || 'Inconsistência')}</li>`).join('')}</ul>${problemas.length > 10 ? `<small>Mais ${problemas.length - 10} ocorrência(s) no arquivo.</small>` : ''}</details>` : '';
+    return `<tr>
+    <td><strong>REP ${escapeHtml(item.numeroRep || 'não identificado')} <i class="rep-online-status ${item.integridadeConfirmada ? '' : 'falhou'}">${item.integridadeConfirmada ? 'SHA-256 confirmado' : 'Sem verificação criptográfica'}</i></strong><small>${escapeHtml(item.locais.join(' → '))}</small><small>${escapeHtml(item.nome)}</small></td>
+    <td><span class="rep-integridade-selo ${item.integridadeConfirmada ? 'ok' : 'erro'}">${item.integridadeConfirmada ? 'Arquivo íntegro' : 'Não confirmado'}</span><small>${item.sha256Drive ? escapeHtml(item.sha256Drive.slice(0, 16)) + '…' : '-'}</small></td>
     <td>${item.marcacoesEncontradas.toLocaleString('pt-BR')}</td>
     <td>${item.marcacoesValidas.toLocaleString('pt-BR')}</td>
-    <td class="${item.marcacoesInvalidas || item.quebrasNsr ? 'rep-valor-negativo' : ''}">${item.marcacoesInvalidas.toLocaleString('pt-BR')}${item.quebrasNsr ? ` · ${item.quebrasNsr} quebra(s) NSR` : ''}</td>
+    <td class="${item.marcacoesInvalidas || item.quebrasNsr || !item.leituraCompleta ? 'rep-valor-negativo' : ''}">${item.marcacoesInvalidas.toLocaleString('pt-BR')}${item.quebrasNsr ? ` · ${item.quebrasNsr} quebra(s) NSR` : ''}${!item.leituraCompleta ? ` · ${item.linhasCurtas + item.tiposDesconhecidos} linha(s) não reconhecida(s)` : ''}${detalheProblemas}</td>
+    <td>${Number((item.identificadoresBatidas || []).length).toLocaleString('pt-BR')}</td>
     <td>${item.inicio && item.fim ? `${item.inicio.split('-').reverse().join('/')} a ${item.fim.split('-').reverse().join('/')}` : '-'}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
+  const linhasFalha = falhas.map(item => `<tr class="rep-arquivo-bloqueado"><td><strong>${escapeHtml(item.nome)}</strong><small>Arquivo bloqueado após 3 tentativas</small></td><td><span class="rep-integridade-selo erro">Falha de integridade</span></td><td colspan="5">${escapeHtml(item.motivo)}</td></tr>`).join('');
+
+  const ano = document.getElementById('rep-filter-ano')?.value || 'all';
+  const mes = document.getElementById('rep-filter-mes')?.value || 'all';
+  const batidasPeriodo = (dadosRepCache.punchesBrutos || []).filter(item => {
+    if (!(item.datetime instanceof Date) || isNaN(item.datetime)) return false;
+    return (ano === 'all' || String(item.datetime.getFullYear()) === ano) && (mes === 'all' || String(item.datetime.getMonth() + 1).padStart(2, '0') === mes);
+  });
+  const idsComBatida = new Set(batidasPeriodo.map(item => normalizarPisRep(item.pis)).filter(Boolean));
+  const servidoresPorPis = new Map((AppState.servidores || []).map(item => [normalizarPisRep(item.pis), item]).filter(item => item[0]));
+  const idsSemNome = Array.from(idsComBatida).filter(pis => !servidoresPorPis.has(pis) && !nomeValidoRep(dadosRepCache.employees.get(pis) || ''));
+  const servidoresSemBatida = (AppState.servidores || []).filter(item => item.status !== 'Inativo' && normalizarPisRep(item.pis) && !idsComBatida.has(normalizarPisRep(item.pis)));
+  const rotuloPeriodo = ano !== 'all' && mes !== 'all' ? `${mes}/${ano}` : 'período carregado';
+  const listaSemNome = idsSemNome.length ? `<details class="rep-diagnostico-identidade erro"><summary>${idsSemNome.length} identificador(es) com batidas, mas sem nome conciliado</summary><p>${idsSemNome.map(escapeHtml).join(' · ')}</p></details>` : '<div class="rep-diagnostico-identidade ok">Todas as batidas possuem um nome conciliado.</div>';
+  const listaSemBatida = `<details class="rep-diagnostico-identidade neutro"><summary>${servidoresSemBatida.length} servidor(es) cadastrado(s) sem batidas em ${rotuloPeriodo}</summary><p>${servidoresSemBatida.slice(0, 100).map(item => `${escapeHtml(item.nome)} (${escapeHtml(item.matricula || '-')})`).join(' · ') || 'Nenhum'}</p></details>`;
   container.innerHTML = `<details class="rep-auditoria" open>
-    <summary><strong>${arquivos.length} arquivos AFD carregados</strong><span>${totalEncontradas.toLocaleString('pt-BR')} marcações brutas · ${repetidas.toLocaleString('pt-BR')} repetições exatas agrupadas · <b class="${conciliado ? 'rep-valor-positivo' : 'rep-valor-negativo'}">${conciliado ? 'Conciliação OK' : 'Conciliação divergente'}</b></span></summary>
-    <div class="rep-table-wrap"><table class="custom-table rep-tabela-auditoria"><thead><tr><th>Local / arquivo</th><th>Encontradas</th><th>Válidas</th><th>Inválidas</th><th>Período disponível</th></tr></thead><tbody>${linhas}</tbody></table></div>
+    <summary><strong>${arquivos.length + falhas.length} arquivos AFD encontrados</strong><span>${arquivos.length}/${arquivos.length + falhas.length} com integridade confirmada · ${totalEncontradas.toLocaleString('pt-BR')} marcações brutas · ${repetidas.toLocaleString('pt-BR')} repetições agrupadas · <b class="${conciliado ? 'rep-valor-positivo' : 'rep-valor-negativo'}">${conciliado ? 'INTEGRIDADE E LEITURA 100% CONFIRMADAS' : 'EXIGE VERIFICAÇÃO'}</b></span></summary>
+    <div class="rep-table-wrap"><table class="custom-table rep-tabela-auditoria"><thead><tr><th>Local / arquivo</th><th>Integridade</th><th>Encontradas</th><th>Válidas</th><th>Problemas</th><th>PIS/CPF</th><th>Período</th></tr></thead><tbody>${linhas}${linhasFalha}</tbody></table></div>
+    <div class="rep-diagnosticos-identidade">${listaSemNome}${listaSemBatida}</div>
   </details>`;
   const detalhes = container.querySelector('details');
   setTimeout(() => {
@@ -6394,6 +6586,7 @@ function atualizarProcessamentoRep(opcoes) {
   dadosRepProcessados = processDataRep(dadosRepCache.employees, punchesFiltrados, dadosRepCache.lotacoes);
   paginaRepAtual = 1;
   updateDashboardRep();
+  renderizarAuditoriaArquivosRep();
   renderizarListaRep();
   // Filtros, feriados e ajustes recalculam a tela sem emitir um novo som.
   // A notificação proativa é reservada ao término de uma nova carga de arquivos.
@@ -6604,6 +6797,13 @@ function abrirAjusteDiaRep(pis, data) {
   document.getElementById('rep-ajuste-compensacao-horas').value = registroCompensacao ? minutosParaHoraRep_(registroCompensacao.minutos) : '';
   document.getElementById('rep-ajuste-compensacao-observacao').value = registroCompensacao?.observacao || '';
   document.getElementById('rep-ajuste-compensacao-resumo').innerHTML = `<span>Horas abaixo da jornada: <b>${minutosParaHoraRep_(deficitMinutos)}h</b></span><span>Saldo positivo disponível no mês: <b>${minutosParaHoraRep_(disponivelMinutos)}h</b></span>`;
+  const registroValidacao = (validacoesRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data && item.validado);
+  ajusteRepAtual.validadoOriginal = Boolean(registroValidacao);
+  ajusteRepAtual.validacaoObservacaoOriginal = String(registroValidacao?.observacao || '');
+  const blocoValidacao = document.getElementById('rep-ajuste-validacao');
+  blocoValidacao.hidden = !(registroValidacao || dia.pendencia || dia.jornadaIncompleta);
+  document.getElementById('rep-ajuste-validado').checked = Boolean(registroValidacao);
+  document.getElementById('rep-ajuste-validacao-observacao').value = registroValidacao?.observacao || '';
   document.getElementById('rep-ajuste-justificativa').value = '';
   abrirModal('modal-ajuste-rep');
 }
@@ -6643,6 +6843,10 @@ async function salvarAjustesDiaRep() {
     observacaoCompensacao = document.getElementById('rep-ajuste-compensacao-observacao').value.trim();
   }
   const alterouCompensacao = minutosCompensacao !== Number(ajusteRepAtual.compensacaoOriginal || 0) || observacaoCompensacao !== String(ajusteRepAtual.compensacaoObservacaoOriginal || '');
+  const blocoValidacao = document.getElementById('rep-ajuste-validacao');
+  const validado = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validado').checked : Boolean(ajusteRepAtual.validadoOriginal);
+  const observacaoValidacao = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validacao-observacao').value.trim() : String(ajusteRepAtual.validacaoObservacaoOriginal || '');
+  const alterouValidacao = validado !== Boolean(ajusteRepAtual.validadoOriginal) || observacaoValidacao !== String(ajusteRepAtual.validacaoObservacaoOriginal || '');
   const novos = [];
   linhas.forEach((linha, indice) => {
     const eventId = linha.dataset.eventId;
@@ -6674,7 +6878,7 @@ async function salvarAjustesDiaRep() {
     });
     alteracoes++;
   });
-  if (!alteracoes && !alterouLancamento && !alterouCompensacao) return mostrarToast('Nenhuma alteração foi informada.', 'warning');
+  if (!alteracoes && !alterouLancamento && !alterouCompensacao && !alterouValidacao) return mostrarToast('Nenhuma alteração foi informada.', 'warning');
   if (alterouLancamento) {
     try {
       exibirLoader(true, 'Salvando associação da ausência...');
@@ -6705,11 +6909,26 @@ async function salvarAjustesDiaRep() {
       return mostrarToast('Não foi possível salvar a compensação: ' + mensagemErro(erro), 'error');
     }
   }
+  if (alterouValidacao) {
+    try {
+      exibirLoader(true, validado ? 'Validando conferência do dia...' : 'Reabrindo alerta do dia...');
+      await chamarBackendPromessa_('salvarValidacaoRep', [{ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado, observacao: observacaoValidacao }]);
+      validacoesRep = (validacoesRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === ajusteRepAtual.data));
+      if (validado) validacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado: true, observacao: observacaoValidacao, atualizadoPor: AppState.usuario?.email || '' });
+    } catch (erro) {
+      estadoAnterior.forEach(item => {
+        item.p.desconsiderada = item.desconsiderada;
+        item.p.ajusteJustificativa = item.ajusteJustificativa;
+      });
+      exibirLoader(false);
+      return mostrarToast('Não foi possível salvar a validação: ' + mensagemErro(erro), 'error');
+    }
+  }
   dadosRepCache.punches.push(...novos);
   fecharModal('modal-ajuste-rep');
   atualizarProcessamentoRep();
   exibirLoader(false);
-  mostrarToast(alterouCompensacao && !alteracoes && !alterouLancamento ? 'Compensação de jornada salva.' : 'Ajuste aplicado sem alterar o AFD original.', 'success');
+  mostrarToast(alterouValidacao && !alteracoes && !alterouLancamento && !alterouCompensacao ? (validado ? 'Alerta validado e retirado da conferência.' : 'Alerta reaberto para conferência.') : (alterouCompensacao && !alteracoes && !alterouLancamento ? 'Compensação de jornada salva.' : 'Ajuste aplicado sem alterar o AFD original.'), 'success');
 }
 
 function restaurarAjustesDiaRep() {
@@ -6844,7 +7063,8 @@ function textoSituacaoRep(status) {
     colisao_reps: 'Mesmo horário em REPs diferentes', batidas_excedentes: 'Mais de 4 marcações: conferir', nao_conciliado: 'Identificador não conciliado',
     extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', jornada_incompleta: 'Horas abaixo da jornada prevista', sem_registro: 'Sem registros AFD',
     ausencia_justificada: 'Dia coberto por lançamento do RH', ausencia_com_batidas: 'Há marcações durante uma ausência registrada',
-    jornada_compensada: 'Déficit coberto por horas positivas do mês', jornada_compensada_parcial: 'Parte do déficit foi compensada; ainda requer conferência', ok: 'Conferido'
+    jornada_compensada: 'Déficit coberto por horas positivas do mês', jornada_compensada_parcial: 'Parte do déficit foi compensada; ainda requer conferência',
+    validado_manualmente: 'Alerta analisado e desconsiderado por um usuário', ok: 'Conferido'
   };
   return textos[status] || status;
 }
@@ -6868,7 +7088,8 @@ function categoriaSituacaoRep(status) {
     ausencia_justificada: 'Ausência justificada',
     ausencia_com_batidas: 'Conferir ausência',
     jornada_compensada: 'Jornada compensada',
-    jornada_compensada_parcial: 'Compensação parcial'
+    jornada_compensada_parcial: 'Compensação parcial',
+    validado_manualmente: 'Validado manualmente'
   };
   return categorias[status] || 'Informação';
 }
@@ -7049,11 +7270,13 @@ function atualizarApontamentosRepSegundoPlano_() {
   Promise.all([
     chamarBackendPromessa_('listarApontamentosRep', []),
     chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
-    chamarBackendPromessa_('listarCompensacoesRep', [])
+    chamarBackendPromessa_('listarCompensacoesRep', []),
+    chamarBackendPromessa_('listarValidacoesRep', [])
   ]).then(function(resultados) {
     apontamentosRep = Array.isArray(resultados[0]) ? resultados[0] : [];
     justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
     compensacoesRep = Array.isArray(resultados[2]) ? resultados[2] : [];
+    validacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
     if (currentView === 'pre-leitura-rep' && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
     else if (currentView === 'pre-leitura-rep' && dadosRepProcessados.length) renderizarListaRep();
   }).catch(function(erro) { console.warn('Dados complementares do REP não puderam ser atualizados:', mensagemErro(erro)); });
@@ -7165,6 +7388,7 @@ function renderizarPainelRep(servidores, container) {
     const apontamentosDia = apontamentosSelecionado.filter(item => item.escopo !== 'SERVIDOR' && item.data === dia.dataOriginal);
     const infoAusencia = dia.ausencia ? `<div class="rep-ausencia-dia ${dia.ausenciaJustificada ? 'justificada' : 'conferir'}"><span>${dia.ausenciaJustificada ? 'Ausência registrada' : 'Atenção: ausência e batidas no mesmo dia'}</span><strong>${escapeHtml(dia.ausencia.tipo)}</strong><small>${escapeHtml(formatarPeriodoAusenciaRep_(dia.ausencia))} · 1Doc: ${escapeHtml(dia.ausencia.idoc || 'não informado')}${dia.ausencia.origem === 'manual' ? ' · associação manual' : ''}</small></div>` : '';
     const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h de ${minutosParaHoraRep_(dia.compensacao.deficit)}h</strong><small>Utilizado do saldo positivo deste mês${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
+    const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
     const eventos = dia.semRegistro ? '<span class="rep-sem-registro">Sem marcações neste dia no AFD</span>' : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
@@ -7172,11 +7396,14 @@ function renderizarPainelRep(servidores, container) {
       <button type="button" class="rep-apontar-registro" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','REGISTRO','${escapeHtml(evento.eventKey || evento.eventId || '')}','')">Apontar</button>
     </div>`).join('');
     const sinalizadores = `${dia.temHoraExtra ? '<span class="rep-sinalizador he">HE</span>' : ''}${dia.temValeRefeicao ? '<span class="rep-sinalizador vr">VR</span>' : ''}${dia.compensacao?.minutosAplicados ? '<span class="rep-sinalizador comp">COMP</span>' : ''}`;
+    const acaoValidacao = dia.validacaoManual
+      ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Reabrir alerta</button>`
+      : (dia.pendencia || dia.jornadaIncompleta ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Validar alerta</button>` : '');
     return `<tr class="${dia.semRegistro ? 'rep-dia-sem-registro' : ''}">
-      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button></div></td>
-      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${htmlApontamentosRep_(apontamentosDia)}</td>
-      <td>${dia.semRegistro ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
-      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button>${acaoValidacao}</div></td>
+      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoValidacao}${htmlApontamentosRep_(apontamentosDia)}</td>
+      <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
+      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro || !Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
       <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadores}</span></td>
     </tr>`;
   }).join('') || `<tr><td colspan="5" class="rep-filtro-vazio">Nenhum dia encontrado neste filtro.</td></tr>`;
@@ -7424,6 +7651,7 @@ function limparEstadoLeituraRep_() {
   entidadeMensagemTemporariaRep = '';
   entidadeUltimoFingerprintRep = '';
   entidadeFingerprintsRepNotificados.clear();
+  falhasIntegridadeRep = [];
 }
 
 async function resetarLeituraRep() {
@@ -7436,7 +7664,7 @@ async function resetarLeituraRep() {
   const btnAdicionar = document.getElementById('rep-btn-add');
   const input = document.getElementById('rep-file-input');
   if (input) input.value = '';
-  if (zone) zone.style.display = 'block';
+  if (zone) zone.style.display = 'none';
   if (res) res.style.display = 'none';
   if (btn) btn.style.display = 'none';
   if (btnPdf) btnPdf.style.display = 'none';
@@ -7446,6 +7674,11 @@ async function resetarLeituraRep() {
 }
 
 function exportarRepPdfUmaPagina(emp) {
+  const arquivosAuditados = dadosRepCache.arquivos || [];
+  const problemasAuditoria = arquivosAuditados.reduce((total, item) => total + Number(item.marcacoesInvalidas || 0) + Number(item.quebrasNsr || 0) + Number(item.linhasCurtas || 0) + Number(item.tiposDesconhecidos || 0), 0);
+  const auditoriaPdf = problemasAuditoria
+    ? `ARQUIVOS ÍNTEGROS · LEITURA COM ${problemasAuditoria} ITEM(NS) A CONFERIR`
+    : `${arquivosAuditados.length} AFD(S) · INTEGRIDADE E LEITURA CONFIRMADAS`;
   const linhas = emp.dias.map(dia => {
     const batidas = (dia.batidasDetalhadas || []).map(evento =>
       `${escapeHtml(evento.horarioOriginal)}${evento.manual ? '*' : ''}`
@@ -7480,12 +7713,12 @@ function exportarRepPdfUmaPagina(emp) {
     @page{size:A4 landscape;margin:5mm}
     *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
     .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
-    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo,.status-jornada_compensada{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido,.status-ausencia_justificada{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes,.status-jornada_compensada_parcial{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps,.status-ausencia_com_batidas{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-nao_conciliado,.status-sem_registro{border-left-color:#667085;color:#475467}.sinal{display:inline-block;margin-left:2px;padding:1px 3px;border-radius:2px;font-style:normal;font-weight:700;font-size:5.7px}.sinal.he{background:#2dd4a8;color:#093f31}.sinal.vr{background:#fbbf24;color:#4a2500}.sinal.comp{background:#bfdbfe;color:#153e75}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo,.status-jornada_compensada{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido,.status-ausencia_justificada{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes,.status-jornada_compensada_parcial{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps,.status-ausencia_com_batidas{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-validado_manualmente{border-left-color:#8b5cf6;color:#6d28d9}.status-nao_conciliado,.status-sem_registro{border-left-color:#667085;color:#475467}.sinal{display:inline-block;margin-left:2px;padding:1px 3px;border-radius:2px;font-style:normal;font-weight:700;font-size:5.7px}.sinal.he{background:#2dd4a8;color:#093f31}.sinal.vr{background:#fbbf24;color:#4a2500}.sinal.comp{background:#bfdbfe;color:#153e75}
     th:nth-child(1){width:8%}th:nth-child(2){width:8%}th:nth-child(3){width:22%}th:nth-child(4){width:8%}th:nth-child(5){width:8%}th:nth-child(6){width:21%}th:nth-child(7){width:25%}
     .rodape{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:10px;align-items:end;margin-top:5px;color:#687386}.nota{font-size:6px}.assinatura{border-top:1px solid #687386;padding-top:2px;text-align:center}.legenda{margin-top:3px;color:#687386;font-size:6px}.acoes{position:fixed;right:10px;top:8px;padding:7px 10px;background:#087f5b;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:11px}
     @media print{.acoes{display:none}.folha{page-break-after:avoid;page-break-inside:avoid}}
   </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><main class="folha">
-    <header class="topo"><div><span class="marca">SETUR</span><h1>Espelho mensal de pre-leitura de ponto</h1><div class="subtitulo">Conferencia auxiliar dos registros originais do AFD</div></div><div class="pessoa"><b>${escapeHtml(emp.nome)}</b><span>Lotação: ${escapeHtml(emp.lotacao || 'Não informada')} | PIS/CPF: ${escapeHtml(emp.pis)} | Emitido em ${new Date().toLocaleDateString('pt-BR')}</span></div></header>
+    <header class="topo"><div><span class="marca">SETUR</span><h1>Espelho mensal de pre-leitura de ponto</h1><div class="subtitulo">Conferência auxiliar dos registros originais do AFD · ${escapeHtml(auditoriaPdf)}</div></div><div class="pessoa"><b>${escapeHtml(emp.nome)}</b><span>Lotação: ${escapeHtml(emp.lotacao || 'Não informada')} | PIS/CPF: ${escapeHtml(emp.pis)} | Emitido em ${new Date().toLocaleDateString('pt-BR')}</span></div></header>
     <div class="resumo"><span>Horas positivas <b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>Compensadas <b>${formatHoursRep(emp.resumo.horasCompensadas || 0)}h</b></span><span>Saldo positivo disponivel <b>${formatHoursRep(emp.resumo.saldoDisponivelCompensacao || 0)}h</b></span><span>Alertas <b>${emp.resumo.pendencias}</b></span></div>
     <table><thead><tr><th>Data</th><th>Dia</th><th>Batidas</th><th>Horas</th><th>Saldo</th><th>Local</th><th>Situacao</th></tr></thead><tbody>${linhas}</tbody></table>
     <div class="legenda"><b>Cores:</b> verde = conferido/saldo; roxo = extra em dia não útil; azul = cálculo automático; laranja = atenção; vermelho = conferir; cinza = identificação pendente ou sem AFD. <b>HE</b> = hora extra estimada; <b>VR</b> = vale-refeição. * Marcação incluída ou corrigida manualmente.</div>
@@ -7495,7 +7728,20 @@ function exportarRepPdfUmaPagina(emp) {
   janela.focus();
 }
 
-function exportarRepPdf() {
+async function confirmarSaidaAuditoriaRep_() {
+  const arquivos = dadosRepCache.arquivos || [];
+  const fisicaOk = arquivos.length > 0 && !(falhasIntegridadeRep || []).length && arquivos.every(item => item.integridadeConfirmada && item.sha256Drive === item.sha256Recebido && item.tamanhoDrive === item.tamanhoRecebido);
+  if (!fisicaOk) {
+    mostrarToast('Exportação bloqueada: existe AFD sem integridade criptográfica confirmada.', 'error');
+    return false;
+  }
+  const problemasConteudo = arquivos.reduce((total, item) => total + Number(item.marcacoesInvalidas || 0) + Number(item.quebrasNsr || 0) + Number(item.linhasCurtas || 0) + Number(item.tiposDesconhecidos || 0), 0);
+  if (problemasConteudo) return await abrirConfirm(`Os arquivos chegaram íntegros, mas a leitura encontrou ${problemasConteudo} inconsistência(s) de conteúdo/NSR.\n\nDeseja gerar o documento identificado como "exige verificação"?`);
+  return true;
+}
+
+async function exportarRepPdf() {
+  if (!await confirmarSaidaAuditoriaRep_()) return;
   const emp = dadosRepProcessados.find(item => item.pis === pisSelecionadoRep);
   if (!emp) return alert('Selecione um servidor para gerar o PDF.');
   return exportarRepPdfUmaPagina(emp);
@@ -7518,7 +7764,8 @@ function exportarRepPdf() {
   janela.focus();
 }
 
-function exportarRepExcel() {
+async function exportarRepExcel() {
+  if (!await confirmarSaidaAuditoriaRep_()) return;
   if (!dadosRepProcessados.length) return alert('Não há dados para exportar.');
   if (typeof XLSX === 'undefined') return alert('Biblioteca de Excel (SheetJS) não carregada.');
 
@@ -7575,10 +7822,15 @@ function exportarRepExcel() {
 
   const arquivos = (dadosRepCache.arquivos || []).map(item => ({
     'Arquivo': item.nome, 'Número do REP': item.numeroRep, 'Histórico de locais': item.locais.join(' → '),
+    'Integridade SHA-256': item.integridadeConfirmada ? 'Confirmada' : 'Não confirmada',
+    'SHA-256': item.sha256Drive || '', 'Tamanho no Drive': item.tamanhoDrive, 'Tamanho recebido': item.tamanhoRecebido,
+    'Linhas classificadas': item.linhasClassificadas, 'Leitura completa': item.leituraCompleta ? 'Sim' : 'Não',
+    'Identificadores com batidas': (item.identificadoresBatidas || []).length,
     'Marcações encontradas': item.marcacoesEncontradas, 'Marcações válidas': item.marcacoesValidas,
     'Marcações inválidas': item.marcacoesInvalidas, 'Quebras de NSR': item.quebrasNsr,
     'Início': item.inicio, 'Fim': item.fim
   }));
+  (falhasIntegridadeRep || []).forEach(item => arquivos.push({ 'Arquivo': item.nome, 'Integridade SHA-256': 'BLOQUEADO', 'Leitura completa': 'Não', 'Problema': item.motivo }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(arquivos), "Auditoria dos Arquivos");
   const ajustes = (dadosRepCache.punches || []).filter(p => p.manual || p.desconsiderada).map(p => ({
     'PIS/CPF': p.pis,

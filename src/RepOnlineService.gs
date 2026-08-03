@@ -3,7 +3,11 @@ const REP_ONLINE_ABA_ARQUIVOS_ = 'REP_Arquivos';
 const REP_ONLINE_ABA_APONTAMENTOS_ = 'REP_Apontamentos';
 const REP_ONLINE_ABA_JUSTIFICATIVAS_ = 'REP_Justificativas';
 const REP_ONLINE_ABA_COMPENSACOES_ = 'REP_Compensacoes';
+const REP_ONLINE_ABA_VALIDACOES_ = 'REP_Validacoes';
 const REP_ONLINE_PASTA_PROP_ = 'REP_ONLINE_PASTA_ID';
+const REP_ENTRADA_PASTA_PROP_ = 'REP_ENTRADA_PASTA_ID';
+const REP_ENTRADA_NOME_PASTA_ = 'RHV2 - Entrada de AFDs';
+const REP_ENTRADA_TAMANHO_PARTE_ = 1500000;
 const REP_ONLINE_CABECALHO_ARQUIVOS_ = [
   'Chave_REP', 'Numero_REP', 'Nome_Original', 'Pasta_Partes_ID', 'Total_Partes',
   'Tamanho_Original', 'Tamanho_Comprimido', 'Inicio', 'Fim', 'Locais',
@@ -20,6 +24,9 @@ const REP_ONLINE_CABECALHO_JUSTIFICATIVAS_ = [
 const REP_ONLINE_CABECALHO_COMPENSACOES_ = [
   'PIS', 'Data', 'Minutos', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
 ];
+const REP_ONLINE_CABECALHO_VALIDACOES_ = [
+  'PIS', 'Data', 'Validado', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
+];
 
 function normalizarNomeArquivoRepOnline_(nomeOriginal) {
   return String(nomeOriginal || 'AFD').trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120) || 'AFD';
@@ -28,9 +35,9 @@ function normalizarNomeArquivoRepOnline_(nomeOriginal) {
 function normalizarChaveArquivoRepOnline_(numeroRep, nomeOriginal) {
   const rep = String(numeroRep || '').replace(/[^0-9A-Za-z_-]/g, '').toUpperCase();
   const nome = normalizarNomeArquivoRepOnline_(nomeOriginal);
-  // Alguns equipamentos foram configurados com o mesmo numero de REP em locais
-  // diferentes. O arquivo de origem separa essas coletas sem impedir que uma
-  // nova versao do mesmo arquivo substitua apenas sua versao anterior.
+  // Um mesmo REP pode possuir arquivos de coleta de periodos diferentes.
+  // O arquivo de origem preserva cada coleta sem impedir que uma nova versao
+  // daquele mesmo arquivo substitua apenas sua versao anterior.
   if (rep && rep !== 'REPDESCONHECIDO') return 'REP:' + rep + '|ARQUIVO:' + nome;
   return 'ARQUIVO:' + nome;
 }
@@ -58,6 +65,83 @@ function obterPastaRepOnline_() {
   }
   props.setProperty(REP_ONLINE_PASTA_PROP_, pasta.getId());
   return pasta;
+}
+
+function obterPastaEntradaRep_() {
+  const props = PropertiesService.getScriptProperties();
+  const idSalvo = props.getProperty(REP_ENTRADA_PASTA_PROP_);
+  if (idSalvo) {
+    try { return DriveApp.getFolderById(idSalvo); } catch (e) {}
+  }
+  const ss = obterPlanilha_();
+  let pai = null;
+  try {
+    const pais = DriveApp.getFileById(ss.getId()).getParents();
+    if (pais.hasNext()) pai = pais.next();
+  } catch (e) {}
+  let pasta = null;
+  if (pai) {
+    const existentes = pai.getFoldersByName(REP_ENTRADA_NOME_PASTA_);
+    pasta = existentes.hasNext() ? existentes.next() : pai.createFolder(REP_ENTRADA_NOME_PASTA_);
+  } else {
+    const existentes = DriveApp.getFoldersByName(REP_ENTRADA_NOME_PASTA_);
+    pasta = existentes.hasNext() ? existentes.next() : DriveApp.createFolder(REP_ENTRADA_NOME_PASTA_);
+  }
+  props.setProperty(REP_ENTRADA_PASTA_PROP_, pasta.getId());
+  return pasta;
+}
+
+function obterInfoPastaEntradaRep() {
+  obterDadosUsuarioLogado();
+  const pasta = obterPastaEntradaRep_();
+  return { id: pasta.getId(), nome: pasta.getName(), url: pasta.getUrl() };
+}
+
+function listarArquivosPastaEntradaRep() {
+  obterDadosUsuarioLogado();
+  const pasta = obterPastaEntradaRep_();
+  const iterador = pasta.getFiles();
+  const arquivos = [];
+  while (iterador.hasNext()) {
+    const arquivo = iterador.next();
+    if (!/\.(txt|afd)$/i.test(arquivo.getName())) continue;
+    arquivos.push({
+      id: arquivo.getId(), nome: arquivo.getName(), tamanho: arquivo.getSize(),
+      atualizadoEm: arquivo.getLastUpdated().toISOString(), mimeType: arquivo.getMimeType()
+    });
+  }
+  return arquivos.sort(function(a, b) { return a.nome.localeCompare(b.nome) || a.id.localeCompare(b.id); });
+}
+
+function validarArquivoPastaEntradaRep_(arquivoId) {
+  const arquivo = DriveApp.getFileById(String(arquivoId || ''));
+  const pastaId = obterPastaEntradaRep_().getId();
+  const pais = arquivo.getParents();
+  let pertence = false;
+  while (pais.hasNext()) {
+    if (pais.next().getId() === pastaId) { pertence = true; break; }
+  }
+  if (!pertence || !/\.(txt|afd)$/i.test(arquivo.getName())) throw new Error('Arquivo não encontrado na pasta de entrada dos AFDs.');
+  return arquivo;
+}
+
+function obterParteArquivoPastaEntradaRep(dados) {
+  obterDadosUsuarioLogado();
+  dados = dados || {};
+  const indice = Number(dados.indice || 0);
+  if (!Number.isInteger(indice) || indice < 0) throw new Error('Parte inválida do AFD.');
+  const arquivo = validarArquivoPastaEntradaRep_(dados.arquivoId);
+  const bytes = arquivo.getBlob().getBytes();
+  const totalPartes = Math.max(1, Math.ceil(bytes.length / REP_ENTRADA_TAMANHO_PARTE_));
+  if (indice >= totalPartes) throw new Error('Parte inexistente do AFD.');
+  const inicio = indice * REP_ENTRADA_TAMANHO_PARTE_;
+  const parte = bytes.slice(inicio, Math.min(inicio + REP_ENTRADA_TAMANHO_PARTE_, bytes.length));
+  const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes)
+    .map(function(valor) { return ('0' + ((valor + 256) % 256).toString(16)).slice(-2); }).join('');
+  return {
+    arquivoId: arquivo.getId(), nome: arquivo.getName(), indice: indice, totalPartes: totalPartes,
+    tamanho: bytes.length, sha256: hash, base64: Utilities.base64Encode(parte), atualizadoEm: arquivo.getLastUpdated().toISOString()
+  };
 }
 
 function obterAbaRepOnline_(nome, cabecalho) {
@@ -237,6 +321,57 @@ function obterAbaJustificativasRep_() {
 
 function obterAbaCompensacoesRep_() {
   return obterAbaRepOnline_(REP_ONLINE_ABA_COMPENSACOES_, REP_ONLINE_CABECALHO_COMPENSACOES_);
+}
+
+function obterAbaValidacoesRep_() {
+  return obterAbaRepOnline_(REP_ONLINE_ABA_VALIDACOES_, REP_ONLINE_CABECALHO_VALIDACOES_);
+}
+
+function listarValidacoesRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaValidacoesRep_();
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_VALIDACOES_.length).getValues()
+    .filter(function(linha) { return linha[0] && String(linha[6] || 'Sim').toLowerCase() !== 'não'; })
+    .map(function(linha) {
+      return {
+        pis: normalizarIdentificadorRep_(linha[0]),
+        data: linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || ''),
+        validado: String(linha[2] || '').toLowerCase() === 'sim', observacao: String(linha[3] || ''),
+        atualizadoEm: linha[4] instanceof Date ? linha[4].toISOString() : String(linha[4] || ''), atualizadoPor: String(linha[5] || '')
+      };
+    });
+}
+
+function salvarValidacaoRep(dados) {
+  const usuario = obterDadosUsuarioLogado();
+  dados = dados || {};
+  const pis = normalizarIdentificadorRep_(dados.pis);
+  const data = String(dados.data || '');
+  const validado = dados.validado === true;
+  const observacao = String(dados.observacao || '').trim().slice(0, 500);
+  if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para validar a conferência.');
+
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a validação. Tente novamente.');
+  try {
+    const aba = obterAbaValidacoesRep_();
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_VALIDACOES_.length).getValues() : [];
+    let linhaAlvo = -1;
+    existentes.some(function(linha, indice) {
+      const dataLinha = linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || '');
+      if (normalizarIdentificadorRep_(linha[0]) === pis && dataLinha === data) { linhaAlvo = indice + 2; return true; }
+      return false;
+    });
+    const valores = [[pis, data, validado ? 'Sim' : 'Não', observacao, new Date(), usuario.email || usuario.nome || '', validado ? 'Sim' : 'Não']];
+    const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
+    aba.getRange(destino, 2).setNumberFormat('@');
+    aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_VALIDACOES_.length).setValues(valores);
+    try { lancarLog('REP_VALIDACAO', 'REP_Validacoes', (validado ? 'Validou' : 'Reabriu') + ' alerta de conferência em ' + data + '.', '', '', observacao, pis); } catch (e) {}
+    return { sucesso: true, removido: !validado };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function listarCompensacoesRep() {

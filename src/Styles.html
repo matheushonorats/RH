@@ -3445,6 +3445,26 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-apontamento-contexto b { color: #a78bfa; font-size: 11px; text-transform: uppercase; }
 .rep-apontamento-contexto span { color: var(--text-secondary); font-size: 12px; }
 
+.rep-drive-folder-card { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; padding: 14px 16px; margin-bottom: 16px; border: 1px solid rgba(16,185,129,.35); border-radius: 10px; background: rgba(16,185,129,.06); }
+.rep-drive-folder-card > svg { width: 30px; height: 30px; color: #2dd4a8; }
+.rep-drive-folder-card strong { display: block; color: var(--text-primary); font-size: 14px; }
+.rep-drive-folder-card p { margin: 3px 0 0; color: var(--text-secondary); font-size: 12px; }
+.rep-integridade-selo { display: inline-flex; padding: 4px 7px; border-radius: 5px; font-size: 9px; font-weight: 800; text-transform: uppercase; white-space: nowrap; }
+.rep-integridade-selo.ok { color: #2dd4a8; background: rgba(16,185,129,.13); }
+.rep-integridade-selo.erro { color: #fb7185; background: rgba(244,63,94,.13); }
+.rep-arquivo-bloqueado td { background: rgba(244,63,94,.06); }
+.rep-diagnosticos-identidade { display: grid; gap: 8px; padding: 10px 0 2px; }
+.rep-diagnostico-identidade { padding: 9px 11px; border-radius: 7px; font-size: 11px; }
+.rep-diagnostico-identidade.ok { color: #2dd4a8; background: rgba(16,185,129,.08); border-left: 3px solid #10b981; }
+.rep-diagnostico-identidade.erro { color: #fda4af; background: rgba(244,63,94,.08); border-left: 3px solid #f43f5e; }
+.rep-diagnostico-identidade.neutro { color: var(--text-secondary); background: rgba(148,163,184,.07); border-left: 3px solid #64748b; }
+.rep-diagnostico-identidade summary { cursor: pointer; font-weight: 700; }
+.rep-diagnostico-identidade p { margin: 8px 0 0; color: var(--text-secondary); line-height: 1.55; }
+.rep-detalhes-problemas { margin-top: 5px; color: var(--text-secondary); font-weight: 400; }
+.rep-detalhes-problemas summary { cursor: pointer; color: #f59e0b; white-space: nowrap; }
+.rep-detalhes-problemas ul { margin: 6px 0 3px; padding-left: 16px; min-width: 280px; }
+.rep-detalhes-problemas li { margin: 3px 0; }
+
 .rep-original {
   display: block;
   margin-top: 3px;
@@ -3499,15 +3519,28 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-compensacao-resumo { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; color: var(--text-secondary); font-size: 11px; }
 .rep-compensacao-resumo b { color: #2dd4a8; }
 .rep-compensacao-campos { display: grid; grid-template-columns: minmax(100px,140px) auto; gap: 8px; margin-bottom: 8px; }
+.rep-ajuste-validacao { margin-top: 14px; padding: 13px; border: 1px solid rgba(168,85,247,.4); border-radius: 9px; background: rgba(168,85,247,.07); }
+.rep-validacao-check { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; margin-bottom: 10px; }
+.rep-validacao-check input { margin-top: 3px; accent-color: #a855f7; }
+.rep-validacao-check span { display: grid; gap: 3px; }
+.rep-validacao-check small { color: var(--text-secondary); line-height: 1.4; }
+.rep-status.validado_manualmente { color: #c4b5fd; background: rgba(139,92,246,.14); border-left-color: #8b5cf6; }
 .rep-compensacao-dia { display: grid; gap: 2px; margin-top: 7px; padding: 8px 10px; border-radius: 7px; border-left: 3px solid #10b981; background: rgba(16,185,129,.09); }
 .rep-compensacao-dia.parcial { border-left-color: #f0a51a; background: rgba(240,165,26,.09); }
 .rep-compensacao-dia span { color: #2dd4a8; font-size: 9px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; }
 .rep-compensacao-dia.parcial span { color: #f0a51a; }
 .rep-compensacao-dia strong { color: var(--text-primary); font-size: 12px; }
 .rep-compensacao-dia small { color: var(--text-secondary); font-size: 10px; }
+.rep-validacao-dia { display: grid; gap: 2px; margin-top: 7px; padding: 8px 10px; border-radius: 7px; border-left: 3px solid #8b5cf6; background: rgba(139,92,246,.09); }
+.rep-validacao-dia span { color: #c4b5fd; font-size: 9px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; }
+.rep-validacao-dia strong { color: var(--text-primary); font-size: 12px; }
+.rep-validacao-dia small { color: var(--text-secondary); font-size: 10px; }
+.rep-ajustar-dia.validar { color: #c4b5fd; border-color: rgba(139,92,246,.55); }
 .rep-dia-sem-registro td { background: rgba(100, 116, 139, .035); }
 
 @media (max-width: 720px) {
+  .rep-drive-folder-card { grid-template-columns: auto 1fr; }
+  .rep-drive-folder-card .btn { grid-column: 1 / -1; }
   .rep-grupo-cabecalho { align-items: flex-start; flex-direction: column; }
   .rep-grupo-resumo { gap: 10px; flex-wrap: wrap; }
 }
