@@ -4373,6 +4373,7 @@ let entidadeAnimacaoOperacaoTimer = null;
 let entidadeAberturaToken = 0;
 let entidadeMensagemTemporariaRep = '';
 let entidadeUltimoFingerprintRep = '';
+let entidadeFingerprintsRepNotificados = new Set();
 let entidadeSaudacaoInicialExibida = false;
 const entidadeTestePrimeiroAcesso = new URLSearchParams(window.location.search).get('testeEntidade') === '1';
 
@@ -5224,7 +5225,11 @@ let fusaoRepAtual = null;
 const ITENS_POR_PAGINA_REP = 250;
 
 function normalizarPisRep(valor) {
-  return String(valor || '').replace(/\D/g, '');
+  let digitos = String(valor || '').replace(/\D/g, '');
+  // O AFD legado reserva 12 posições para um PIS de 11 dígitos e pode
+  // preenchê-lo com zero à esquerda. Mantém zeros legítimos de PIS/CPF.
+  while (digitos.length > 11 && digitos.charAt(0) === '0') digitos = digitos.slice(1);
+  return digitos;
 }
 
 function nomeValidoRep(nome) {
@@ -5820,6 +5825,13 @@ async function processarArquivosRep(files) {
   if (!dadosRepCache.punchesBrutos) dadosRepCache.punchesBrutos = [];
   if (!dadosRepCache.arquivos) dadosRepCache.arquivos = [];
 
+  try {
+    const servidoresAtualizados = await chamarBackendPromessa_('obterListaServidores', []);
+    if (Array.isArray(servidoresAtualizados) && servidoresAtualizados.length) AppState.servidores = servidoresAtualizados;
+  } catch (erro) {
+    console.warn('Cadastro atual de servidores não pôde ser recarregado:', mensagemErro(erro));
+  }
+
   if (!dadosRepCache.vinculosCarregados) {
     try {
       const vinculos = await chamarBackendPromessa_('listarVinculosRep', []);
@@ -5918,9 +5930,9 @@ async function processarArquivosRep(files) {
     else if (anoMaisRecente) selectAno.value = anoMaisRecente;
   }
 
-  // Não seleciona o último mês automaticamente: arquivos com período anterior
-  // continuariam carregados, mas desapareceriam da tela.
-  if (selectMes) selectMes.value = jaHaviaArquivos ? filtrosAnteriores.mes : 'all';
+  // Na primeira leitura, a tela e a Entidade analisam a competência mais recente.
+  // Ao adicionar arquivos, preserva a escolha que o usuário já estava vendo.
+  if (selectMes) selectMes.value = jaHaviaArquivos ? filtrosAnteriores.mes : (mesMaisRecente || 'all');
 
   if (selectLocal) {
     const locais = Array.from(new Set(dadosRepCache.punches.map(p => p.clock).filter(Boolean))).sort();
@@ -5936,7 +5948,7 @@ async function processarArquivosRep(files) {
   }
 
   renderizarAuditoriaArquivosRep();
-  atualizarProcessamentoRep();
+  atualizarProcessamentoRep({ notificarEntidade: true });
 
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
@@ -6010,8 +6022,9 @@ function renderizarAuditoriaArquivosRep() {
   }, 5000);
 }
 
-function atualizarProcessamentoRep() {
+function atualizarProcessamentoRep(opcoes) {
   if (!dadosRepCache || !dadosRepCache.punches) return;
+  opcoes = opcoes || {};
 
   const anoSel = document.getElementById('rep-filter-ano') ? document.getElementById('rep-filter-ano').value : 'all';
   const mesSel = document.getElementById('rep-filter-mes') ? document.getElementById('rep-filter-mes').value : 'all';
@@ -6032,7 +6045,20 @@ function atualizarProcessamentoRep() {
   paginaRepAtual = 1;
   updateDashboardRep();
   renderizarListaRep();
-  observarPreLeituraRepEntidade_();
+  // Filtros, feriados e ajustes recalculam a tela sem emitir um novo som.
+  // A notificação proativa é reservada ao término de uma nova carga de arquivos.
+  observarPreLeituraRepEntidade_(Boolean(opcoes.notificarEntidade));
+}
+
+function obterRecorteAtualPreLeituraRep_() {
+  const ano = document.getElementById('rep-filter-ano')?.value || 'all';
+  const mes = document.getElementById('rep-filter-mes')?.value || 'all';
+  const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  let rotulo = 'todo o período carregado';
+  if (ano !== 'all' && mes !== 'all') rotulo = (nomesMeses[Number(mes) - 1] || mes) + '/' + ano;
+  else if (ano !== 'all') rotulo = 'ano de ' + ano;
+  else if (mes !== 'all') rotulo = nomesMeses[Number(mes) - 1] || mes;
+  return { ano: ano, mes: mes, chave: ano + '-' + mes, rotulo: rotulo, periodoCompleto: ano === 'all' && mes === 'all' };
 }
 
 function montarResumoPreLeituraRepEntidade_() {
@@ -6054,12 +6080,24 @@ function montarResumoPreLeituraRepEntidade_() {
     });
   });
 
-  const arquivos = (dadosRepCache.arquivos || []).reduce(function(saida, arquivo) {
+  const recorte = obterRecorteAtualPreLeituraRep_();
+  const arquivosGlobais = (dadosRepCache.arquivos || []).reduce(function(saida, arquivo) {
     saida.quantidade++;
     saida.marcacoesInvalidas += Number(arquivo.marcacoesInvalidas || 0);
     saida.quebrasNsr += Number(arquivo.quebrasNsr || 0);
     return saida;
   }, { quantidade: 0, marcacoesInvalidas: 0, quebrasNsr: 0 });
+  // Linhas inválidas e quebras de NSR são métricas do arquivo completo e não
+  // possuem competência confiável. Elas só entram no alerta quando a tela está
+  // realmente exibindo todo o período carregado.
+  const arquivos = recorte.periodoCompleto
+    ? arquivosGlobais
+    : {
+        quantidade: arquivosGlobais.quantidade,
+        marcacoesInvalidas: 0,
+        quebrasNsr: 0,
+        totaisGlobaisOmitidos: true
+      };
 
   const casosPrioritarios = dadosRepProcessados
     .filter(function(emp) { return emp.naoConciliado || Number(emp.resumo && emp.resumo.pendencias || 0) > 0; })
@@ -6084,6 +6122,7 @@ function montarResumoPreLeituraRepEntidade_() {
   return {
     disponivel: true,
     natureza: 'Contexto temporário calculado localmente; não armazenado na planilha.',
+    recorte: recorte,
     servidores: dadosRepProcessados.length,
     marcacoes: marcacoes,
     alertas: alertas,
@@ -6114,22 +6153,27 @@ function montarContextoRepEconomicoEntidade_(mensagemUsuario) {
   };
 }
 
-function observarPreLeituraRepEntidade_() {
+function observarPreLeituraRepEntidade_(notificar) {
   const resumo = montarResumoPreLeituraRepEntidade_();
   if (!resumo.disponivel) return;
   const fingerprint = JSON.stringify({
+    recorte: resumo.recorte && resumo.recorte.chave,
     servidores: resumo.servidores,
     marcacoes: resumo.marcacoes,
     alertas: resumo.alertas,
     naoConciliados: resumo.naoConciliados,
     arquivos: resumo.auditoriaArquivos,
-    casos: resumo.casosPrioritarios.map(function(item) { return [item.nome, item.quantidadeAlertas, item.naoConciliado]; })
+    casos: resumo.casosPrioritarios.map(function(item) {
+      return [item.nome, item.quantidadeAlertas, item.naoConciliado, item.diasPrioritarios];
+    })
   });
   if (fingerprint === entidadeUltimoFingerprintRep) return;
   entidadeUltimoFingerprintRep = fingerprint;
 
   const totalProblemasArquivo = Number(resumo.auditoriaArquivos.marcacoesInvalidas || 0) + Number(resumo.auditoriaArquivos.quebrasNsr || 0);
   if (!resumo.alertas && !resumo.naoConciliados && !totalProblemasArquivo) return;
+  if (!notificar || entidadeFingerprintsRepNotificados.has(fingerprint)) return;
+  entidadeFingerprintsRepNotificados.add(fingerprint);
 
   const prioridades = resumo.casosPrioritarios.slice(0, 3).map(function(item) {
     const motivos = [];
@@ -6137,7 +6181,7 @@ function observarPreLeituraRepEntidade_() {
     if (item.quantidadeAlertas) motivos.push(item.quantidadeAlertas + ' alerta(s) de marcação');
     return item.nome + ' — ' + motivos.join(' e ');
   });
-  let mensagem = 'A Pré-leitura REP terminou com ' + resumo.alertas + ' alerta(s) e ' + resumo.naoConciliados + ' servidor(es) não conciliado(s).';
+  let mensagem = 'Na competência ' + resumo.recorte.rotulo + ', a Pré-leitura REP encontrou ' + resumo.alertas + ' alerta(s) e ' + resumo.naoConciliados + ' servidor(es) não conciliado(s).';
   if (prioridades.length) mensagem += '\nPrioridades:\n• ' + prioridades.join('\n• ');
   if (totalProblemasArquivo) mensagem += '\nTambém encontrei ' + resumo.auditoriaArquivos.marcacoesInvalidas + ' marcação(ões) inválida(s) e ' + resumo.auditoriaArquivos.quebrasNsr + ' quebra(s) de NSR nos arquivos.';
   mensagem += '\nRecomendo conferir esses casos antes de usar o espelho como apoio administrativo.';
@@ -6655,6 +6699,9 @@ function resetarLeituraRep() {
   dadosRepProcessados = [];
   paginaRepAtual = 1;
   pisSelecionadoRep = '';
+  entidadeMensagemTemporariaRep = '';
+  entidadeUltimoFingerprintRep = '';
+  entidadeFingerprintsRepNotificados.clear();
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
