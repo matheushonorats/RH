@@ -5391,16 +5391,59 @@ function getHoursDiffRep(start, end) {
   return (end - start) / (1000 * 60 * 60);
 }
 
-function obterFeriadosRep() {
+function formatarDataParcialFeriadoRep_(digitos) {
+  const valor = String(digitos || '').replace(/\D/g, '').slice(0, 8);
+  if (valor.length <= 2) return valor;
+  if (valor.length <= 4) return valor.slice(0, 2) + '/' + valor.slice(2);
+  return valor.slice(0, 2) + '/' + valor.slice(2, 4) + '/' + valor.slice(4);
+}
+
+/** Formata datas digitadas sem barras e separa automaticamente cada grupo de 8 dígitos. */
+function formatarCampoFeriadosRep() {
   const campo = document.getElementById('rep-feriados');
-  return new Set(String(campo && campo.value || '')
-    .split(/[;,\n]/)
-    .map(valor => valor.trim())
-    .map(valor => {
-      const partes = valor.split('/');
-      return partes.length === 3 ? `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}` : valor;
-    })
-    .filter(valor => /^\d{4}-\d{2}-\d{2}$/.test(valor)));
+  if (!campo) return;
+
+  const textoOriginal = String(campo.value || '');
+  const grupos = textoOriginal.split(/[;,\n]+/);
+  const datasFormatadas = [];
+  grupos.forEach(grupo => {
+    const digitos = String(grupo || '').replace(/\D/g, '');
+    for (let inicio = 0; inicio < digitos.length; inicio += 8) {
+      const data = formatarDataParcialFeriadoRep_(digitos.slice(inicio, inicio + 8));
+      if (data) datasFormatadas.push(data);
+    }
+  });
+
+  const terminaComSeparador = /[;,\n]\s*$/.test(textoOriginal);
+  campo.value = datasFormatadas.join(', ') + (terminaComSeparador && datasFormatadas.length ? ', ' : '');
+}
+
+function normalizarDataFeriadoRep_(valor) {
+  const texto = String(valor || '').trim();
+  let partes = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (partes) {
+    const data = new Date(Number(partes[3]), Number(partes[2]) - 1, Number(partes[1]));
+    if (data.getFullYear() === Number(partes[3]) && data.getMonth() === Number(partes[2]) - 1 && data.getDate() === Number(partes[1])) {
+      return `${partes[3]}-${partes[2]}-${partes[1]}`;
+    }
+    return '';
+  }
+
+  partes = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (partes) {
+    const data = new Date(Number(partes[1]), Number(partes[2]) - 1, Number(partes[3]));
+    if (data.getFullYear() === Number(partes[1]) && data.getMonth() === Number(partes[2]) - 1 && data.getDate() === Number(partes[3])) return texto;
+  }
+  return '';
+}
+
+function obterTokensFeriadosRep_() {
+  const campo = document.getElementById('rep-feriados');
+  return String(campo && campo.value || '').split(/[;,\n]+/).map(valor => valor.trim()).filter(Boolean);
+}
+
+function obterFeriadosRep() {
+  return new Set(obterTokensFeriadosRep_().map(normalizarDataFeriadoRep_).filter(Boolean));
 }
 
 function formatHoursRep(decimalHours) {
@@ -5975,8 +6018,15 @@ function observarPreLeituraRepEntidade_() {
 }
 
 function aplicarFeriadosRep() {
+  formatarCampoFeriadosRep();
+  const tokens = obterTokensFeriadosRep_();
+  const invalidos = tokens.filter(valor => !normalizarDataFeriadoRep_(valor));
+  if (invalidos.length) {
+    mostrarToast('Corrija a(s) data(s) inválida(s): ' + invalidos.join(', '), 'warning');
+    return;
+  }
   atualizarProcessamentoRep();
-  mostrarToast('Feriados aplicados à pré-leitura.', 'success');
+  mostrarToast(tokens.length ? `${tokens.length} data(s) aplicada(s) à pré-leitura.` : 'Nenhum feriado informado.', 'success');
 }
 
 function criarLinhaAjusteRep(evento) {
