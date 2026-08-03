@@ -3180,6 +3180,8 @@ body.dark-mode #view-dashboard .btn-primary {
   align-items: start;
 }
 .rep-pessoas {
+  position: sticky;
+  top: 0;
   max-height: 720px;
   overflow-y: auto;
   border: 1px solid var(--border-color);
@@ -3227,6 +3229,9 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-mini-indicador.alerta.tem-alerta { color: #ef4444; background: rgba(239, 68, 68, .11); }
 .rep-detalhe { min-width: 0; }
 .rep-detalhe-cabecalho {
+  position: sticky;
+  top: 0;
+  z-index: 6;
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -3236,6 +3241,7 @@ body.dark-mode #view-dashboard .btn-primary {
   border: 1px solid var(--border-color);
   border-radius: 10px;
   background: var(--bg-secondary);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .16);
 }
 .rep-detalhe-cabecalho h3 { margin: 3px 0; font-size: 18px; }
 .rep-controle-vinculo { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 8px; }
@@ -3324,8 +3330,8 @@ body.dark-mode #view-dashboard .btn-primary {
 
 @media (max-width: 980px) {
   .rep-painel-pessoas { grid-template-columns: 1fr; }
-  .rep-pessoas { max-height: 280px; }
-  .rep-detalhe-cabecalho { align-items: flex-start; flex-direction: column; }
+  .rep-pessoas { position: static; max-height: 280px; }
+  .rep-detalhe-cabecalho { position: static; align-items: flex-start; flex-direction: column; box-shadow: none; }
 }
 @media (max-width: 640px) {
   .rep-ajuste-linha { grid-template-columns: 1fr; }
@@ -3537,6 +3543,10 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-validacao-dia small { color: var(--text-secondary); font-size: 10px; }
 .rep-ajustar-dia.validar { color: #c4b5fd; border-color: rgba(139,92,246,.55); }
 .rep-dia-sem-registro td { background: rgba(100, 116, 139, .035); }
+.rep-tabela-detalhe tr.rep-dia-nao-util td { background: rgba(239, 68, 68, .045); }
+.rep-tabela-detalhe tr.rep-dia-nao-util:hover td { background: rgba(239, 68, 68, .075); }
+.rep-tabela-detalhe tr.rep-dia-nao-util td:first-child { box-shadow: inset 3px 0 rgba(239, 68, 68, .62); }
+.rep-tabela-detalhe tr.rep-dia-nao-util .rep-dia-semana { color: #f87171; font-weight: 700; }
 
 @media (max-width: 720px) {
   .rep-drive-folder-card { grid-template-columns: auto 1fr; }

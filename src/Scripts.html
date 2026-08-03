@@ -7399,7 +7399,8 @@ function renderizarPainelRep(servidores, container) {
     const acaoValidacao = dia.validacaoManual
       ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Reabrir alerta</button>`
       : (dia.pendencia || dia.jornadaIncompleta ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Validar alerta</button>` : '');
-    return `<tr class="${dia.semRegistro ? 'rep-dia-sem-registro' : ''}">
+    const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
+    return `<tr class="${classesDia}">
       <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button>${acaoValidacao}</div></td>
       <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoValidacao}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
