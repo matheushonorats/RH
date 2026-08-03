@@ -5228,6 +5228,7 @@ let dadosRepProcessados = [];
 let paginaRepAtual = 1;
 let pisSelecionadoRep = '';
 let rolagemPessoasRep = 0;
+let filtroDiasRepAtual = 'todos';
 let ajusteRepAtual = null;
 let fusaoRepAtual = null;
 const ITENS_POR_PAGINA_REP = 250;
@@ -6476,13 +6477,31 @@ function selecionarServidorRep(pis) {
   const listaPessoas = document.querySelector('#rep-servidores-list .rep-pessoas');
   if (listaPessoas) rolagemPessoasRep = listaPessoas.scrollTop;
   pisSelecionadoRep = String(pis || '');
+  filtroDiasRepAtual = 'todos';
   renderizarListaRep();
+}
+
+function definirFiltroDiasRep(tipo) {
+  const permitidos = ['todos', 'he', 'vr', 'saldo', 'alertas'];
+  filtroDiasRepAtual = permitidos.includes(tipo) ? tipo : 'todos';
+  renderizarListaRep();
+}
+
+function diaAtendeFiltroRep_(dia, filtro) {
+  if (filtro === 'he') return Boolean(dia.temHoraExtra);
+  if (filtro === 'vr') return Boolean(dia.temValeRefeicao);
+  if (filtro === 'saldo') return !dia.pendencia && Number.isFinite(dia.saldoDia) && Math.abs(dia.saldoDia) > 0.001;
+  if (filtro === 'alertas') return Boolean(dia.pendencia || dia.jornadaIncompleta);
+  return true;
 }
 
 function renderizarPainelRep(servidores, container) {
   const listaAnterior = container.querySelector('.rep-pessoas');
   if (listaAnterior) rolagemPessoasRep = listaAnterior.scrollTop;
-  if (!servidores.some(emp => emp.pis === pisSelecionadoRep)) pisSelecionadoRep = servidores[0].pis;
+  if (!servidores.some(emp => emp.pis === pisSelecionadoRep)) {
+    pisSelecionadoRep = servidores[0].pis;
+    filtroDiasRepAtual = 'todos';
+  }
   const selecionado = servidores.find(emp => emp.pis === pisSelecionadoRep);
   const cadastroSelecionado = (AppState.servidores || []).find(servidor => normalizarPisRep(servidor.pis) === normalizarPisRep(selecionado.pis));
   const controleVinculo = cadastroSelecionado
@@ -6490,10 +6509,12 @@ function renderizarPainelRep(servidores, container) {
     : `<button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button>`;
   const resumo = servidores.map(emp => `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
     <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
-    <span><b>HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small>${emp.resumo.valeRefeicao} VR · ${emp.resumo.pendencias} alertas</small></span>
+    <span class="rep-pessoa-metricas"><b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small></span>
   </button>`).join('');
 
-  const dias = selecionado.dias.map(dia => {
+  const rotulosFiltro = { he: 'dias com horas extras', vr: 'dias com vale-refeição extra', saldo: 'dias que alteraram o balanço', alertas: 'dias que precisam de conferência' };
+  const diasFiltrados = selecionado.dias.filter(dia => diaAtendeFiltroRep_(dia, filtroDiasRepAtual));
+  const dias = diasFiltrados.map(dia => {
     const eventos = dia.semRegistro ? '<span class="rep-sem-registro">Sem marcações neste dia no AFD</span>' : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
@@ -6507,19 +6528,22 @@ function renderizarPainelRep(servidores, container) {
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
       <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadores}</span></td>
     </tr>`;
-  }).join('');
+  }).join('') || `<tr><td colspan="5" class="rep-filtro-vazio">Nenhum dia encontrado neste filtro.</td></tr>`;
+
+  const avisoFiltro = filtroDiasRepAtual === 'todos' ? '' : `<div class="rep-filtro-dias-ativo"><span>Exibindo ${rotulosFiltro[filtroDiasRepAtual]}: <b>${diasFiltrados.length}</b></span><button type="button" onclick="definirFiltroDiasRep('todos')">Mostrar todos os dias</button></div>`;
 
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
       <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}</div></div>
         <div class="rep-grupo-resumo">
-          <span class="rep-indicador-resumo destaque"><small>Horas extras</small><b>${formatHoursRep(selecionado.resumo.horasExtras)}h</b><em>Soma das horas positivas</em></span>
-          <span class="rep-indicador-resumo vr"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Não útil trabalhado &gt; 6h</em></span>
-          <span class="rep-indicador-resumo saldo" title="Horas extras menos horas abaixo da jornada nos dias com batidas válidas."><small>Balanço estimado</small><b>${formatHoursRep(selecionado.resumo.saldo)}h</b><em>Extras menos horas faltantes</em></span>
-          <span class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></span>
+          <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Horas extras</small><b>${formatHoursRep(selecionado.resumo.horasExtras)}h</b><em>Soma das horas positivas</em></button>
+          <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Não útil trabalhado &gt; 6h</em></button>
+          <button type="button" class="rep-indicador-resumo saldo ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Horas extras menos horas abaixo da jornada nos dias com batidas válidas."><small>Balanço estimado</small><b>${formatHoursRep(selecionado.resumo.saldo)}h</b><em>Extras menos horas faltantes</em></button>
+          <button type="button" class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''} ${filtroDiasRepAtual === 'alertas' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('alertas')" aria-pressed="${filtroDiasRepAtual === 'alertas'}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></button>
         </div>
       </header>
+      ${avisoFiltro}
       <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>
   </div>`;

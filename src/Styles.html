@@ -3216,6 +3216,13 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-pessoa-item span { display: flex; flex-direction: column; gap: 3px; }
 .rep-pessoa-item span:last-child { text-align: right; flex-shrink: 0; }
 .rep-pessoa-item small { color: var(--text-muted); font-size: 10px; }
+.rep-pessoa-metricas { align-items: flex-end; }
+.rep-pessoa-metricas small { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.rep-mini-indicador { padding: 2px 5px; border-radius: 4px; font-style: normal; font-weight: 700; line-height: 1.25; }
+.rep-mini-indicador.he { color: #10b981; background: rgba(16, 185, 129, .1); }
+.rep-mini-indicador.vr { color: #f59e0b; background: rgba(245, 158, 11, .1); }
+.rep-mini-indicador.alerta { color: var(--text-muted); background: rgba(148, 163, 184, .08); }
+.rep-mini-indicador.alerta.tem-alerta { color: #ef4444; background: rgba(239, 68, 68, .11); }
 .rep-detalhe { min-width: 0; }
 .rep-detalhe-cabecalho {
   display: flex;
@@ -3334,6 +3341,7 @@ body.dark-mode #view-dashboard .btn-primary {
   font-size: 12px;
 }
 .rep-indicador-resumo {
+  appearance: none;
   display: grid;
   min-width: 142px;
   gap: 2px;
@@ -3341,7 +3349,14 @@ body.dark-mode #view-dashboard .btn-primary {
   border: 1px solid var(--border-color);
   border-radius: 9px;
   background: var(--bg-tertiary);
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
+.rep-indicador-resumo:hover { transform: translateY(-1px); border-color: var(--brand-primary); }
+.rep-indicador-resumo.ativo { box-shadow: 0 0 0 2px var(--brand-primary), 0 8px 22px rgba(0, 0, 0, .14); }
 .rep-indicador-resumo small {
   color: var(--text-secondary);
   font-size: 10px;
@@ -3357,6 +3372,21 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-indicador-resumo.vr b { color: #f59e0b; }
 .rep-indicador-resumo.tem-alerta { border-color: rgba(239, 68, 68, .5); background: rgba(239, 68, 68, .09); }
 .rep-indicador-resumo.tem-alerta b { color: #ef4444; }
+.rep-filtro-dias-ativo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border: 1px solid rgba(16, 185, 129, .3);
+  border-radius: 8px;
+  background: rgba(16, 185, 129, .07);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.rep-filtro-dias-ativo button { border: 0; background: transparent; color: var(--brand-primary); font: inherit; font-weight: 700; cursor: pointer; }
+.rep-filtro-vazio { padding: 28px !important; color: var(--text-muted); text-align: center; }
 
 .rep-original {
   display: block;
