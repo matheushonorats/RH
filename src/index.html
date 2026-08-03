@@ -465,11 +465,14 @@
           <section id="view-pre-leitura-rep" class="view-section">
             <div class="dashboard-welcome" style="margin-bottom: 20px;">
               <div>
-                <span class="page-eyebrow">PRÉ-PROCESSAMENTO 100% LOCAL (OFFLINE)</span>
+                <span class="page-eyebrow">PRÉ-PROCESSAMENTO COMPARTILHADO · DRIVE</span>
                 <h2>Pré-Leitura de Arquivos de Ponto (REP / AFD)</h2>
-                <p>Carregue os AFDs, escolha o período e selecione um servidor para conferir cada marcação, seu local histórico e o REP de origem.</p>
+                <p>Os AFDs ficam disponíveis para a equipe em qualquer computador. Uma nova coleta do mesmo relógio substitui a anterior automaticamente.</p>
               </div>
               <div style="display:flex; gap:8px;">
+                <button class="btn btn-secondary" onclick="resetarLeituraRep()" title="Buscar novamente os AFDs e apontamentos compartilhados">
+                  <span data-lucide="cloud-download"></span> Atualizar base online
+                </button>
                 <button id="rep-btn-add" class="btn btn-secondary" style="display: none;" onclick="adicionarArquivosRep()">
                   <span data-lucide="file-plus-2"></span> Adicionar AFDs
                 </button>
@@ -487,7 +490,7 @@
               <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
                 <span data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--brand-primary);"></span>
                 <h3 style="font-size: 18px; font-weight: 600;">Arraste os arquivos de ponto (.txt / AFD) aqui</h3>
-                <p style="font-size: 13px; color: var(--text-secondary);">ou clique para selecionar os arquivos brutos colhidos dos relógios</p>
+                <p style="font-size: 13px; color: var(--text-secondary);">ou clique para selecionar e salvar online os arquivos brutos colhidos dos relógios</p>
               </div>
             </div>
 
@@ -580,6 +583,12 @@
                 <p class="form-help">O AFD original não será alterado. Inclusões, correções e desconsiderações ficam registradas somente nesta pré-leitura.</p>
                 <div id="rep-ajuste-eventos" class="rep-ajuste-eventos"></div>
                 <button type="button" class="btn btn-secondary" onclick="adicionarLinhaAjusteRep()"><span data-lucide="plus"></span> Adicionar marcação</button>
+                <div class="rep-ajuste-ausencia">
+                  <label class="form-label" for="rep-ajuste-lancamento">Ausência registrada no RH</label>
+                  <div id="rep-ajuste-ausencia-detectada" class="rep-ausencia-detectada"></div>
+                  <select id="rep-ajuste-lancamento" class="form-control"></select>
+                  <small class="form-help">Use esta lista somente se o lançamento correto não tiver sido associado automaticamente.</small>
+                </div>
                 <div class="form-group" style="margin-top:16px;">
                   <label class="form-label" for="rep-ajuste-justificativa">Justificativa (opcional)</label>
                   <textarea id="rep-ajuste-justificativa" class="form-control" rows="3" placeholder="Ex.: justificativa entregue por escrito pelo servidor"></textarea>
@@ -615,6 +624,31 @@
               <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-fusao-rep')">Cancelar</button>
                 <button type="button" class="btn btn-primary" onclick="confirmarFusaoRep()"><span data-lucide="link"></span> Vincular e unir</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-overlay" id="modal-apontamento-rep">
+            <div class="modal-content" style="max-width:560px;">
+              <div class="modal-header">
+                <div><span class="page-eyebrow">ACOMPANHAMENTO DA PRÉ-LEITURA</span><h3 class="modal-title" id="rep-apontamento-titulo">Novo apontamento</h3></div>
+                <button class="modal-close" onclick="fecharModal('modal-apontamento-rep')"><span data-lucide="x"></span></button>
+              </div>
+              <div class="modal-body">
+                <div id="rep-apontamento-contexto" class="rep-apontamento-contexto"></div>
+                <input type="hidden" id="rep-apontamento-id">
+                <input type="hidden" id="rep-apontamento-pis">
+                <input type="hidden" id="rep-apontamento-data">
+                <input type="hidden" id="rep-apontamento-escopo">
+                <input type="hidden" id="rep-apontamento-evento">
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label" for="rep-apontamento-texto">Apontamento *</label>
+                  <textarea id="rep-apontamento-texto" class="form-control" rows="5" maxlength="2000" placeholder="Descreva o que precisa ser verificado ou acompanhado."></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-apontamento-rep')">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarApontamentoRepInterface()"><span data-lucide="save"></span> Salvar apontamento</button>
               </div>
             </div>
           </div>

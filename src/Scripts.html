@@ -1023,9 +1023,11 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
       salvarCacheLocal();
-      if (currentView === 'pre-leitura-rep' && aplicarCadastroAtualAoRep_()) {
-        atualizarProcessamentoRep({ notificarEntidade: false });
+      if (currentView === 'pre-leitura-rep') {
+        aplicarCadastroAtualAoRep_();
+        if (dadosRepCache && Array.isArray(dadosRepCache.punches) && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
       }
+      if (currentView === 'pre-leitura-rep') atualizarApontamentosRepSegundoPlano_();
       exibirLoader(false);
       const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
       if (viewFinal) {
@@ -1084,9 +1086,11 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
       salvarCacheLocal();
       // O REP fica processado na memória do navegador. Reaplica o cadastro
       // atualizado para refletir um PIS salvo em outra janela sem novo upload.
-      if (currentView === 'pre-leitura-rep' && aplicarCadastroAtualAoRep_()) {
-        atualizarProcessamentoRep({ notificarEntidade: false });
+      if (currentView === 'pre-leitura-rep') {
+        aplicarCadastroAtualAoRep_();
+        if (dadosRepCache && Array.isArray(dadosRepCache.punches) && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
       }
+      if (currentView === 'pre-leitura-rep') atualizarApontamentosRepSegundoPlano_();
       const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
       if (viewFinal) carregarDadosDaView(viewFinal);
     })
@@ -1277,6 +1281,8 @@ function carregarDadosDaView(idView) {
     if(typeof gerarDadosRelatorio === 'function') gerarDadosRelatorio();
   } else if (idView === 'admin') {
     alternarAbaAdmin('adm-usuarios');
+  } else if (idView === 'pre-leitura-rep') {
+    carregarModuloRepOnline(false);
   }
 }
 
@@ -4982,7 +4988,7 @@ function setEntidadePensando(isThinking) {
   }
 }
 
-function montarContextoEntidade(mensagemUsuario = '') {
+function montarContextoEntidade(mensagemUsuario = '', contextoExtra = null) {
   const servidores = Array.isArray(AppState.servidores) ? AppState.servidores : [];
   const lancamentos = Array.isArray(AppState.lancamentos) ? AppState.lancamentos : [];
   const protocolos = Array.isArray(AppState.protocolos) ? AppState.protocolos : [];
@@ -5049,6 +5055,9 @@ function montarContextoEntidade(mensagemUsuario = '') {
     equipePorLotacao: Object.entries(porLotacao).sort((a, b) => b[1] - a[1]).slice(0, 15).map(item => ({ lotacao: item[0], quantidade: item[1] })),
     protocolosPorStatus: statusProtocolos,
     preLeituraRepTemporaria: montarContextoRepEconomicoEntidade_(mensagemUsuario),
+    preLeituraRepFuncionarioSelecionado: contextoExtra && contextoExtra.preLeituraRepFuncionarioSelecionado
+      ? contextoExtra.preLeituraRepFuncionarioSelecionado
+      : null,
     ultimosLancamentos: lancamentos.slice(-15).reverse().map(l => ({ nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataInicio: l.dataInicio, diasGozo: l.dias, diasPecunia: l.diasPecunia || 0, diasDebitados: l.diasDebitados || l.dias, status: l.status, idoc: l.idoc || '' })),
     limitesDeListagem: { feriasCompulsorias: 30, pendenciasDe1Doc: 30, ausenciasHoje: 20 }
   });
@@ -5077,7 +5086,7 @@ function avaliarRespostaEntidade(interacaoId, util, botao) {
     .avaliarInteracaoEntidade(interacaoId, util ? 'UTIL' : 'NAO_UTIL', correcao);
 }
 
-function enviarMensagemEntidade(textoForcado = null) {
+function enviarMensagemEntidade(textoForcado = null, contextoExtra = null) {
   const input = document.getElementById('entidade-input');
   const texto = textoForcado || input.value.trim();
   
@@ -5094,7 +5103,7 @@ function enviarMensagemEntidade(textoForcado = null) {
   setEntidadePensando(true);
   document.getElementById('entidade-chips').style.display = 'none';
   
-  const contexto = montarContextoEntidade(texto);
+  const contexto = montarContextoEntidade(texto, contextoExtra);
   const historicoAnterior = entidadeHistorico.slice(0, -1).slice(-10);
   
   backendApi()
@@ -5231,7 +5240,111 @@ let rolagemPessoasRep = 0;
 let filtroDiasRepAtual = 'todos';
 let ajusteRepAtual = null;
 let fusaoRepAtual = null;
+let apontamentosRep = [];
+let apontamentoRepAtual = null;
+let justificativasLancamentoRep = [];
+let repOnlineCarregado = false;
+let repOnlineCarregando = false;
 const ITENS_POR_PAGINA_REP = 250;
+const TAMANHO_PARTE_REP_ONLINE_ = 1500000;
+
+function bytesParaBase64Rep_(bytes) {
+  let binario = '';
+  const bloco = 32768;
+  for (let i = 0; i < bytes.length; i += bloco) {
+    binario += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + bloco, bytes.length)));
+  }
+  return btoa(binario);
+}
+
+function base64ParaBytesRep_(base64) {
+  const binario = atob(String(base64 || ''));
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+  return bytes;
+}
+
+async function compactarTextoRep_(texto) {
+  if (typeof CompressionStream !== 'function') throw new Error('Este navegador não oferece compactação necessária para salvar o REP online. Atualize o Chrome.');
+  const fluxo = new Blob([texto], { type: 'text/plain;charset=utf-8' }).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(fluxo).arrayBuffer());
+}
+
+async function descompactarTextoRep_(bytes) {
+  if (typeof DecompressionStream !== 'function') throw new Error('Este navegador não consegue abrir os AFDs compactados. Atualize o Chrome.');
+  const fluxo = new Blob([bytes], { type: 'application/gzip' }).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(fluxo).text();
+}
+
+function concatenarPartesRep_(partes) {
+  const total = partes.reduce((soma, parte) => soma + parte.length, 0);
+  const saida = new Uint8Array(total);
+  let posicao = 0;
+  partes.forEach(parte => { saida.set(parte, posicao); posicao += parte.length; });
+  return saida;
+}
+
+async function salvarAfdRepOnline_(arquivo, texto, leitura, inicio, fim) {
+  const comprimido = await compactarTextoRep_(texto);
+  const metadados = {
+    numeroRep: leitura.metadata.deviceSerial || '', nomeOriginal: arquivo.name || 'AFD.txt', tamanhoOriginal: arquivo.size || texto.length,
+    inicio: inicio || '', fim: fim || '', locais: leitura.clocks || []
+  };
+  const inicioUpload = await chamarBackendPromessa_('iniciarUploadRepOnline', [metadados]);
+  const totalPartes = Math.ceil(comprimido.length / TAMANHO_PARTE_REP_ONLINE_);
+  try {
+    for (let indice = 0; indice < totalPartes; indice++) {
+      const parte = comprimido.subarray(indice * TAMANHO_PARTE_REP_ONLINE_, Math.min((indice + 1) * TAMANHO_PARTE_REP_ONLINE_, comprimido.length));
+      exibirLoader(true, `Salvando ${arquivo.name} online: parte ${indice + 1}/${totalPartes}...`);
+      await chamarBackendPromessa_('salvarParteRepOnline', [{ uploadId: inicioUpload.uploadId, indice, base64: bytesParaBase64Rep_(parte) }]);
+    }
+    return await chamarBackendPromessa_('finalizarUploadRepOnline', [{ uploadId: inicioUpload.uploadId, totalPartes, metadados }]);
+  } catch (erro) {
+    chamarBackendPromessa_('cancelarUploadRepOnline', [inicioUpload.uploadId]).catch(function() {});
+    throw erro;
+  }
+}
+
+async function baixarAfdRepOnline_(registro, ordem, total) {
+  const partes = [];
+  for (let indice = 0; indice < registro.totalPartes; indice++) {
+    exibirLoader(true, `Abrindo AFDs online ${ordem}/${total}: parte ${indice + 1}/${registro.totalPartes}...`);
+    const base64 = await chamarBackendPromessa_('obterParteArquivoRepOnline', [registro.pastaId, indice]);
+    partes.push(base64ParaBytesRep_(base64));
+  }
+  const texto = await descompactarTextoRep_(concatenarPartesRep_(partes));
+  return new File([texto], registro.nomeOriginal || ('REP_' + (registro.numeroRep || ordem) + '.txt'), { type: 'text/plain', lastModified: Date.now() });
+}
+
+async function carregarModuloRepOnline(forcar) {
+  if (repOnlineCarregando || (repOnlineCarregado && !forcar)) return;
+  repOnlineCarregando = true;
+  try {
+    const resultados = await Promise.all([
+      chamarBackendPromessa_('listarArquivosRepOnline', []),
+      chamarBackendPromessa_('listarApontamentosRep', []),
+      chamarBackendPromessa_('listarJustificativasLancamentoRep', [])
+    ]);
+    const arquivosOnline = Array.isArray(resultados[0]) ? resultados[0] : [];
+    apontamentosRep = Array.isArray(resultados[1]) ? resultados[1] : [];
+    justificativasLancamentoRep = Array.isArray(resultados[2]) ? resultados[2] : [];
+    repOnlineCarregado = true;
+    if (!arquivosOnline.length) {
+      const zone = document.getElementById('rep-upload-zone');
+      if (zone) zone.style.display = 'block';
+      return;
+    }
+    limparEstadoLeituraRep_();
+    const arquivos = [];
+    for (let i = 0; i < arquivosOnline.length; i++) arquivos.push(await baixarAfdRepOnline_(arquivosOnline[i], i + 1, arquivosOnline.length));
+    await processarArquivosRep(arquivos, { origemOnline: true, silencioso: true });
+  } catch (erro) {
+    mostrarToast('Não foi possível carregar os AFDs online: ' + mensagemErro(erro), 'error');
+  } finally {
+    repOnlineCarregando = false;
+    exibirLoader(false);
+  }
+}
 
 function normalizarPisRep(valor) {
   let digitos = String(valor || '').replace(/\D/g, '');
@@ -5388,6 +5501,7 @@ function parseAFDRep(content, sourceFile) {
       pis, datetime, clock: localEfetivo, deviceSerial: deviceSerial || 'REP desconhecido',
       employerName, nsr: line.slice(0, 9), lineNumber: index + 1,
       eventId: `${sourceFile || 'arquivo'}|${deviceSerial || 'REP'}|${line.slice(0, 9)}|${index + 1}`,
+      eventKey: `${deviceSerial || 'REP'}|${line.slice(0, 9)}|${pis}|${datetime.getTime()}`,
       nomeNoMomento: cadastro && cadastro.nome || '', sourceFile: sourceFile || 'Arquivo sem nome',
       rawTimestamp: datetime.getTime()
     });
@@ -5519,6 +5633,111 @@ function formatHoursRep(decimalHours) {
   return `${sign}${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
+function normalizarTextoRep_(valor) {
+  return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+}
+
+function normalizarMatriculaRep_(valor) {
+  return String(valor || '').replace(/\D/g, '').replace(/^0+/, '');
+}
+
+function dataLancamentoParaIsoRep_(valor) {
+  const partes = String(valor || '').trim().split(/[\/-]/).map(Number);
+  if (partes.length !== 3 || !partes.every(Number.isFinite)) return '';
+  const [dia, mes, ano] = partes;
+  if (ano < 1900 || mes < 1 || mes > 12 || dia < 1 || dia > 31) return '';
+  return `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
+function ehLancamentoAusenciaRep_(lancamento) {
+  if (!lancamento || normalizarTextoRep_(lancamento.status).includes('ANULAD')) return false;
+  const tipo = normalizarTextoRep_(lancamento.tipo);
+  if (!tipo || tipo.includes('NAO EFETIVAD') || tipo.includes('HORA EXTRA') || tipo.includes('ESTAGIO PROBATORIO') || tipo.includes('AVALIACAO')) return false;
+  return /(FERIAS|LICENCA|ABON|AFAST|ATESTADO|FALTA)/.test(tipo);
+}
+
+function obterServidorCadastroRep_(emp) {
+  const pis = normalizarPisRep(emp && emp.pis);
+  const porPis = (AppState.servidores || []).find(item => normalizarPisRep(item.pis) === pis);
+  if (porPis) return porPis;
+  const nome = normalizarTextoRep_(emp && emp.nome);
+  const porNome = (AppState.servidores || []).filter(item => normalizarTextoRep_(item.nome) === nome);
+  return porNome.length === 1 ? porNome[0] : null;
+}
+
+function obterLancamentosAusenciaServidorRep_(emp) {
+  const servidor = obterServidorCadastroRep_(emp);
+  const matricula = normalizarMatriculaRep_(servidor && servidor.matricula);
+  const nome = normalizarTextoRep_(servidor ? servidor.nome : emp && emp.nome);
+  return (AppState.lancamentos || []).filter(lancamento => {
+    if (!ehLancamentoAusenciaRep_(lancamento) || lancamento.identidadeConsistente === false) return false;
+    const matriculaLancamento = normalizarMatriculaRep_(lancamento.matricula || lancamento.matriculaNoNome);
+    return matricula ? matriculaLancamento === matricula : normalizarTextoRep_(lancamento.nome) === nome;
+  });
+}
+
+function intervaloLancamentoRep_(lancamento) {
+  const inicio = dataLancamentoParaIsoRep_(lancamento && lancamento.dataInicio);
+  if (!inicio) return null;
+  const dias = Math.max(1, parseInt(lancamento.dias, 10) || 1);
+  const partes = inicio.split('-').map(Number);
+  const fimData = new Date(partes[0], partes[1] - 1, partes[2] + dias - 1);
+  const fim = `${fimData.getFullYear()}-${String(fimData.getMonth() + 1).padStart(2, '0')}-${String(fimData.getDate()).padStart(2, '0')}`;
+  return { inicio, fim, dias };
+}
+
+function resumirLancamentoAusenciaRep_(lancamento, origem) {
+  const intervalo = intervaloLancamentoRep_(lancamento);
+  return {
+    linhaPlanilha: Number(lancamento.linhaPlanilha || 0),
+    tipo: String(lancamento.tipo || 'Ausência'),
+    idoc: String(lancamento.idoc || '').trim(),
+    inicio: intervalo ? intervalo.inicio : '',
+    fim: intervalo ? intervalo.fim : '',
+    dias: intervalo ? intervalo.dias : Math.max(1, parseInt(lancamento.dias, 10) || 1),
+    origem: origem || 'automatica'
+  };
+}
+
+function formatarPeriodoAusenciaRep_(ausencia) {
+  if (!ausencia || !ausencia.inicio) return 'data não informada';
+  const inicio = ausencia.inicio.split('-').reverse().join('/');
+  const fim = ausencia.fim ? ausencia.fim.split('-').reverse().join('/') : inicio;
+  return inicio === fim ? inicio : `${inicio} a ${fim}`;
+}
+
+function encontrarAusenciaDiaRep_(emp, data) {
+  const lancamentos = obterLancamentosAusenciaServidorRep_(emp);
+  const manual = (justificativasLancamentoRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(emp.pis) && item.data === data);
+  if (manual && manual.linhaLancamento) {
+    const selecionado = (AppState.lancamentos || []).find(item => Number(item.linhaPlanilha) === Number(manual.linhaLancamento));
+    return selecionado && ehLancamentoAusenciaRep_(selecionado) ? resumirLancamentoAusenciaRep_(selecionado, 'manual') : null;
+  }
+  const automatico = lancamentos.find(lancamento => {
+    const intervalo = intervaloLancamentoRep_(lancamento);
+    return intervalo && data >= intervalo.inicio && data <= intervalo.fim;
+  });
+  return automatico ? resumirLancamentoAusenciaRep_(automatico, 'automatica') : null;
+}
+
+function aplicarAusenciasLancamentosRep_(emp, dias) {
+  (dias || []).forEach(dia => {
+    const ausencia = encontrarAusenciaDiaRep_(emp, dia.dataOriginal);
+    if (!ausencia) return;
+    dia.ausencia = ausencia;
+    if (dia.semRegistro) {
+      dia.status = 'ausencia_justificada';
+      dia.ausenciaJustificada = true;
+      dia.pendencia = false;
+      return;
+    }
+    const jaContava = Boolean(dia.pendencia || dia.jornadaIncompleta);
+    dia.status = 'ausencia_com_batidas';
+    dia.pendencia = true;
+    if (!jaContava) emp.resumo.pendencias++;
+  });
+}
+
 function processDataRep(employees, punches, lotacoes) {
   const dataByPisSeguro = new Map();
   const jornadaInput = document.getElementById('rep-jornada-horas');
@@ -5555,7 +5774,7 @@ function processDataRep(employees, punches, lotacoes) {
       nsr: punch.nsr,
       linha: punch.lineNumber,
       arquivo: punch.sourceFile
-      , eventId: punch.eventId,
+      , eventId: punch.eventId, eventKey: punch.eventKey || punch.eventId,
       manual: Boolean(punch.manual),
       justificativa: punch.justificativa || ''
     });
@@ -5637,7 +5856,7 @@ function processDataRep(employees, punches, lotacoes) {
           horarioOriginal: `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`,
           horarioArredondado: `${String(evento.arredondada.getHours()).padStart(2, '0')}:${String(evento.arredondada.getMinutes()).padStart(2, '0')}`,
           local: evento.local, rep: evento.rep, nsr: evento.nsr, linha: evento.linha, arquivo: evento.arquivo
-          , eventId: evento.eventId, manual: evento.manual, justificativa: evento.justificativa
+          , eventId: evento.eventId, eventKey: evento.eventKey || evento.eventId, manual: evento.manual, justificativa: evento.justificativa
         })),
         totalDia, saldoDia, extraDia: saldoDia,
         relogios: Array.from(diaSeguro.relogios).join(', '),
@@ -5651,6 +5870,7 @@ function processDataRep(employees, punches, lotacoes) {
       });
     }
     completarDiasSemRegistroRep_(dias, feriados);
+    aplicarAusenciasLancamentosRep_(empSeguro, dias);
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, lotacao: empSeguro.lotacao, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
   }
   return resultadoSeguro.sort((a, b) => a.nome.localeCompare(b.nome));
@@ -5840,8 +6060,9 @@ function deduplicarBatidasRep(punches) {
   return deduplicados;
 }
 
-async function processarArquivosRep(files) {
+async function processarArquivosRep(files, opcoes) {
   if (!files || files.length === 0) return;
+  opcoes = opcoes || {};
   exibirLoader(true, `Lendo ${files.length} arquivo(s) AFD...`);
   const filtrosAnteriores = {
     ano: document.getElementById('rep-filter-ano')?.value || 'all',
@@ -5850,6 +6071,9 @@ async function processarArquivosRep(files) {
     lotacao: document.getElementById('rep-filter-lotacao')?.value || 'all'
   };
   const jaHaviaArquivos = Boolean((dadosRepCache.arquivos || []).length);
+  const falhasOnline = [];
+  let substituidosOnline = 0;
+  let ignoradosMaisAntigos = 0;
 
   if (!dadosRepCache.employees) dadosRepCache.employees = new Map();
   if (!dadosRepCache.lotacoes) dadosRepCache.lotacoes = new Map();
@@ -5876,7 +6100,7 @@ async function processarArquivosRep(files) {
     }
   }
 
-  const arquivosExistentes = new Set((dadosRepCache.arquivos || []).map(arquivo => arquivo.chaveArquivo).filter(Boolean));
+  const arquivosExistentes = new Set((dadosRepCache.arquivos || []).filter(arquivo => arquivo.salvoOnline !== false).map(arquivo => arquivo.chaveArquivo).filter(Boolean));
   const novosArquivos = Array.from(files).filter(file => !arquivosExistentes.has(`${file.name}|${file.size}|${file.lastModified}`));
   const ignorados = Array.from(files).length - novosArquivos.length;
   if (!novosArquivos.length) {
@@ -5899,7 +6123,9 @@ async function processarArquivosRep(files) {
     indiceArquivo++;
     exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
     const text = await file.text();
-    const { employees, punches, clocks, audit, metadata } = parseAFDRep(text, file.name);
+    const leitura = parseAFDRep(text, file.name);
+    const { employees, punches, clocks, audit, metadata } = leitura;
+    let salvoOnline = Boolean(opcoes.origemOnline);
     for (const [pis, nome] of employees.entries()) {
       if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
     }
@@ -5909,8 +6135,35 @@ async function processarArquivosRep(files) {
       if (!dataInicial || p.datetime < dataInicial) dataInicial = p.datetime;
       if (!dataFinal || p.datetime > dataFinal) dataFinal = p.datetime;
     });
+    if (!opcoes.origemOnline) {
+      try {
+        const resultadoOnline = await salvarAfdRepOnline_(file, text, leitura, dataInicial ? toDateStringRep(dataInicial) : '', dataFinal ? toDateStringRep(dataFinal) : '');
+        if (resultadoOnline && resultadoOnline.ignoradoMaisAntigo) {
+          ignoradosMaisAntigos++;
+          continue;
+        }
+        salvoOnline = true;
+        if (resultadoOnline && resultadoOnline.substituiu) substituidosOnline++;
+      } catch (erro) {
+        falhasOnline.push(`${file.name}: ${mensagemErro(erro)}`);
+      }
+    }
+
+    // A coleta mais nova do mesmo REP substitui integralmente a anterior
+    // também na memória desta sessão.
+    const numeroRepAtual = String(metadata.deviceSerial || '').trim();
+    if (numeroRepAtual && numeroRepAtual !== 'REP desconhecido') {
+      dadosRepCache.arquivos = dadosRepCache.arquivos.filter(item => String(item.numeroRep || '').trim() !== numeroRepAtual);
+      dadosRepCache.punchesBrutos = dadosRepCache.punchesBrutos.filter(item => String(item.deviceSerial || '').trim() !== numeroRepAtual);
+      dadosRepCache.punches = dadosRepCache.punches.filter(item => String(item.deviceSerial || '').trim() !== numeroRepAtual);
+    } else {
+      dadosRepCache.arquivos = dadosRepCache.arquivos.filter(item => String(item.nome || '') !== String(file.name || ''));
+      dadosRepCache.punchesBrutos = dadosRepCache.punchesBrutos.filter(item => String(item.sourceFile || '') !== String(file.name || ''));
+      dadosRepCache.punches = dadosRepCache.punches.filter(item => String(item.sourceFile || '') !== String(file.name || ''));
+    }
     dadosRepCache.arquivos.push({
       nome: file.name, chaveArquivo: `${file.name}|${file.size}|${file.lastModified}`,
+      salvoOnline,
       locais: clocks.length ? clocks : ['Relógio não identificado'],
       linhasLidas: audit.linhasLidas,
       marcacoesEncontradas: audit.marcacoesEncontradas,
@@ -5952,6 +6205,14 @@ async function processarArquivosRep(files) {
   const selectMes = document.getElementById('rep-filter-mes');
   const selectLocal = document.getElementById('rep-filter-local');
   const selectLotacao = document.getElementById('rep-filter-lotacao');
+  const referenciaAnterior = new Date();
+  referenciaAnterior.setDate(1);
+  referenciaAnterior.setMonth(referenciaAnterior.getMonth() - 1);
+  const anoAnterior = String(referenciaAnterior.getFullYear());
+  const mesAnterior = String(referenciaAnterior.getMonth() + 1).padStart(2, '0');
+  const possuiCompetenciaAnterior = dadosRepCache.punches.some(p =>
+    String(p.datetime.getFullYear()) === anoAnterior && String(p.datetime.getMonth() + 1).padStart(2, '0') === mesAnterior
+  );
 
   if (selectAno) {
     selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
@@ -5960,12 +6221,13 @@ async function processarArquivosRep(files) {
       selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
     });
     if (jaHaviaArquivos && Array.from(anosSet).includes(filtrosAnteriores.ano)) selectAno.value = filtrosAnteriores.ano;
+    else if (possuiCompetenciaAnterior && Array.from(anosSet).includes(anoAnterior)) selectAno.value = anoAnterior;
     else if (anoMaisRecente) selectAno.value = anoMaisRecente;
   }
 
-  // Na primeira leitura, a tela e a Entidade analisam a competência mais recente.
-  // Ao adicionar arquivos, preserva a escolha que o usuário já estava vendo.
-  if (selectMes) selectMes.value = jaHaviaArquivos ? filtrosAnteriores.mes : (mesMaisRecente || 'all');
+  // Na primeira abertura, usa o mês anterior ao mês corrente. Ao adicionar
+  // arquivos na mesma sessão, preserva a escolha feita pelo usuário.
+  if (selectMes) selectMes.value = jaHaviaArquivos ? filtrosAnteriores.mes : (possuiCompetenciaAnterior ? mesAnterior : (mesMaisRecente || 'all'));
 
   if (selectLocal) {
     const locais = Array.from(new Set(dadosRepCache.punches.map(p => p.clock).filter(Boolean))).sort();
@@ -5994,7 +6256,11 @@ async function processarArquivosRep(files) {
   if (btnPdf) btnPdf.style.display = 'inline-flex';
   if (btnAdicionar) btnAdicionar.style.display = 'inline-flex';
   exibirLoader(false);
-  mostrarToast(`${novosArquivos.length} arquivo(s) adicionado(s) com sucesso.${ignorados ? ` ${ignorados} já carregado(s) foram ignorado(s).` : ''}`, 'success');
+  if (falhasOnline.length) {
+    mostrarToast(`${novosArquivos.length} arquivo(s) lido(s), mas ${falhasOnline.length} não puderam ser salvos online. ${falhasOnline[0]}`, 'warning');
+  } else if (!opcoes.silencioso) {
+    mostrarToast(`${novosArquivos.length - ignoradosMaisAntigos} arquivo(s) salvos online com sucesso.${substituidosOnline ? ` ${substituidosOnline} coleta(s) anterior(es) substituída(s).` : ''}${ignoradosMaisAntigos ? ` ${ignoradosMaisAntigos} coleta(s) mais antiga(s) foram preservadas sem sobrescrever a base.` : ''}${ignorados ? ` ${ignorados} já carregado(s) foram ignorado(s).` : ''}`, 'success');
+  }
 }
 
 function aplicarVinculosRepPersistidos_() {
@@ -6039,7 +6305,7 @@ function renderizarAuditoriaArquivosRep() {
   const repetidas = Math.max(0, totalValidas - consolidadas);
   const conciliado = totalEncontradas === totalValidas + totalInvalidas;
   const linhas = arquivos.map(item => `<tr>
-    <td><strong>REP ${escapeHtml(item.numeroRep || 'não identificado')}</strong><small>${escapeHtml(item.locais.join(' → '))}</small><small>${escapeHtml(item.nome)}</small></td>
+    <td><strong>REP ${escapeHtml(item.numeroRep || 'não identificado')} <i class="rep-online-status ${item.salvoOnline === false ? 'falhou' : ''}">${item.salvoOnline === false ? 'Somente neste computador' : 'Online'}</i></strong><small>${escapeHtml(item.locais.join(' → '))}</small><small>${escapeHtml(item.nome)}</small></td>
     <td>${item.marcacoesEncontradas.toLocaleString('pt-BR')}</td>
     <td>${item.marcacoesValidas.toLocaleString('pt-BR')}</td>
     <td class="${item.marcacoesInvalidas || item.quebrasNsr ? 'rep-valor-negativo' : ''}">${item.marcacoesInvalidas.toLocaleString('pt-BR')}${item.quebrasNsr ? ` · ${item.quebrasNsr} quebra(s) NSR` : ''}</td>
@@ -6255,11 +6521,23 @@ function abrirAjusteDiaRep(pis, data) {
   const emp = dadosRepProcessados.find(item => item.pis === String(pis));
   const dia = emp && emp.dias.find(item => item.dataOriginal === data);
   if (!emp || !dia) return mostrarToast('Dia não encontrado para ajuste.', 'error');
-  ajusteRepAtual = { pis: String(pis), data };
+  const lancamentosServidor = obterLancamentosAusenciaServidorRep_(emp);
+  const vinculoManual = (justificativasLancamentoRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data);
+  ajusteRepAtual = { pis: String(pis), data, linhaLancamentoOriginal: Number(vinculoManual?.linhaLancamento || 0) };
   document.getElementById('rep-ajuste-titulo').textContent = `${emp.nome} · ${dia.dataFormatada} (${dia.diaSemana})`;
   const container = document.getElementById('rep-ajuste-eventos');
   container.innerHTML = '';
   (dia.batidasDetalhadas || []).forEach(evento => container.appendChild(criarLinhaAjusteRep(evento)));
+  const detectada = document.getElementById('rep-ajuste-ausencia-detectada');
+  detectada.innerHTML = dia.ausencia
+    ? `<strong>${escapeHtml(dia.ausencia.tipo)}</strong><span>${escapeHtml(formatarPeriodoAusenciaRep_(dia.ausencia))} · 1Doc: ${escapeHtml(dia.ausencia.idoc || 'não informado')} · ${dia.ausencia.origem === 'manual' ? 'associação manual' : 'identificado automaticamente'}</span>`
+    : '<span>Nenhuma ausência foi identificada automaticamente para este dia.</span>';
+  const seletor = document.getElementById('rep-ajuste-lancamento');
+  seletor.innerHTML = '<option value="0">Usar associação automática</option>' + lancamentosServidor.map(lancamento => {
+    const resumo = resumirLancamentoAusenciaRep_(lancamento, 'manual');
+    return `<option value="${Number(lancamento.linhaPlanilha)}">${escapeHtml(resumo.tipo)} · ${escapeHtml(formatarPeriodoAusenciaRep_(resumo))} · 1Doc ${escapeHtml(resumo.idoc || 'não informado')}</option>`;
+  }).join('');
+  seletor.value = String(ajusteRepAtual.linhaLancamentoOriginal || 0);
   document.getElementById('rep-ajuste-justificativa').value = '';
   abrirModal('modal-ajuste-rep');
 }
@@ -6275,11 +6553,14 @@ function criarDataAjusteRep(dataIso, hora) {
   return new Date(data[0], data[1] - 1, data[2], horario[0], horario[1], 0, 0);
 }
 
-function salvarAjustesDiaRep() {
+async function salvarAjustesDiaRep() {
   if (!ajusteRepAtual) return;
   const justificativa = document.getElementById('rep-ajuste-justificativa').value.trim();
   const linhas = Array.from(document.querySelectorAll('#rep-ajuste-eventos .rep-ajuste-linha'));
+  const estadoAnterior = dadosRepCache.punches.map(p => ({ p, desconsiderada: p.desconsiderada, ajusteJustificativa: p.ajusteJustificativa }));
   let alteracoes = 0;
+  const linhaLancamento = Number(document.getElementById('rep-ajuste-lancamento')?.value || 0);
+  const alterouLancamento = linhaLancamento !== Number(ajusteRepAtual.linhaLancamentoOriginal || 0);
   const novos = [];
   linhas.forEach((linha, indice) => {
     const eventId = linha.dataset.eventId;
@@ -6311,11 +6592,27 @@ function salvarAjustesDiaRep() {
     });
     alteracoes++;
   });
-  if (!alteracoes) return mostrarToast('Nenhuma alteração foi informada.', 'warning');
+  if (!alteracoes && !alterouLancamento) return mostrarToast('Nenhuma alteração foi informada.', 'warning');
+  if (alterouLancamento) {
+    try {
+      exibirLoader(true, 'Salvando associação da ausência...');
+      await chamarBackendPromessa_('salvarJustificativaLancamentoRep', [{ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, linhaLancamento }]);
+      justificativasLancamentoRep = (justificativasLancamentoRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === ajusteRepAtual.data));
+      if (linhaLancamento) justificativasLancamentoRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, linhaLancamento });
+    } catch (erro) {
+      estadoAnterior.forEach(item => {
+        item.p.desconsiderada = item.desconsiderada;
+        item.p.ajusteJustificativa = item.ajusteJustificativa;
+      });
+      exibirLoader(false);
+      return mostrarToast('Não foi possível associar a ausência: ' + mensagemErro(erro), 'error');
+    }
+  }
   dadosRepCache.punches.push(...novos);
   fecharModal('modal-ajuste-rep');
   atualizarProcessamentoRep();
-  mostrarToast('Ajuste aplicado sem alterar o AFD original.', 'success');
+  exibirLoader(false);
+  mostrarToast(alterouLancamento && !alteracoes ? 'Ausência associada ao dia.' : 'Ajuste aplicado sem alterar o AFD original.', 'success');
 }
 
 function restaurarAjustesDiaRep() {
@@ -6448,7 +6745,8 @@ function textoSituacaoRep(status) {
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
     intervalo_inferior_minimo: 'Intervalo < 1h: saldo ajustado', conflito_arredondamento: 'Conflito no arredondamento',
     colisao_reps: 'Mesmo horário em REPs diferentes', batidas_excedentes: 'Mais de 4 marcações: conferir', nao_conciliado: 'Identificador não conciliado',
-    extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', jornada_incompleta: 'Horas abaixo da jornada prevista', sem_registro: 'Sem registros AFD', ok: 'Conferido'
+    extra_dia_nao_util: 'Extra (sábado/domingo/feriado)', saldo_positivo: 'Saldo estimado positivo', jornada_incompleta: 'Horas abaixo da jornada prevista', sem_registro: 'Sem registros AFD',
+    ausencia_justificada: 'Dia coberto por lançamento do RH', ausencia_com_batidas: 'Há marcações durante uma ausência registrada', ok: 'Conferido'
   };
   return textos[status] || status;
 }
@@ -6468,7 +6766,9 @@ function categoriaSituacaoRep(status) {
     colisao_reps: 'Conferir',
     conflito_arredondamento: 'Arredondamento',
     nao_conciliado: 'Identificação',
-    sem_registro: 'Sem registro'
+    sem_registro: 'Sem registro',
+    ausencia_justificada: 'Ausência justificada',
+    ausencia_com_batidas: 'Conferir ausência'
   };
   return categorias[status] || 'Informação';
 }
@@ -6481,17 +6781,255 @@ function selecionarServidorRep(pis) {
   renderizarListaRep();
 }
 
+function obterCompetenciaSelecionadaRep_() {
+  const ano = document.getElementById('rep-filter-ano')?.value || 'all';
+  const mes = document.getElementById('rep-filter-mes')?.value || 'all';
+  return /^\d{4}$/.test(ano) && /^(0[1-9]|1[0-2])$/.test(mes) ? `${ano}-${mes}` : '';
+}
+
+function obterApontamentosServidorPeriodoRep_(pis, dias) {
+  const competencia = obterCompetenciaSelecionadaRep_();
+  const datas = new Set((dias || []).map(dia => dia.dataOriginal));
+  return (apontamentosRep || []).filter(item => {
+    if (normalizarPisRep(item.pis) !== normalizarPisRep(pis)) return false;
+    if (competencia) return String(item.data || '').slice(0, 7) === competencia;
+    return item.escopo === 'SERVIDOR' || datas.has(String(item.data || ''));
+  });
+}
+
+function montarAnaliseFuncionarioRepEntidade_(emp) {
+  if (!emp) return null;
+  const recorte = obterRecorteAtualPreLeituraRep_();
+  const jornadaReferencia = Number(document.getElementById('rep-jornada-horas')?.value) || 8;
+  const dias = Array.isArray(emp.dias) ? emp.dias : [];
+  const apontamentos = obterApontamentosServidorPeriodoRep_(emp.pis, dias);
+  const contagens = {};
+  dias.forEach(function(dia) {
+    const status = String(dia.status || 'não informado');
+    contagens[status] = (contagens[status] || 0) + 1;
+  });
+
+  const padroes = [];
+  const adicionarPadrao = function(condicao, texto) { if (condicao) padroes.push(texto); };
+  adicionarPadrao(contagens.impar, contagens.impar + ' dia(s) com quantidade ímpar de batidas; falta conferir entrada ou saída.');
+  adicionarPadrao(contagens.batidas_excedentes, contagens.batidas_excedentes + ' dia(s) com mais de quatro batidas; conferir duplicidade ou jornada fracionada.');
+  adicionarPadrao(contagens.colisao_reps, contagens.colisao_reps + ' dia(s) com batidas simultâneas vindas de REPs diferentes.');
+  adicionarPadrao(contagens.conflito_arredondamento, contagens.conflito_arredondamento + ' dia(s) em que o arredondamento fez horários distintos colidirem.');
+  adicionarPadrao(contagens.intervalo_presumido || contagens.extra_intervalo_presumido,
+    (Number(contagens.intervalo_presumido || 0) + Number(contagens.extra_intervalo_presumido || 0)) + ' dia(s) tiveram intervalo descontado por presunção porque o almoço não foi registrado.');
+  adicionarPadrao(contagens.intervalo_inferior_minimo, contagens.intervalo_inferior_minimo + ' dia(s) tiveram complemento automático do intervalo mínimo.');
+  adicionarPadrao(contagens.jornada_incompleta, contagens.jornada_incompleta + ' dia(s) úteis terminaram abaixo da jornada de referência.');
+  adicionarPadrao(contagens.ausencia_com_batidas, contagens.ausencia_com_batidas + ' dia(s) possuem afastamento lançado e batidas no REP na mesma data.');
+  adicionarPadrao(contagens.nao_conciliado || emp.naoConciliado, 'A identificação do REP ainda não está conciliada de forma confiável com o cadastro.');
+  adicionarPadrao(apontamentos.some(function(item) { return item.status !== 'CONCLUIDO'; }),
+    apontamentos.filter(function(item) { return item.status !== 'CONCLUIDO'; }).length + ' apontamento(s) permanecem abertos nesta competência.');
+
+  const diasCriticos = dias
+    .filter(function(dia) {
+      return Boolean(dia.pendencia || dia.jornadaIncompleta || dia.status === 'ausencia_com_batidas' || dia.status === 'nao_conciliado');
+    })
+    .sort(function(a, b) {
+      const peso = function(dia) {
+        if (dia.status === 'ausencia_com_batidas' || dia.status === 'colisao_reps') return 4;
+        if (dia.isImpar || dia.batidasExcedentes || dia.conflitoArredondamento) return 3;
+        if (dia.jornadaIncompleta) return 2;
+        return 1;
+      };
+      return peso(b) - peso(a) || String(a.dataOriginal).localeCompare(String(b.dataOriginal));
+    })
+    .slice(0, 15)
+    .map(function(dia) {
+      return {
+        data: dia.dataFormatada,
+        diaSemana: dia.diaSemana,
+        batidas: (dia.batidas || []).slice(0, 8),
+        horasApuradas: Number.isFinite(dia.totalDia) ? Number(dia.totalDia.toFixed(2)) : null,
+        saldoEstimado: Number.isFinite(dia.saldoDia) ? Number(dia.saldoDia.toFixed(2)) : null,
+        situacao: textoSituacaoRep(dia.status),
+        ausencia: dia.ausencia ? {
+          tipo: dia.ausencia.tipo,
+          periodo: formatarPeriodoAusenciaRep_(dia.ausencia),
+          idoc: dia.ausencia.idoc || 'não informado'
+        } : null
+      };
+    });
+
+  return {
+    escopoEstrito: 'Interpretar somente este funcionário e a competência selecionada. Não usar outros funcionários da Pré-REP.',
+    natureza: 'Pré-leitura auxiliar; saldos e horas extras são estimativas para conferência, não autorização administrativa.',
+    competencia: recorte.rotulo,
+    funcionario: {
+      nome: emp.nome,
+      identificadorFinal: String(emp.pis || '').slice(-4),
+      lotacao: emp.lotacao || 'Não informada',
+      conciliadoComCadastro: !emp.naoConciliado
+    },
+    jornadaReferenciaHoras: jornadaReferencia,
+    resumoCalculado: {
+      diasNoRecorte: dias.length,
+      horasApuradas: Number(Number(emp.resumo?.trabalhadas || 0).toFixed(2)),
+      horasPositivasSomadas: Number(Number(emp.resumo?.horasExtras || 0).toFixed(2)),
+      balancoEstimado: Number(Number(emp.resumo?.saldo || 0).toFixed(2)),
+      valesRefeicaoEstimados: Number(emp.resumo?.valeRefeicao || 0),
+      diasParaConferir: Number(emp.resumo?.pendencias || 0),
+      apontamentosAbertos: apontamentos.filter(function(item) { return item.status !== 'CONCLUIDO'; }).length
+    },
+    padroesDetectados: padroes,
+    diasCriticos: diasCriticos,
+    diasCriticosOmitidos: Math.max(0, dias.filter(function(dia) {
+      return Boolean(dia.pendencia || dia.jornadaIncompleta || dia.status === 'ausencia_com_batidas' || dia.status === 'nao_conciliado');
+    }).length - diasCriticos.length),
+    apontamentos: apontamentos.slice(0, 10).map(function(item) {
+      return {
+        data: item.data || '',
+        escopo: item.escopo || '',
+        status: item.status || '',
+        texto: String(item.texto || '').slice(0, 350)
+      };
+    })
+  };
+}
+
+let entidadeAjudaRepEmAndamento = false;
+function pedirAjudaEntidadeRep() {
+  if (entidadeAjudaRepEmAndamento) return;
+  const emp = dadosRepProcessados.find(function(item) { return item.pis === pisSelecionadoRep; });
+  const analise = montarAnaliseFuncionarioRepEntidade_(emp);
+  if (!emp || !analise) return mostrarToast('Selecione um funcionário na Pré-leitura REP.', 'warning');
+
+  entidadeAjudaRepEmAndamento = true;
+  const pergunta = 'Analise tecnicamente a Pré-leitura REP de ' + emp.nome + ' na competência ' + analise.competencia + '. Não repita apenas os totais: explique os padrões detectados, priorize os dias que realmente exigem conferência, diferencie cálculo automático de possível erro e indique próximos passos concretos. Não analise outros funcionários.';
+  const enviar = function() {
+    enviarMensagemEntidade(pergunta, { preLeituraRepFuncionarioSelecionado: analise });
+    entidadeAjudaRepEmAndamento = false;
+  };
+
+  if (!entidadeChatAberto && !entidadeChatAbrindo) {
+    toggleChatEntidade();
+    setTimeout(enviar, 1350);
+  } else if (entidadeChatAbrindo) {
+    setTimeout(enviar, 900);
+  } else {
+    enviar();
+  }
+}
+
+function abrirApontamentoRep(pis, data, escopo, eventoChave, id) {
+  let existente = null;
+  if (id) existente = (apontamentosRep || []).find(item => item.id === id) || null;
+  const escopoFinal = existente ? existente.escopo : String(escopo || 'DIA').toUpperCase();
+  let dataFinal = existente ? existente.data : String(data || '');
+  if (escopoFinal === 'SERVIDOR' && !dataFinal) {
+    const competencia = obterCompetenciaSelecionadaRep_();
+    if (!competencia) return mostrarToast('Selecione um ano e um mês para criar o apontamento do servidor.', 'warning');
+    dataFinal = competencia + '-01';
+  }
+  const pisFinal = normalizarPisRep(existente ? existente.pis : pis);
+  const servidor = dadosRepProcessados.find(item => normalizarPisRep(item.pis) === pisFinal);
+  const rotuloEscopo = escopoFinal === 'SERVIDOR' ? 'Servidor / competência' : (escopoFinal === 'REGISTRO' ? 'Batida específica' : 'Dia');
+  document.getElementById('rep-apontamento-id').value = existente ? existente.id : '';
+  document.getElementById('rep-apontamento-pis').value = pisFinal;
+  document.getElementById('rep-apontamento-data').value = dataFinal;
+  document.getElementById('rep-apontamento-escopo').value = escopoFinal;
+  document.getElementById('rep-apontamento-evento').value = existente ? (existente.eventoChave || '') : String(eventoChave || '');
+  document.getElementById('rep-apontamento-texto').value = existente ? existente.texto : '';
+  document.getElementById('rep-apontamento-titulo').textContent = existente ? 'Editar apontamento' : 'Novo apontamento';
+  document.getElementById('rep-apontamento-contexto').innerHTML = `<b>${escapeHtml(rotuloEscopo)}</b><span>${escapeHtml(servidor?.nome || pisFinal)} · ${escopoFinal === 'SERVIDOR' ? dataFinal.slice(0, 7).split('-').reverse().join('/') : dataFinal.split('-').reverse().join('/')}</span>`;
+  apontamentoRepAtual = existente;
+  abrirModal('modal-apontamento-rep');
+  setTimeout(() => document.getElementById('rep-apontamento-texto')?.focus(), 80);
+}
+
+async function recarregarApontamentosRep_() {
+  apontamentosRep = await chamarBackendPromessa_('listarApontamentosRep', []);
+  renderizarListaRep();
+}
+
+function atualizarApontamentosRepSegundoPlano_() {
+  Promise.all([
+    chamarBackendPromessa_('listarApontamentosRep', []),
+    chamarBackendPromessa_('listarJustificativasLancamentoRep', [])
+  ]).then(function(resultados) {
+    apontamentosRep = Array.isArray(resultados[0]) ? resultados[0] : [];
+    justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
+    if (currentView === 'pre-leitura-rep' && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
+    else if (currentView === 'pre-leitura-rep' && dadosRepProcessados.length) renderizarListaRep();
+  }).catch(function(erro) { console.warn('Dados complementares do REP não puderam ser atualizados:', mensagemErro(erro)); });
+}
+
+async function salvarApontamentoRepInterface() {
+  const texto = document.getElementById('rep-apontamento-texto').value.trim();
+  if (!texto) return mostrarToast('Escreva o apontamento antes de salvar.', 'warning');
+  const dados = {
+    id: document.getElementById('rep-apontamento-id').value,
+    pis: document.getElementById('rep-apontamento-pis').value,
+    data: document.getElementById('rep-apontamento-data').value,
+    escopo: document.getElementById('rep-apontamento-escopo').value,
+    eventoChave: document.getElementById('rep-apontamento-evento').value,
+    texto,
+    status: apontamentoRepAtual?.status || 'ABERTO'
+  };
+  exibirLoader(true, 'Salvando apontamento...');
+  try {
+    await chamarBackendPromessa_('salvarApontamentoRep', [dados]);
+    fecharModal('modal-apontamento-rep');
+    apontamentoRepAtual = null;
+    await recarregarApontamentosRep_();
+    mostrarToast('Apontamento salvo.', 'success');
+  } catch (erro) {
+    mostrarToast('Não foi possível salvar: ' + mensagemErro(erro), 'error');
+  } finally { exibirLoader(false); }
+}
+
+async function alternarConclusaoApontamentoRep(id, statusAtual) {
+  exibirLoader(true, 'Atualizando apontamento...');
+  try {
+    await chamarBackendPromessa_('definirStatusApontamentoRep', [id, statusAtual === 'CONCLUIDO' ? 'ABERTO' : 'CONCLUIDO']);
+    await recarregarApontamentosRep_();
+  } catch (erro) { mostrarToast('Não foi possível atualizar: ' + mensagemErro(erro), 'error'); }
+  finally { exibirLoader(false); }
+}
+
+async function excluirApontamentoRepInterface(id) {
+  if (!confirm('Apagar este apontamento? Essa ação o remove da visualização para todos os usuários.')) return;
+  exibirLoader(true, 'Apagando apontamento...');
+  try {
+    await chamarBackendPromessa_('excluirApontamentoRep', [id]);
+    await recarregarApontamentosRep_();
+    mostrarToast('Apontamento apagado.', 'success');
+  } catch (erro) { mostrarToast('Não foi possível apagar: ' + mensagemErro(erro), 'error'); }
+  finally { exibirLoader(false); }
+}
+
+function htmlApontamentosRep_(itens) {
+  if (!itens || !itens.length) return '';
+  return `<div class="rep-apontamentos-lista">${itens.map(item => {
+    let referencia = item.escopo === 'SERVIDOR' ? 'Servidor' : (item.escopo === 'REGISTRO' ? 'Batida' : 'Dia');
+    if (item.escopo === 'REGISTRO' && item.eventoChave) {
+      const partes = String(item.eventoChave).split('|');
+      const momento = new Date(Number(partes[partes.length - 1]));
+      const horario = isNaN(momento.getTime()) ? '' : `${String(momento.getHours()).padStart(2, '0')}:${String(momento.getMinutes()).padStart(2, '0')}`;
+      referencia += `${horario ? ' ' + horario : ''}${partes[1] ? ' · NSR ' + partes[1] : ''}`;
+    }
+    return `<article class="rep-apontamento ${item.status === 'CONCLUIDO' ? 'concluido' : ''}">
+    <div><span>${escapeHtml(referencia)} · ${item.status === 'CONCLUIDO' ? 'Concluído' : 'Aberto'}</span><p>${escapeHtml(item.texto)}</p><small>Atualizado por ${escapeHtml(item.atualizadoPor || item.criadoPor || '-')}</small></div>
+    <nav><button type="button" onclick="abrirApontamentoRep('', '', '', '', '${item.id}')" title="Editar"><span data-lucide="pencil"></span></button><button type="button" onclick="alternarConclusaoApontamentoRep('${item.id}','${item.status}')" title="${item.status === 'CONCLUIDO' ? 'Reabrir' : 'Concluir'}"><span data-lucide="${item.status === 'CONCLUIDO' ? 'rotate-ccw' : 'check'}"></span></button><button type="button" onclick="excluirApontamentoRepInterface('${item.id}')" title="Apagar"><span data-lucide="trash-2"></span></button></nav>
+  </article>`;
+  }).join('')}</div>`;
+}
+
 function definirFiltroDiasRep(tipo) {
-  const permitidos = ['todos', 'he', 'vr', 'saldo', 'alertas'];
+  const permitidos = ['todos', 'he', 'vr', 'saldo', 'alertas', 'apontamentos'];
   filtroDiasRepAtual = permitidos.includes(tipo) ? tipo : 'todos';
   renderizarListaRep();
 }
 
-function diaAtendeFiltroRep_(dia, filtro) {
+function diaAtendeFiltroRep_(dia, filtro, apontamentos) {
   if (filtro === 'he') return Boolean(dia.temHoraExtra);
   if (filtro === 'vr') return Boolean(dia.temValeRefeicao);
   if (filtro === 'saldo') return !dia.pendencia && Number.isFinite(dia.saldoDia) && Math.abs(dia.saldoDia) > 0.001;
   if (filtro === 'alertas') return Boolean(dia.pendencia || dia.jornadaIncompleta);
+  if (filtro === 'apontamentos') return (apontamentos || []).some(item => item.escopo !== 'SERVIDOR' && item.data === dia.dataOriginal);
   return true;
 }
 
@@ -6507,23 +7045,33 @@ function renderizarPainelRep(servidores, container) {
   const controleVinculo = cadastroSelecionado
     ? `<span class="rep-vinculo-confirmado">Cadastro associado</span><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Gerenciar vínculo / unir outro</button>`
     : `<button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button>`;
-  const resumo = servidores.map(emp => `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
-    <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
-    <span class="rep-pessoa-metricas"><b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small></span>
-  </button>`).join('');
+  const resumo = servidores.map(emp => {
+    const abertos = obterApontamentosServidorPeriodoRep_(emp.pis, emp.dias).filter(item => item.status !== 'CONCLUIDO').length;
+    return `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
+      <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
+      <span class="rep-pessoa-metricas"><b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador apontamento ${abertos ? 'tem-apontamento' : ''}" title="Apontamentos abertos">${abertos} AP</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small></span>
+    </button>`;
+  }).join('');
 
-  const rotulosFiltro = { he: 'dias com horas extras', vr: 'dias com vale-refeição extra', saldo: 'dias que alteraram o balanço', alertas: 'dias que precisam de conferência' };
-  const diasFiltrados = selecionado.dias.filter(dia => diaAtendeFiltroRep_(dia, filtroDiasRepAtual));
+  const apontamentosSelecionado = obterApontamentosServidorPeriodoRep_(selecionado.pis, selecionado.dias);
+  const apontamentosAbertos = apontamentosSelecionado.filter(item => item.status !== 'CONCLUIDO');
+  const apontamentosConcluidos = apontamentosSelecionado.length - apontamentosAbertos.length;
+  const apontamentosServidor = apontamentosSelecionado.filter(item => item.escopo === 'SERVIDOR');
+  const rotulosFiltro = { he: 'dias com horas extras', vr: 'dias com vale-refeição extra', saldo: 'dias que alteraram o balanço', alertas: 'dias que precisam de conferência', apontamentos: 'dias com apontamentos' };
+  const diasFiltrados = selecionado.dias.filter(dia => diaAtendeFiltroRep_(dia, filtroDiasRepAtual, apontamentosSelecionado));
   const dias = diasFiltrados.map(dia => {
+    const apontamentosDia = apontamentosSelecionado.filter(item => item.escopo !== 'SERVIDOR' && item.data === dia.dataOriginal);
+    const infoAusencia = dia.ausencia ? `<div class="rep-ausencia-dia ${dia.ausenciaJustificada ? 'justificada' : 'conferir'}"><span>${dia.ausenciaJustificada ? 'Ausência registrada' : 'Atenção: ausência e batidas no mesmo dia'}</span><strong>${escapeHtml(dia.ausencia.tipo)}</strong><small>${escapeHtml(formatarPeriodoAusenciaRep_(dia.ausencia))} · 1Doc: ${escapeHtml(dia.ausencia.idoc || 'não informado')}${dia.ausencia.origem === 'manual' ? ' · associação manual' : ''}</small></div>` : '';
     const eventos = dia.semRegistro ? '<span class="rep-sem-registro">Sem marcações neste dia no AFD</span>' : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
       <small>${evento.manual ? 'AJUSTE MANUAL' : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
+      <button type="button" class="rep-apontar-registro" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','REGISTRO','${escapeHtml(evento.eventKey || evento.eventId || '')}','')">Apontar</button>
     </div>`).join('');
     const sinalizadores = `${dia.temHoraExtra ? '<span class="rep-sinalizador he">HE</span>' : ''}${dia.temValeRefeicao ? '<span class="rep-sinalizador vr">VR</span>' : ''}`;
     return `<tr class="${dia.semRegistro ? 'rep-dia-sem-registro' : ''}">
-      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button></td>
-      <td><div class="rep-linha-tempo">${eventos}</div></td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button></div></td>
+      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
       <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadores}</span></td>
@@ -6531,24 +7079,28 @@ function renderizarPainelRep(servidores, container) {
   }).join('') || `<tr><td colspan="5" class="rep-filtro-vazio">Nenhum dia encontrado neste filtro.</td></tr>`;
 
   const avisoFiltro = filtroDiasRepAtual === 'todos' ? '' : `<div class="rep-filtro-dias-ativo"><span>Exibindo ${rotulosFiltro[filtroDiasRepAtual]}: <b>${diasFiltrados.length}</b></span><button type="button" onclick="definirFiltroDiasRep('todos')">Mostrar todos os dias</button></div>`;
+  const painelApontamentosServidor = apontamentosServidor.length ? `<section class="rep-apontamentos-servidor"><header><b>Apontamentos do servidor nesta competência</b><button type="button" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Novo apontamento</button></header>${htmlApontamentosRep_(apontamentosServidor)}</section>` : '';
 
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}</div></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button><button type="button" class="rep-ajuda-entidade" onclick="pedirAjudaEntidadeRep()"><span data-lucide="ghost"></span> Ajuda da Entidade</button></div></div>
         <div class="rep-grupo-resumo">
           <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Horas extras</small><b>${formatHoursRep(selecionado.resumo.horasExtras)}h</b><em>Soma das horas positivas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Não útil trabalhado &gt; 6h</em></button>
           <button type="button" class="rep-indicador-resumo saldo ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Horas extras menos horas abaixo da jornada nos dias com batidas válidas."><small>Balanço estimado</small><b>${formatHoursRep(selecionado.resumo.saldo)}h</b><em>Extras menos horas faltantes</em></button>
           <button type="button" class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''} ${filtroDiasRepAtual === 'alertas' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('alertas')" aria-pressed="${filtroDiasRepAtual === 'alertas'}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></button>
+          <button type="button" class="rep-indicador-resumo apontamentos ${apontamentosAbertos.length ? 'tem-apontamento' : ''} ${filtroDiasRepAtual === 'apontamentos' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('apontamentos')" aria-pressed="${filtroDiasRepAtual === 'apontamentos'}"><small>Apontamentos abertos</small><b>${apontamentosAbertos.length}</b><em>${apontamentosConcluidos} concluído(s)</em></button>
         </div>
       </header>
+      ${painelApontamentosServidor}
       ${avisoFiltro}
       <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>
   </div>`;
   const listaAtual = container.querySelector('.rep-pessoas');
   if (listaAtual) listaAtual.scrollTop = rolagemPessoasRep;
+  renderizarIcones();
 }
 
 function mudarPaginaRep(delta) {
@@ -6610,7 +7162,7 @@ function renderizarListaRep() {
     const matchesSearch = emp.nome.toLowerCase().includes(searchTerm) || emp.pis.includes(searchTerm);
     let matchesStatus = true;
     if (statusFilter === 'pending') {
-      matchesStatus = emp.resumo.pendencias > 0;
+      matchesStatus = emp.resumo.pendencias > 0 || obterApontamentosServidorPeriodoRep_(emp.pis, emp.dias).some(item => item.status !== 'CONCLUIDO');
     } else if (statusFilter === 'unmatched') {
       matchesStatus = emp.naoConciliado;
     } else if (statusFilter === 'saldo') {
@@ -6760,14 +7312,20 @@ function toggleRepCard(bodyId) {
   }
 }
 
-function resetarLeituraRep() {
+function limparEstadoLeituraRep_() {
   dadosRepCache = { employees: new Map(), lotacoes: new Map(), vinculos: new Map(), vinculosCarregados: false, punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
   dadosRepProcessados = [];
   paginaRepAtual = 1;
   pisSelecionadoRep = '';
+  filtroDiasRepAtual = 'todos';
   entidadeMensagemTemporariaRep = '';
   entidadeUltimoFingerprintRep = '';
   entidadeFingerprintsRepNotificados.clear();
+}
+
+async function resetarLeituraRep() {
+  if (repOnlineCarregando) return mostrarToast('A base online já está sendo atualizada.', 'info');
+  limparEstadoLeituraRep_();
   const zone = document.getElementById('rep-upload-zone');
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
@@ -6780,6 +7338,8 @@ function resetarLeituraRep() {
   if (btn) btn.style.display = 'none';
   if (btnPdf) btnPdf.style.display = 'none';
   if (btnAdicionar) btnAdicionar.style.display = 'none';
+  repOnlineCarregado = false;
+  await carregarModuloRepOnline(true);
 }
 
 function exportarRepPdfUmaPagina(emp) {
@@ -6793,7 +7353,8 @@ function exportarRepPdfUmaPagina(emp) {
     const ajustes = (dia.batidasDetalhadas || [])
       .filter(evento => evento.manual && evento.justificativa)
       .map(evento => evento.justificativa).join('; ');
-    const situacao = `${textoSituacaoRep(dia.status)}${ajustes ? ` | Ajuste: ${ajustes}` : ''}`;
+    const ausencia = dia.ausencia ? `${dia.ausencia.tipo} | ${formatarPeriodoAusenciaRep_(dia.ausencia)} | 1Doc: ${dia.ausencia.idoc || 'não informado'}` : '';
+    const situacao = `${ausencia ? `${ausencia} | ` : ''}${textoSituacaoRep(dia.status)}${ajustes ? ` | Ajuste: ${ajustes}` : ''}`;
     const categoria = categoriaSituacaoRep(dia.status);
     const sinalizadores = `${dia.temHoraExtra ? '<em class="sinal he">HE</em>' : ''}${dia.temValeRefeicao ? '<em class="sinal vr">VR</em>' : ''}`;
     return `<tr>
@@ -6814,7 +7375,7 @@ function exportarRepPdfUmaPagina(emp) {
     @page{size:A4 landscape;margin:5mm}
     *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
     .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
-    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-nao_conciliado,.status-sem_registro{border-left-color:#667085;color:#475467}.sinal{display:inline-block;margin-left:2px;padding:1px 3px;border-radius:2px;font-style:normal;font-weight:700;font-size:5.7px}.sinal.he{background:#2dd4a8;color:#093f31}.sinal.vr{background:#fbbf24;color:#4a2500}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido,.status-ausencia_justificada{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps,.status-ausencia_com_batidas{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-nao_conciliado,.status-sem_registro{border-left-color:#667085;color:#475467}.sinal{display:inline-block;margin-left:2px;padding:1px 3px;border-radius:2px;font-style:normal;font-weight:700;font-size:5.7px}.sinal.he{background:#2dd4a8;color:#093f31}.sinal.vr{background:#fbbf24;color:#4a2500}
     th:nth-child(1){width:8%}th:nth-child(2){width:8%}th:nth-child(3){width:22%}th:nth-child(4){width:8%}th:nth-child(5){width:8%}th:nth-child(6){width:21%}th:nth-child(7){width:25%}
     .rodape{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:10px;align-items:end;margin-top:5px;color:#687386}.nota{font-size:6px}.assinatura{border-top:1px solid #687386;padding-top:2px;text-align:center}.legenda{margin-top:3px;color:#687386;font-size:6px}.acoes{position:fixed;right:10px;top:8px;padding:7px 10px;background:#087f5b;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:11px}
     @media print{.acoes{display:none}.folha{page-break-after:avoid;page-break-inside:avoid}}
@@ -6871,6 +7432,8 @@ function exportarRepExcel() {
         'REPs Utilizados': dia.reps,
         'Locais Históricos': dia.relogios,
         'Arquivo de Origem': dia.fontes,
+        'Ausência Registrada': dia.ausencia ? dia.ausencia.tipo : '',
+        '1Doc da Ausência': dia.ausencia ? dia.ausencia.idoc : '',
         'Status': dia.status
       });
     }
