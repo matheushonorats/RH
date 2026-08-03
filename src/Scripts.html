@@ -5214,11 +5214,12 @@ function exibirInsightStatus(texto) {
 // ==========================================
 // MÓDULO PRÉ-LEITURA REP (100% LOCAL / CLIENT-SIDE)
 // ==========================================
-let dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [] };
+let dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
 let dadosRepProcessados = [];
 let paginaRepAtual = 1;
 let pisSelecionadoRep = '';
 let ajusteRepAtual = null;
+let fusaoRepAtual = null;
 const ITENS_POR_PAGINA_REP = 250;
 
 function normalizarPisRep(valor) {
@@ -6094,7 +6095,6 @@ function criarDataAjusteRep(dataIso, hora) {
 function salvarAjustesDiaRep() {
   if (!ajusteRepAtual) return;
   const justificativa = document.getElementById('rep-ajuste-justificativa').value.trim();
-  if (!justificativa) return mostrarToast('Informe a justificativa do ajuste.', 'warning');
   const linhas = Array.from(document.querySelectorAll('#rep-ajuste-eventos .rep-ajuste-linha'));
   let alteracoes = 0;
   const novos = [];
@@ -6147,6 +6147,55 @@ function restaurarAjustesDiaRep() {
   fecharModal('modal-ajuste-rep');
   atualizarProcessamentoRep();
   mostrarToast('Dados originais restaurados para o dia.', 'success');
+}
+
+function abrirFusaoRep(pisDestino) {
+  const destino = String(pisDestino || '');
+  const pessoas = dadosRepProcessados.filter(item => item.pis !== destino);
+  if (!destino || !pessoas.length) return mostrarToast('É preciso haver outra identificação carregada para unir os registros.', 'info');
+
+  fusaoRepAtual = destino;
+  const nomeDestino = dadosRepCache.employees.get(destino) || dadosRepProcessados.find(item => item.pis === destino)?.nome || 'Servidor';
+  document.getElementById('rep-fusao-destino-nome').textContent = nomeDestino;
+  document.getElementById('rep-fusao-destino-pis').textContent = `PIS/CPF que será mantido: ${destino}`;
+  const seletor = document.getElementById('rep-fusao-origem');
+  seletor.innerHTML = '<option value="">Selecione a outra identificação...</option>';
+  pessoas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).forEach(item => {
+    const opcao = document.createElement('option');
+    opcao.value = item.pis;
+    opcao.textContent = `${item.nome} — ${item.pis}`;
+    seletor.appendChild(opcao);
+  });
+  abrirModal('modal-fusao-rep');
+}
+
+function confirmarFusaoRep() {
+  const destino = String(fusaoRepAtual || '');
+  const origem = String(document.getElementById('rep-fusao-origem')?.value || '');
+  if (!destino || !origem || destino === origem) return mostrarToast('Selecione a outra identificação que será unida.', 'warning');
+
+  const nomeDestino = dadosRepCache.employees.get(destino) || dadosRepProcessados.find(item => item.pis === destino)?.nome || 'Servidor';
+  const eventos = new Set([...(dadosRepCache.punchesBrutos || []), ...(dadosRepCache.punches || [])]);
+  let totalUnido = 0;
+  eventos.forEach(evento => {
+    if (String(evento.pis) !== origem) return;
+    evento.pisOriginal = evento.pisOriginal || origem;
+    evento.pis = destino;
+    evento.fusaoManual = true;
+    totalUnido++;
+  });
+  if (!totalUnido) return mostrarToast('Não foram encontradas batidas para a identificação escolhida.', 'warning');
+
+  dadosRepCache.employees.set(destino, nomeDestino);
+  dadosRepCache.employees.delete(origem);
+  dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punches || []);
+  dadosRepCache.fusoes = dadosRepCache.fusoes || [];
+  dadosRepCache.fusoes.push({ destino, origem, nome: nomeDestino, batidas: totalUnido, em: new Date().toISOString() });
+  pisSelecionadoRep = destino;
+  fusaoRepAtual = null;
+  fecharModal('modal-fusao-rep');
+  atualizarProcessamentoRep();
+  mostrarToast(`${totalUnido} batida(s) foram reunidas em ${nomeDestino}.`, 'success');
 }
 
 function updateDashboardRep() {
@@ -6228,7 +6277,7 @@ function renderizarPainelRep(servidores, container) {
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis}</small></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis}</small><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Unir outra identificação</button></div>
         <div class="rep-grupo-resumo"><span>Horas extras: <b class="rep-valor-positivo">${formatHoursRep(selecionado.resumo.horasExtras)}h</b></span><span title="Somente sábado, domingo ou feriado com mais de 6 horas">VR não útil &gt; 6h: <b>${selecionado.resumo.valeRefeicao}</b></span><span>Saldo líquido: <b>${formatHoursRep(selecionado.resumo.saldo)}h</b></span><span>Alertas: <b>${selecionado.resumo.pendencias}</b></span></div>
       </header>
       <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
@@ -6445,7 +6494,7 @@ function toggleRepCard(bodyId) {
 }
 
 function resetarLeituraRep() {
-  dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [] };
+  dadosRepCache = { employees: new Map(), punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
   dadosRepProcessados = [];
   paginaRepAtual = 1;
   pisSelecionadoRep = '';
@@ -6569,7 +6618,8 @@ function exportarRepExcel() {
     return (anoSel === 'all' || ano === anoSel) && (mesSel === 'all' || mes === mesSel) && (localSel === 'all' || p.clock === localSel);
   }).map(p => ({
     'Nome': dadosRepCache.employees.get(p.pis) || p.nomeNoMomento || 'Não conciliado',
-    'PIS/CPF': p.pis,
+    'PIS/CPF consolidado': p.pis,
+    'PIS/CPF original no AFD': p.pisOriginal || p.pis,
     'Data': toDateStringRep(p.datetime).split('-').reverse().join('/'),
     'Hora original': `${String(p.datetime.getHours()).padStart(2, '0')}:${String(p.datetime.getMinutes()).padStart(2, '0')}`,
     'Local vigente no AFD': p.clock,

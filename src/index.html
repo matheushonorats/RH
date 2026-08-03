@@ -568,11 +568,11 @@
                 <button class="modal-close" onclick="fecharModal('modal-ajuste-rep')"><span data-lucide="x"></span></button>
               </div>
               <div class="modal-body">
-                <p class="form-help">O AFD original não será alterado. Toda inclusão, correção ou desconsideração ficará registrada com a justificativa abaixo.</p>
+                <p class="form-help">O AFD original não será alterado. Inclusões, correções e desconsiderações ficam registradas somente nesta pré-leitura.</p>
                 <div id="rep-ajuste-eventos" class="rep-ajuste-eventos"></div>
                 <button type="button" class="btn btn-secondary" onclick="adicionarLinhaAjusteRep()"><span data-lucide="plus"></span> Adicionar marcação</button>
                 <div class="form-group" style="margin-top:16px;">
-                  <label class="form-label" for="rep-ajuste-justificativa">Justificativa obrigatória</label>
+                  <label class="form-label" for="rep-ajuste-justificativa">Justificativa (opcional)</label>
                   <textarea id="rep-ajuste-justificativa" class="form-control" rows="3" placeholder="Ex.: justificativa entregue por escrito pelo servidor"></textarea>
                 </div>
               </div>
@@ -580,6 +580,28 @@
                 <button type="button" class="btn btn-secondary" onclick="restaurarAjustesDiaRep()">Restaurar dados originais</button>
                 <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-ajuste-rep')">Cancelar</button>
                 <button type="button" class="btn btn-primary" onclick="salvarAjustesDiaRep()">Aplicar ajuste</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-overlay" id="modal-fusao-rep">
+            <div class="modal-content rep-fusao-modal">
+              <div class="modal-header">
+                <div><span class="page-eyebrow">CONSOLIDAR IDENTIFICAÇÕES</span><h3 class="modal-title">Unir registros do mesmo servidor</h3></div>
+                <button class="modal-close" onclick="fecharModal('modal-fusao-rep')"><span data-lucide="x"></span></button>
+              </div>
+              <div class="modal-body">
+                <p class="form-help">Use quando o mesmo servidor apareceu com dois PIS/CPFs por falha no relógio. Todas as batidas serão reunidas no identificador principal, sem alterar os AFDs originais.</p>
+                <div class="rep-fusao-dados"><div><span>Manter como</span><strong id="rep-fusao-destino-nome">-</strong><small id="rep-fusao-destino-pis">-</small></div></div>
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label" for="rep-fusao-origem">Também pertence a este servidor</label>
+                  <select id="rep-fusao-origem" class="form-control"></select>
+                </div>
+                <p class="form-help">A união vale apenas para os arquivos carregados nesta sessão. A auditoria conservará o identificador original de cada batida.</p>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-fusao-rep')">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="confirmarFusaoRep()"><span data-lucide="combine"></span> Unir registros</button>
               </div>
             </div>
           </div>
