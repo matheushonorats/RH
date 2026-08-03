@@ -467,7 +467,7 @@
               <div>
                 <span class="page-eyebrow">PRÉ-PROCESSAMENTO COMPARTILHADO · DRIVE</span>
                 <h2>Pré-Leitura de Arquivos de Ponto (REP / AFD)</h2>
-                <p>Os AFDs ficam disponíveis para a equipe em qualquer computador. Uma nova coleta do mesmo relógio substitui a anterior automaticamente.</p>
+                <p>Os AFDs ficam disponíveis para a equipe em qualquer computador. Uma nova versão do mesmo arquivo substitui somente sua versão anterior; arquivos de outros locais permanecem separados.</p>
               </div>
               <div style="display:flex; gap:8px;">
                 <button class="btn btn-secondary" onclick="resetarLeituraRep()" title="Buscar novamente os AFDs e apontamentos compartilhados">
@@ -588,6 +588,16 @@
                   <div id="rep-ajuste-ausencia-detectada" class="rep-ausencia-detectada"></div>
                   <select id="rep-ajuste-lancamento" class="form-control"></select>
                   <small class="form-help">Use esta lista somente se o lançamento correto não tiver sido associado automaticamente.</small>
+                </div>
+                <div id="rep-ajuste-compensacao" class="rep-ajuste-compensacao" hidden>
+                  <label class="form-label" for="rep-ajuste-compensacao-horas">Compensação com horas positivas do mês</label>
+                  <div id="rep-ajuste-compensacao-resumo" class="rep-compensacao-resumo"></div>
+                  <div class="rep-compensacao-campos">
+                    <input id="rep-ajuste-compensacao-horas" class="form-control" inputmode="numeric" placeholder="HH:MM" maxlength="5">
+                    <button type="button" class="btn btn-secondary" onclick="preencherCompensacaoMaximaRep_()">Usar saldo disponível</button>
+                  </div>
+                  <input id="rep-ajuste-compensacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a compensação">
+                  <small class="form-help">Use 00:00 para remover. A operação não altera o AFD original.</small>
                 </div>
                 <div class="form-group" style="margin-top:16px;">
                   <label class="form-label" for="rep-ajuste-justificativa">Justificativa (opcional)</label>

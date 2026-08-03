@@ -3469,11 +3469,11 @@ body.dark-mode #view-dashboard .btn-primary {
 }
 
 .rep-status b { font-size: 9px; letter-spacing: .25px; text-transform: uppercase; }
-.rep-status.ok, .rep-status.saldo_positivo { color: #0b9a6e; background: rgba(16, 185, 129, .12); border-left-color: #10b981; }
+.rep-status.ok, .rep-status.saldo_positivo, .rep-status.jornada_compensada { color: #0b9a6e; background: rgba(16, 185, 129, .12); border-left-color: #10b981; }
 .rep-status.jornada_incompleta { color: #f0a51a; background: rgba(240, 165, 26, .14); border-left-color: #f0a51a; }
 .rep-status.extra_dia_nao_util { color: #a66be3; background: rgba(166, 107, 227, .14); border-left-color: #a66be3; }
 .rep-status.intervalo_presumido, .rep-status.extra_intervalo_presumido { color: #3b9ee9; background: rgba(59, 158, 233, .13); border-left-color: #3b9ee9; }
-.rep-status.intervalo_nao_identificado, .rep-status.intervalo_inferior_minimo, .rep-status.batidas_excedentes { color: #f0a51a; background: rgba(240, 165, 26, .14); border-left-color: #f0a51a; }
+.rep-status.intervalo_nao_identificado, .rep-status.intervalo_inferior_minimo, .rep-status.batidas_excedentes, .rep-status.jornada_compensada_parcial { color: #f0a51a; background: rgba(240, 165, 26, .14); border-left-color: #f0a51a; }
 .rep-status.impar, .rep-status.colisao_reps { color: #f75a5a; background: rgba(247, 90, 90, .14); border-left-color: #f75a5a; }
 .rep-status.conflito_arredondamento { color: #d37ce8; background: rgba(211, 124, 232, .14); border-left-color: #d37ce8; }
 .rep-status.nao_conciliado { color: #a8b0bd; background: rgba(148, 163, 184, .14); border-left-color: #94a3b8; }
@@ -3484,6 +3484,7 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-sinalizador { display: inline-block; padding: 3px 5px; border-radius: 4px; font-size: 9px; font-weight: 800; letter-spacing: .35px; line-height: 1; }
 .rep-sinalizador.he { color: #093f31; background: #2dd4a8; }
 .rep-sinalizador.vr { color: #4a2500; background: #fbbf24; }
+.rep-sinalizador.comp { color: #153e75; background: #bfdbfe; }
 .rep-sem-registro { display: inline-block; padding: 9px 10px; border: 1px dashed var(--border-color); border-radius: 6px; color: var(--text-muted); font-size: 11px; }
 .rep-ausencia-dia { display: grid; gap: 2px; margin-top: 7px; padding: 8px 10px; border-radius: 7px; border-left: 3px solid #0ea5e9; background: rgba(14,165,233,.09); }
 .rep-ausencia-dia.conferir { border-left-color: #f43f5e; background: rgba(244,63,94,.09); }
@@ -3494,6 +3495,16 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-ajuste-ausencia { margin-top: 18px; padding: 13px; border: 1px solid var(--border-color); border-radius: 9px; background: rgba(14,165,233,.05); }
 .rep-ausencia-detectada { display: grid; gap: 3px; margin-bottom: 9px; color: var(--text-secondary); font-size: 11px; }
 .rep-ausencia-detectada strong { color: #38bdf8; font-size: 12px; }
+.rep-ajuste-compensacao { margin-top: 14px; padding: 13px; border: 1px solid rgba(16,185,129,.35); border-radius: 9px; background: rgba(16,185,129,.06); }
+.rep-compensacao-resumo { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; color: var(--text-secondary); font-size: 11px; }
+.rep-compensacao-resumo b { color: #2dd4a8; }
+.rep-compensacao-campos { display: grid; grid-template-columns: minmax(100px,140px) auto; gap: 8px; margin-bottom: 8px; }
+.rep-compensacao-dia { display: grid; gap: 2px; margin-top: 7px; padding: 8px 10px; border-radius: 7px; border-left: 3px solid #10b981; background: rgba(16,185,129,.09); }
+.rep-compensacao-dia.parcial { border-left-color: #f0a51a; background: rgba(240,165,26,.09); }
+.rep-compensacao-dia span { color: #2dd4a8; font-size: 9px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; }
+.rep-compensacao-dia.parcial span { color: #f0a51a; }
+.rep-compensacao-dia strong { color: var(--text-primary); font-size: 12px; }
+.rep-compensacao-dia small { color: var(--text-secondary); font-size: 10px; }
 .rep-dia-sem-registro td { background: rgba(100, 116, 139, .035); }
 
 @media (max-width: 720px) {

@@ -131,6 +131,8 @@ function obterFuncoesApiPermitidas_() {
     listarApontamentosRep: listarApontamentosRep,
     listarJustificativasLancamentoRep: listarJustificativasLancamentoRep,
     salvarJustificativaLancamentoRep: salvarJustificativaLancamentoRep,
+    listarCompensacoesRep: listarCompensacoesRep,
+    salvarCompensacaoRep: salvarCompensacaoRep,
     salvarApontamentoRep: salvarApontamentoRep,
     definirStatusApontamentoRep: definirStatusApontamentoRep,
     excluirApontamentoRep: excluirApontamentoRep,

@@ -2,6 +2,7 @@
 const REP_ONLINE_ABA_ARQUIVOS_ = 'REP_Arquivos';
 const REP_ONLINE_ABA_APONTAMENTOS_ = 'REP_Apontamentos';
 const REP_ONLINE_ABA_JUSTIFICATIVAS_ = 'REP_Justificativas';
+const REP_ONLINE_ABA_COMPENSACOES_ = 'REP_Compensacoes';
 const REP_ONLINE_PASTA_PROP_ = 'REP_ONLINE_PASTA_ID';
 const REP_ONLINE_CABECALHO_ARQUIVOS_ = [
   'Chave_REP', 'Numero_REP', 'Nome_Original', 'Pasta_Partes_ID', 'Total_Partes',
@@ -16,12 +17,22 @@ const REP_ONLINE_CABECALHO_APONTAMENTOS_ = [
 const REP_ONLINE_CABECALHO_JUSTIFICATIVAS_ = [
   'PIS', 'Data', 'Linha_Lancamento', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
 ];
+const REP_ONLINE_CABECALHO_COMPENSACOES_ = [
+  'PIS', 'Data', 'Minutos', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
+];
+
+function normalizarNomeArquivoRepOnline_(nomeOriginal) {
+  return String(nomeOriginal || 'AFD').trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120) || 'AFD';
+}
 
 function normalizarChaveArquivoRepOnline_(numeroRep, nomeOriginal) {
   const rep = String(numeroRep || '').replace(/[^0-9A-Za-z_-]/g, '').toUpperCase();
-  if (rep && rep !== 'REPDESCONHECIDO') return 'REP:' + rep;
-  const nome = String(nomeOriginal || 'AFD').trim().toUpperCase().replace(/[^0-9A-Z_-]+/g, '_').slice(0, 100);
-  return 'ARQUIVO:' + (nome || 'AFD');
+  const nome = normalizarNomeArquivoRepOnline_(nomeOriginal);
+  // Alguns equipamentos foram configurados com o mesmo numero de REP em locais
+  // diferentes. O arquivo de origem separa essas coletas sem impedir que uma
+  // nova versao do mesmo arquivo substitua apenas sua versao anterior.
+  if (rep && rep !== 'REPDESCONHECIDO') return 'REP:' + rep + '|ARQUIVO:' + nome;
+  return 'ARQUIVO:' + nome;
 }
 
 function obterPastaRepOnline_() {
@@ -131,14 +142,32 @@ function finalizarUploadRepOnline(dados) {
     const aba = obterAbaRepOnline_(REP_ONLINE_ABA_ARQUIVOS_, REP_ONLINE_CABECALHO_ARQUIVOS_);
     const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_ARQUIVOS_.length).getValues() : [];
     let linhaAlvo = -1;
-    existentes.forEach(function(linha, indice) {
-      if (String(linha[0]) === chave && String(linha[12] || 'Sim').toLowerCase() !== 'não') {
-        linhaAlvo = indice + 2;
-        pastaAntigaId = String(linha[3] || '');
-        const fimExistente = linha[8] instanceof Date ? Utilities.formatDate(linha[8], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[8] || '');
-        if (fimExistente && metadados.fim && fimExistente > String(metadados.fim)) ignoradoMaisAntigo = true;
-      }
+    let linhaExistente = null;
+    existentes.some(function(linha, indice) {
+      if (String(linha[0]) !== chave || String(linha[12] || 'Sim').toLowerCase() === 'não') return false;
+      linhaAlvo = indice + 2;
+      linhaExistente = linha;
+      return true;
     });
+    // Migra transparentemente a chave antiga (somente numero do REP), mas apenas
+    // quando o nome do arquivo tambem coincide. Assim outro local com o mesmo REP
+    // passa a ocupar uma linha independente.
+    if (linhaAlvo < 0 && metadados.numeroRep) {
+      const chaveLegada = 'REP:' + String(metadados.numeroRep || '').replace(/[^0-9A-Za-z_-]/g, '').toUpperCase();
+      const nomeNovo = normalizarNomeArquivoRepOnline_(metadados.nomeOriginal);
+      existentes.some(function(linha, indice) {
+        if (String(linha[0]) !== chaveLegada || String(linha[12] || 'Sim').toLowerCase() === 'não') return false;
+        if (normalizarNomeArquivoRepOnline_(linha[2]) !== nomeNovo) return false;
+        linhaAlvo = indice + 2;
+        linhaExistente = linha;
+        return true;
+      });
+    }
+    if (linhaExistente) {
+      pastaAntigaId = String(linhaExistente[3] || '');
+      const fimExistente = linhaExistente[8] instanceof Date ? Utilities.formatDate(linhaExistente[8], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linhaExistente[8] || '');
+      if (fimExistente && metadados.fim && fimExistente > String(metadados.fim)) ignoradoMaisAntigo = true;
+    }
     if (!ignoradoMaisAntigo) {
       const agora = new Date();
       const valores = [[
@@ -204,6 +233,61 @@ function obterAbaApontamentosRep_() {
 
 function obterAbaJustificativasRep_() {
   return obterAbaRepOnline_(REP_ONLINE_ABA_JUSTIFICATIVAS_, REP_ONLINE_CABECALHO_JUSTIFICATIVAS_);
+}
+
+function obterAbaCompensacoesRep_() {
+  return obterAbaRepOnline_(REP_ONLINE_ABA_COMPENSACOES_, REP_ONLINE_CABECALHO_COMPENSACOES_);
+}
+
+function listarCompensacoesRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaCompensacoesRep_();
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_COMPENSACOES_.length).getValues()
+    .filter(function(linha) { return linha[0] && String(linha[6] || 'Sim').toLowerCase() !== 'não'; })
+    .map(function(linha) {
+      return {
+        pis: normalizarIdentificadorRep_(linha[0]),
+        data: linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || ''),
+        minutos: Number(linha[2] || 0), observacao: String(linha[3] || ''),
+        atualizadoEm: linha[4] instanceof Date ? linha[4].toISOString() : String(linha[4] || ''), atualizadoPor: String(linha[5] || '')
+      };
+    });
+}
+
+function salvarCompensacaoRep(dados) {
+  const usuario = obterDadosUsuarioLogado();
+  dados = dados || {};
+  const pis = normalizarIdentificadorRep_(dados.pis);
+  const data = String(dados.data || '');
+  const minutos = Number(dados.minutos || 0);
+  const observacao = String(dados.observacao || '').trim().slice(0, 500);
+  if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para a compensação.');
+  if (!Number.isInteger(minutos) || minutos < 0 || minutos > 1440) throw new Error('Informe uma compensação válida de até 24 horas.');
+
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a compensação. Tente novamente.');
+  try {
+    const aba = obterAbaCompensacoesRep_();
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_COMPENSACOES_.length).getValues() : [];
+    let linhaAlvo = -1;
+    existentes.some(function(linha, indice) {
+      const dataLinha = linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || '');
+      if (normalizarIdentificadorRep_(linha[0]) === pis && dataLinha === data) {
+        linhaAlvo = indice + 2;
+        return true;
+      }
+      return false;
+    });
+    const valores = [[pis, data, minutos || '', observacao, new Date(), usuario.email || usuario.nome || '', minutos ? 'Sim' : 'Não']];
+    const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
+    aba.getRange(destino, 2).setNumberFormat('@');
+    aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_COMPENSACOES_.length).setValues(valores);
+    try { lancarLog('REP_COMPENSACAO', 'REP_Compensacoes', (minutos ? 'Salvou' : 'Removeu') + ' compensação de jornada em ' + data + '.', '', '', String(minutos), pis); } catch (e) {}
+    return { sucesso: true, removido: !minutos };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Associa manualmente um dia do REP a um lancamento ja existente no RH. */
