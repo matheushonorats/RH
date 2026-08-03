@@ -1023,6 +1023,9 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
       salvarCacheLocal();
+      if (currentView === 'pre-leitura-rep' && aplicarCadastroAtualAoRep_()) {
+        atualizarProcessamentoRep({ notificarEntidade: false });
+      }
       exibirLoader(false);
       const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
       if (viewFinal) {
@@ -1079,6 +1082,11 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
       salvarCacheLocal();
+      // O REP fica processado na memória do navegador. Reaplica o cadastro
+      // atualizado para refletir um PIS salvo em outra janela sem novo upload.
+      if (currentView === 'pre-leitura-rep' && aplicarCadastroAtualAoRep_()) {
+        atualizarProcessamentoRep({ notificarEntidade: false });
+      }
       const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
       if (viewFinal) carregarDadosDaView(viewFinal);
     })
@@ -1773,7 +1781,7 @@ function salvarDadosServidor(event) {
   
   const dados = {
     matricula: document.getElementById('serv-matricula').value.trim(),
-    pis: document.getElementById('serv-pis').value.replace(/\D/g, ''),
+    pis: normalizarPisRep(document.getElementById('serv-pis').value),
     nome: document.getElementById('serv-nome').value.trim().toUpperCase(),
     cargo: document.getElementById('serv-cargo').value.trim().toUpperCase(),
     lotacao: lotacao,
@@ -5232,6 +5240,26 @@ function normalizarPisRep(valor) {
   return digitos;
 }
 
+function aplicarCadastroAtualAoRep_() {
+  if (!dadosRepCache || !(dadosRepCache.employees instanceof Map) || !(dadosRepCache.lotacoes instanceof Map)) return false;
+  if (!Array.isArray(dadosRepCache.punches) || !dadosRepCache.punches.length) return false;
+
+  let alterou = false;
+  let encontrouCorrespondencia = false;
+  const identificadoresCarregados = new Set(dadosRepCache.punches.map(evento => normalizarPisRep(evento.pis)).filter(Boolean));
+  (AppState.servidores || []).forEach(servidor => {
+    const pis = normalizarPisRep(servidor.pis);
+    if (!pis || !servidor.nome) return;
+    if (identificadoresCarregados.has(pis)) encontrouCorrespondencia = true;
+    const nome = String(servidor.nome).trim();
+    const lotacao = String(servidor.lotacao || 'Não informada').trim() || 'Não informada';
+    if (dadosRepCache.employees.get(pis) !== nome || dadosRepCache.lotacoes.get(pis) !== lotacao) alterou = true;
+    dadosRepCache.employees.set(pis, nome);
+    dadosRepCache.lotacoes.set(pis, lotacao);
+  });
+  return alterou || encontrouCorrespondencia;
+}
+
 function nomeValidoRep(nome) {
   const texto = String(nome || '').trim();
   const normalizado = texto.toLowerCase();
@@ -6451,6 +6479,10 @@ function renderizarPainelRep(servidores, container) {
   if (listaAnterior) rolagemPessoasRep = listaAnterior.scrollTop;
   if (!servidores.some(emp => emp.pis === pisSelecionadoRep)) pisSelecionadoRep = servidores[0].pis;
   const selecionado = servidores.find(emp => emp.pis === pisSelecionadoRep);
+  const cadastroSelecionado = (AppState.servidores || []).find(servidor => normalizarPisRep(servidor.pis) === normalizarPisRep(selecionado.pis));
+  const controleVinculo = cadastroSelecionado
+    ? `<span class="rep-vinculo-confirmado">Cadastro associado</span><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Gerenciar vínculo / unir outro</button>`
+    : `<button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button>`;
   const resumo = servidores.map(emp => `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
     <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
     <span><b>HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small>${emp.resumo.valeRefeicao} VR · ${emp.resumo.pendencias} alertas</small></span>
@@ -6475,8 +6507,13 @@ function renderizarPainelRep(servidores, container) {
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button></div>
-        <div class="rep-grupo-resumo"><span>Horas extras: <b class="rep-valor-positivo">${formatHoursRep(selecionado.resumo.horasExtras)}h</b></span><span title="Somente sábado, domingo ou feriado com mais de 6 horas">VR não útil &gt; 6h: <b>${selecionado.resumo.valeRefeicao}</b></span><span>Saldo líquido: <b>${formatHoursRep(selecionado.resumo.saldo)}h</b></span><span>Alertas: <b>${selecionado.resumo.pendencias}</b></span></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}</div></div>
+        <div class="rep-grupo-resumo">
+          <span class="rep-indicador-resumo destaque"><small>Horas extras</small><b>${formatHoursRep(selecionado.resumo.horasExtras)}h</b><em>Soma das horas positivas</em></span>
+          <span class="rep-indicador-resumo vr"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Não útil trabalhado &gt; 6h</em></span>
+          <span class="rep-indicador-resumo saldo" title="Horas extras menos horas abaixo da jornada nos dias com batidas válidas."><small>Balanço estimado</small><b>${formatHoursRep(selecionado.resumo.saldo)}h</b><em>Extras menos horas faltantes</em></span>
+          <span class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></span>
+        </div>
       </header>
       <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>

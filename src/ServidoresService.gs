@@ -6,6 +6,17 @@
 /**
  * Retorna a lista de todos os servidores cadastrados para exibição na interface (Performance O(N+M))
  */
+function normalizarPisCpfServidor_(valor) {
+  let digitos = String(valor || "").replace(/\D/g, "");
+  // Alguns AFDs reservam 12 posições para o PIS de 11 dígitos e
+  // acrescentam um zero técnico à esquerda. Zeros de um PIS real de
+  // 11 dígitos permanecem intactos.
+  while (digitos.length > 11 && digitos.charAt(0) === "0") {
+    digitos = digitos.slice(1);
+  }
+  return digitos;
+}
+
 function obterListaServidores() {
   obterDadosUsuarioLogado();
   return obterListaServidoresInterno_();
@@ -98,7 +109,7 @@ function obterListaServidoresInterno_() {
         admissaoBruta: idxAdmissao !== -1 && linha[idxAdmissao] instanceof Date ? linha[idxAdmissao].getTime() : (idxAdmissao !== -1 ? linha[idxAdmissao] : null),
         situacao: idxSituacao !== -1 ? String(linha[idxSituacao]).trim() : "",
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
-        pis: idxPis !== -1 ? String(linha[idxPis]).replace(/\D/g, "") : "",
+        pis: idxPis !== -1 ? normalizarPisCpfServidor_(linha[idxPis]) : "",
         saldoHoje: saldoHojeCalculado,
         // Inativos permanecem no histórico, mas estão fora da gestão operacional
         // de férias e nunca devem compor alertas de compulsórias.
@@ -191,6 +202,7 @@ function salvarServidor(dadosServidor) {
     throw new Error("Situação funcional inválida. Selecione Estatutário, Comissionado ou Estagiário.");
   }
   dadosServidor.situacao = situacoesPermitidas[chaveSituacao];
+  dadosServidor.pis = normalizarPisCpfServidor_(dadosServidor.pis);
 
   const lock = LockService.getScriptLock();
   let gerarCreditosDepois = false;
@@ -282,7 +294,7 @@ function salvarServidor(dadosServidor) {
     if (idxAdmissao !== -1 && dataAdmissao) aba.getRange(linhaEdit, idxAdmissao + 1).setValue(dataAdmissao);
     if (idxSituacao !== -1) aba.getRange(linhaEdit, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(linhaEdit, idxEmail + 1).setValue(dadosServidor.email);
-    aba.getRange(linhaEdit, idxPis + 1).setValue(String(dadosServidor.pis || "").replace(/\D/g, ""));
+    aba.getRange(linhaEdit, idxPis + 1).setValue(dadosServidor.pis);
     if (idxAtivo !== -1) aba.getRange(linhaEdit, idxAtivo + 1).setValue(dadosServidor.ativo || "Sim");
     
     aba.getRange(linhaEdit, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);
@@ -318,7 +330,7 @@ function salvarServidor(dadosServidor) {
     if (idxAdmissao !== -1 && dataAdmissao) aba.getRange(novaLinhaIndex, idxAdmissao + 1).setValue(dataAdmissao);
     if (idxSituacao !== -1) aba.getRange(novaLinhaIndex, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(novaLinhaIndex, idxEmail + 1).setValue(dadosServidor.email);
-    aba.getRange(novaLinhaIndex, idxPis + 1).setValue(String(dadosServidor.pis || "").replace(/\D/g, ""));
+    aba.getRange(novaLinhaIndex, idxPis + 1).setValue(dadosServidor.pis);
     if (idxAtivo !== -1) aba.getRange(novaLinhaIndex, idxAtivo + 1).setValue("Sim");
     
     aba.getRange(novaLinhaIndex, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);

@@ -61,7 +61,7 @@ function auditarCadastroServidor_(atual, anterior, operacao) {
   const email = textoAuditoriaCadastro_(atual.email);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) adicionar('ATENCAO', 'EMAIL', 'E-mail informado possui formato inválido.');
 
-  const pis = textoAuditoriaCadastro_(atual.pis).replace(/\D/g, '');
+  const pis = normalizarPisCpfServidor_(atual.pis);
   if (pis && pis.length !== 11) adicionar('ATENCAO', 'PIS', 'PIS/CPF deve possuir 11 dígitos.');
 
   if (anterior) {
@@ -117,7 +117,31 @@ function obterAlertasAuditoriaCadastralEntidade_(limite) {
   const aba = obterAbaAuditoriaCadastros_();
   if (aba.getLastRow() <= 1) return [];
   const dados = aba.getRange(2, 1, aba.getLastRow() - 1, 11).getDisplayValues();
-  return dados.filter(function(linha) { return linha[8] === 'PENDENTE'; })
+  const ss = obterPlanilha_();
+  const abaServidores = ss.getSheetByName('Servidores');
+  const pisAtualPorMatricula = {};
+  if (abaServidores && abaServidores.getLastRow() > 1) {
+    const valoresServidores = abaServidores.getDataRange().getDisplayValues();
+    const cabecalho = valoresServidores[0];
+    const idxMatricula = indiceCabecalho_(cabecalho, ['MATRICULA']);
+    const idxPis = indiceCabecalho_(cabecalho, ['PIS', 'CPF', 'PIS CPF', 'PIS_CPF']);
+    if (idxMatricula !== -1 && idxPis !== -1) {
+      valoresServidores.slice(1).forEach(function(linha) {
+        pisAtualPorMatricula[normalizarChaveMatricula_(linha[idxMatricula])] = normalizarPisCpfServidor_(linha[idxPis]);
+      });
+    }
+  }
+
+  return dados.filter(function(linha) {
+      if (linha[8] !== 'PENDENTE') return false;
+      // Um alerta histórico de tamanho do PIS deixa de ser relevante assim que
+      // o cadastro atual contém os 11 dígitos canônicos.
+      if (String(linha[6]) === 'PIS') {
+        const pisAtual = pisAtualPorMatricula[normalizarChaveMatricula_(linha[2])] || '';
+        if (pisAtual.length === 11) return false;
+      }
+      return true;
+    })
     .slice(-Math.max(1, Number(limite || 12)))
     .reverse()
     .map(function(linha) {
