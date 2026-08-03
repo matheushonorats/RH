@@ -3323,18 +3323,26 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-valor-negativo { color: #ef4444; }
 
 .rep-status {
-  display: inline-block;
-  padding: 3px 7px;
-  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
   font-size: 11px;
   white-space: nowrap;
   background: var(--bg-tertiary);
   color: var(--text-secondary);
+  border-left: 3px solid var(--border-color);
 }
 
-.rep-status.impar, .rep-status.batidas_excedentes, .rep-status.conflito_arredondamento { color: #ef4444; background: rgba(239, 68, 68, .12); }
-.rep-status.intervalo_nao_identificado, .rep-status.intervalo_presumido, .rep-status.extra_intervalo_presumido, .rep-status.intervalo_inferior_minimo, .rep-status.nao_conciliado { color: #f59e0b; background: rgba(245, 158, 11, .12); }
-.rep-status.extra_dia_nao_util, .rep-status.saldo_positivo { color: #10b981; background: rgba(16, 185, 129, .12); }
+.rep-status b { font-size: 9px; letter-spacing: .25px; text-transform: uppercase; }
+.rep-status.ok, .rep-status.saldo_positivo { color: #0b9a6e; background: rgba(16, 185, 129, .12); border-left-color: #10b981; }
+.rep-status.extra_dia_nao_util { color: #a66be3; background: rgba(166, 107, 227, .14); border-left-color: #a66be3; }
+.rep-status.intervalo_presumido, .rep-status.extra_intervalo_presumido { color: #3b9ee9; background: rgba(59, 158, 233, .13); border-left-color: #3b9ee9; }
+.rep-status.intervalo_nao_identificado, .rep-status.intervalo_inferior_minimo, .rep-status.batidas_excedentes { color: #f0a51a; background: rgba(240, 165, 26, .14); border-left-color: #f0a51a; }
+.rep-status.impar, .rep-status.colisao_reps { color: #f75a5a; background: rgba(247, 90, 90, .14); border-left-color: #f75a5a; }
+.rep-status.conflito_arredondamento { color: #d37ce8; background: rgba(211, 124, 232, .14); border-left-color: #d37ce8; }
+.rep-status.nao_conciliado { color: #a8b0bd; background: rgba(148, 163, 184, .14); border-left-color: #94a3b8; }
 
 @media (max-width: 720px) {
   .rep-grupo-cabecalho { align-items: flex-start; flex-direction: column; }

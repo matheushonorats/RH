@@ -5398,28 +5398,21 @@ function formatarDataParcialFeriadoRep_(digitos) {
   return valor.slice(0, 2) + '/' + valor.slice(2, 4) + '/' + valor.slice(4);
 }
 
-/** Formata datas digitadas sem barras e separa automaticamente cada grupo de 8 dígitos. */
+/** Normaliza para exibição somente datas completas; não interfere enquanto a próxima é digitada. */
 function formatarCampoFeriadosRep() {
   const campo = document.getElementById('rep-feriados');
   if (!campo) return;
-
-  const textoOriginal = String(campo.value || '');
-  const grupos = textoOriginal.split(/[;,\n]+/);
-  const datasFormatadas = [];
-  grupos.forEach(grupo => {
-    const digitos = String(grupo || '').replace(/\D/g, '');
-    for (let inicio = 0; inicio < digitos.length; inicio += 8) {
-      const data = formatarDataParcialFeriadoRep_(digitos.slice(inicio, inicio + 8));
-      if (data) datasFormatadas.push(data);
-    }
-  });
-
-  const terminaComSeparador = /[;,\n]\s*$/.test(textoOriginal);
-  campo.value = datasFormatadas.join(', ') + (terminaComSeparador && datasFormatadas.length ? ', ' : '');
+  campo.value = obterTokensFeriadosRep_()
+    .map(valor => formatarDataExibicaoFeriadoRep_(valor) || valor)
+    .join(', ');
 }
 
 function normalizarDataFeriadoRep_(valor) {
-  const texto = String(valor || '').trim();
+  let texto = String(valor || '').trim();
+  const apenasDigitos = texto.replace(/\D/g, '');
+  if (/^\d{8}$/.test(apenasDigitos)) {
+    texto = apenasDigitos.slice(0, 2) + '/' + apenasDigitos.slice(2, 4) + '/' + apenasDigitos.slice(4);
+  }
   let partes = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (partes) {
     const data = new Date(Number(partes[3]), Number(partes[2]) - 1, Number(partes[1]));
@@ -5437,6 +5430,11 @@ function normalizarDataFeriadoRep_(valor) {
   return '';
 }
 
+function formatarDataExibicaoFeriadoRep_(valor) {
+  const iso = normalizarDataFeriadoRep_(valor);
+  return iso ? iso.split('-').reverse().join('/') : '';
+}
+
 function obterTokensFeriadosRep_() {
   const campo = document.getElementById('rep-feriados');
   return String(campo && campo.value || '').split(/[;,\n]+/).map(valor => valor.trim()).filter(Boolean);
@@ -5444,6 +5442,36 @@ function obterTokensFeriadosRep_() {
 
 function obterFeriadosRep() {
   return new Set(obterTokensFeriadosRep_().map(normalizarDataFeriadoRep_).filter(Boolean));
+}
+
+/** Adiciona a última data digitada e mantém o campo pronto para a próxima. */
+function adicionarFeriadoRep() {
+  const campo = document.getElementById('rep-feriados');
+  if (!campo) return;
+
+  const tokens = obterTokensFeriadosRep_();
+  if (!tokens.length) return;
+  const ultimaData = formatarDataExibicaoFeriadoRep_(tokens[tokens.length - 1]);
+  if (!ultimaData) {
+    mostrarToast('Informe uma data válida com 8 números, por exemplo: 09072026.', 'warning');
+    return;
+  }
+
+  const anteriores = tokens.slice(0, -1).map(formatarDataExibicaoFeriadoRep_);
+  if (anteriores.some(valor => !valor)) {
+    mostrarToast('Há uma data anterior inválida. Corrija-a antes de adicionar outra.', 'warning');
+    return;
+  }
+  if (anteriores.includes(ultimaData)) {
+    campo.value = anteriores.join(', ') + ', ';
+    campo.focus();
+    mostrarToast('Esta data já foi informada.', 'info');
+    return;
+  }
+
+  campo.value = anteriores.concat(ultimaData).join(', ') + ', ';
+  campo.focus();
+  mostrarToast(`${ultimaData} adicionada. Digite a próxima data e pressione Enter.`, 'success');
 }
 
 function formatHoursRep(decimalHours) {
@@ -6151,6 +6179,24 @@ function textoSituacaoRep(status) {
   return textos[status] || status;
 }
 
+function categoriaSituacaoRep(status) {
+  const categorias = {
+    ok: 'Conferido',
+    saldo_positivo: 'Saldo',
+    extra_dia_nao_util: 'Dia não útil',
+    intervalo_presumido: 'Cálculo aplicado',
+    extra_intervalo_presumido: 'Cálculo aplicado',
+    intervalo_inferior_minimo: 'Atenção',
+    intervalo_nao_identificado: 'Atenção',
+    batidas_excedentes: 'Atenção',
+    impar: 'Conferir',
+    colisao_reps: 'Conferir',
+    conflito_arredondamento: 'Arredondamento',
+    nao_conciliado: 'Identificação'
+  };
+  return categorias[status] || 'Informação';
+}
+
 function selecionarServidorRep(pis) {
   pisSelecionadoRep = String(pis || '');
   renderizarListaRep();
@@ -6175,7 +6221,7 @@ function renderizarPainelRep(servidores, container) {
       <td><div class="rep-linha-tempo">${eventos}</div></td>
       <td>${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h'}</td>
-      <td><span class="rep-status ${dia.status}">${textoSituacaoRep(dia.status)}</span></td>
+      <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span></td>
     </tr>`;
   }).join('');
 
@@ -6427,6 +6473,7 @@ function exportarRepPdfUmaPagina(emp) {
       .filter(evento => evento.manual && evento.justificativa)
       .map(evento => evento.justificativa).join('; ');
     const situacao = `${textoSituacaoRep(dia.status)}${ajustes ? ` | Ajuste: ${ajustes}` : ''}`;
+    const categoria = categoriaSituacaoRep(dia.status);
     return `<tr>
       <td class="nowrap"><b>${escapeHtml(dia.dataFormatada)}</b></td>
       <td class="nowrap">${escapeHtml((dia.diaSemana || '').replace('-feira', ''))}</td>
@@ -6434,7 +6481,7 @@ function exportarRepPdfUmaPagina(emp) {
       <td class="numero">${dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h'}</td>
       <td class="numero ${!dia.pendencia && dia.saldoDia > 0 ? 'positivo' : ''}">${dia.pendencia ? '-' : formatHoursRep(dia.saldoDia) + 'h'}</td>
       <td class="local" title="${escapeHtml(locais)}">${escapeHtml(locais)}</td>
-      <td class="situacao" title="${escapeHtml(situacao)}">${escapeHtml(situacao)}</td>
+      <td class="situacao status-${escapeHtml(dia.status)}" title="${escapeHtml(situacao)}"><b>${escapeHtml(categoria)}:</b> ${escapeHtml(situacao)}</td>
     </tr>`;
   }).join('');
 
@@ -6445,7 +6492,7 @@ function exportarRepPdfUmaPagina(emp) {
     @page{size:A4 landscape;margin:5mm}
     *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
     .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
-    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#53615c}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-nao_conciliado{border-left-color:#667085;color:#475467}
     th:nth-child(1){width:8%}th:nth-child(2){width:8%}th:nth-child(3){width:22%}th:nth-child(4){width:8%}th:nth-child(5){width:8%}th:nth-child(6){width:21%}th:nth-child(7){width:25%}
     .rodape{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:10px;align-items:end;margin-top:5px;color:#687386}.nota{font-size:6px}.assinatura{border-top:1px solid #687386;padding-top:2px;text-align:center}.legenda{margin-top:3px;color:#687386;font-size:6px}.acoes{position:fixed;right:10px;top:8px;padding:7px 10px;background:#087f5b;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:11px}
     @media print{.acoes{display:none}.folha{page-break-after:avoid;page-break-inside:avoid}}
@@ -6453,7 +6500,7 @@ function exportarRepPdfUmaPagina(emp) {
     <header class="topo"><div><span class="marca">SETUR</span><h1>Espelho mensal de pre-leitura de ponto</h1><div class="subtitulo">Conferencia auxiliar dos registros originais do AFD</div></div><div class="pessoa"><b>${escapeHtml(emp.nome)}</b><span>PIS/CPF: ${escapeHtml(emp.pis)} | Emitido em ${new Date().toLocaleDateString('pt-BR')}</span></div></header>
     <div class="resumo"><span>Horas extras <b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>VR em dia nao util &gt; 6h <b>${emp.resumo.valeRefeicao}</b></span><span>Horas apuradas <b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Alertas <b>${emp.resumo.pendencias}</b></span></div>
     <table><thead><tr><th>Data</th><th>Dia</th><th>Batidas</th><th>Horas</th><th>Saldo</th><th>Local</th><th>Situacao</th></tr></thead><tbody>${linhas}</tbody></table>
-    <div class="legenda">* Marcacao incluida ou corrigida manualmente. Jornada continua acima de 6h sem intervalo registrado: desconto automatico de 1h.</div>
+    <div class="legenda"><b>Cores:</b> verde = conferido/saldo; roxo = extra em dia não útil; azul = cálculo automático; laranja = atenção; vermelho = conferir; cinza = identificação pendente. * Marcação incluída ou corrigida manualmente.</div>
     <footer class="rodape"><div class="nota">Documento auxiliar; nao altera o AFD original. Horas extras dependem de validacao administrativa.</div><div class="assinatura">Responsavel pela conferencia</div><div class="assinatura">Servidor</div></footer>
   </main></body></html>`);
   janela.document.close();
