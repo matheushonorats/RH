@@ -5693,23 +5693,28 @@ function formatarCampoFeriadosRep() {
 
 function normalizarDataFeriadoRep_(valor) {
   let texto = String(valor || '').trim();
+
+  // O armazenamento compartilhado devolve ISO (AAAA-MM-DD). Ele precisa ser
+  // reconhecido antes da remoção dos separadores, senão 2026-07-09 seria
+  // interpretado incorretamente como DDMMAAAA.
+  let partes = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (partes) {
+    const data = new Date(Number(partes[1]), Number(partes[2]) - 1, Number(partes[3]));
+    if (data.getFullYear() === Number(partes[1]) && data.getMonth() === Number(partes[2]) - 1 && data.getDate() === Number(partes[3])) return texto;
+    return '';
+  }
+
   const apenasDigitos = texto.replace(/\D/g, '');
   if (/^\d{8}$/.test(apenasDigitos)) {
     texto = apenasDigitos.slice(0, 2) + '/' + apenasDigitos.slice(2, 4) + '/' + apenasDigitos.slice(4);
   }
-  let partes = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  partes = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (partes) {
     const data = new Date(Number(partes[3]), Number(partes[2]) - 1, Number(partes[1]));
     if (data.getFullYear() === Number(partes[3]) && data.getMonth() === Number(partes[2]) - 1 && data.getDate() === Number(partes[1])) {
       return `${partes[3]}-${partes[2]}-${partes[1]}`;
     }
     return '';
-  }
-
-  partes = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (partes) {
-    const data = new Date(Number(partes[1]), Number(partes[2]) - 1, Number(partes[3]));
-    if (data.getFullYear() === Number(partes[1]) && data.getMonth() === Number(partes[2]) - 1 && data.getDate() === Number(partes[3])) return texto;
   }
   return '';
 }
