@@ -5904,26 +5904,37 @@ function aplicarCompensacoesRep_(emp, dias) {
   const saldoPorDia = new Map();
   (dias || []).forEach(dia => {
     if (!dia.pendencia && Number.isFinite(dia.extraDia) && dia.extraDia > 0) {
-      saldoPorDia.set(dia.dataOriginal, Math.max(0, Math.round(dia.extraDia * 60)));
+      const liquido = Math.max(0, Math.round(dia.extraDia * 60));
+      // Em dia nao util, toda a jornada e extra. Quando o intervalo foi
+      // presumido, a retirada pode ser informada pelo tempo bruto (ex.: 9h),
+      // mantendo a aplicacao liquida ja calculada (ex.: 8h).
+      const intervaloBruto = dia.diaExtra ? Math.max(0, Math.round(Number(dia.descontoIntervalo || 0) * 60)) : 0;
+      saldoPorDia.set(dia.dataOriginal, { liquido, bruto: liquido + intervaloBruto });
     }
   });
-  let disponivel = Array.from(saldoPorDia.values()).reduce((total, minutos) => total + minutos, 0);
+  let disponivel = Array.from(saldoPorDia.values()).reduce((total, saldo) => total + saldo.liquido, 0);
   let aplicadoTotal = 0;
   const jornadaReferenciaMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
-  const retirarDaOrigem = function(data, solicitado) {
-    const saldo = Math.max(0, Number(saldoPorDia.get(data) || 0));
-    const aplicado = Math.min(saldo, Math.max(0, Math.round(solicitado || 0)));
-    if (aplicado) saldoPorDia.set(data, saldo - aplicado);
-    return aplicado;
+  const retirarDaOrigem = function(data, solicitadoBruto, limiteLiquido) {
+    const saldo = saldoPorDia.get(data) || { liquido: 0, bruto: 0 };
+    const limite = Math.max(0, Math.round(Number(limiteLiquido) || 0));
+    let bruto = Math.min(saldo.bruto, Math.max(0, Math.round(solicitadoBruto || 0)));
+    if (limite && limite < saldo.liquido && bruto > limite) bruto = limite;
+    let liquido = Math.min(saldo.liquido, bruto, limite || saldo.liquido);
+    saldo.bruto = Math.max(0, saldo.bruto - bruto);
+    saldo.liquido = Math.max(0, saldo.liquido - liquido);
+    if (!saldo.liquido) saldo.bruto = 0;
+    saldoPorDia.set(data, saldo);
+    return { bruto, liquido };
   };
   const alocarAutomaticamente = function(total, dataDestino) {
     let restante = Math.max(0, Math.round(total || 0));
     const origens = [];
     Array.from(saldoPorDia.keys()).sort().forEach(dataOrigem => {
       if (!restante || dataOrigem === dataDestino) return;
-      const aplicado = retirarDaOrigem(dataOrigem, restante);
-      if (aplicado) origens.push({ data: dataOrigem, minutos: aplicado });
-      restante -= aplicado;
+      const aplicado = retirarDaOrigem(dataOrigem, restante, restante);
+      if (aplicado.liquido) origens.push({ data: dataOrigem, minutos: aplicado.bruto, minutosLiquidos: aplicado.liquido });
+      restante -= aplicado.liquido;
     });
     return origens;
   };
@@ -5947,15 +5958,15 @@ function aplicarCompensacoesRep_(emp, dias) {
     if (origensInformadas.length) {
       origensInformadas.forEach(origem => {
         if (!restante || origem.data === registro.data) return;
-        const aplicadoOrigem = retirarDaOrigem(origem.data, Math.min(restante, Number(origem.minutos)));
-        if (aplicadoOrigem) origensAplicadas.push({ data: origem.data, minutos: aplicadoOrigem });
-        restante -= aplicadoOrigem;
+        const aplicadoOrigem = retirarDaOrigem(origem.data, Number(origem.minutos), restante);
+        if (aplicadoOrigem.liquido) origensAplicadas.push({ data: origem.data, minutos: aplicadoOrigem.bruto, minutosLiquidos: aplicadoOrigem.liquido });
+        restante -= aplicadoOrigem.liquido;
       });
     } else {
       origensAplicadas = alocarAutomaticamente(restante, registro.data);
-      restante -= origensAplicadas.reduce((total, origem) => total + origem.minutos, 0);
+      restante -= origensAplicadas.reduce((total, origem) => total + origem.minutosLiquidos, 0);
     }
-    const aplicado = origensAplicadas.reduce((total, origem) => total + origem.minutos, 0);
+    const aplicado = origensAplicadas.reduce((total, origem) => total + origem.minutosLiquidos, 0);
     dia.compensacao = {
       minutos: solicitado, minutosAplicados: aplicado, deficit,
       observacao: String(registro.observacao || ''), atualizadoPor: String(registro.atualizadoPor || ''),
@@ -5979,7 +5990,7 @@ function aplicarCompensacoesRep_(emp, dias) {
   });
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
-  emp.resumo.origensSaldoCompensacao = Array.from(saldoPorDia.entries()).map(([data, minutos]) => ({ data, minutos })).sort((a, b) => a.data.localeCompare(b.data));
+  emp.resumo.origensSaldoCompensacao = Array.from(saldoPorDia.entries()).map(([data, saldo]) => ({ data, minutos: saldo.liquido, minutosBrutos: saldo.bruto })).filter(item => item.minutos > 0).sort((a, b) => a.data.localeCompare(b.data));
 }
 
 function aplicarValidacoesAlertasRep_(emp, dias) {
@@ -6697,6 +6708,8 @@ function renderizarAuditoriaArquivosRep() {
   if (!container) return;
   const arquivos = dadosRepCache.arquivos || [];
   const falhas = falhasIntegridadeRep || [];
+  const detalhesAnterior = container.querySelector('details.rep-auditoria');
+  const estavaAberto = Boolean(detalhesAnterior?.open);
   const totalEncontradas = arquivos.reduce((soma, item) => soma + item.marcacoesEncontradas, 0);
   const totalValidas = arquivos.reduce((soma, item) => soma + item.marcacoesValidas, 0);
   const totalInvalidas = arquivos.reduce((soma, item) => soma + item.marcacoesInvalidas, 0);
@@ -6733,15 +6746,11 @@ function renderizarAuditoriaArquivosRep() {
   const rotuloPeriodo = ano !== 'all' && mes !== 'all' ? `${mes}/${ano}` : 'período carregado';
   const listaSemNome = idsSemNome.length ? `<details class="rep-diagnostico-identidade erro"><summary>${idsSemNome.length} identificador(es) com batidas, mas sem nome conciliado</summary><p>${idsSemNome.map(escapeHtml).join(' · ')}</p></details>` : '<div class="rep-diagnostico-identidade ok">Todas as batidas possuem um nome conciliado.</div>';
   const listaSemBatida = `<details class="rep-diagnostico-identidade neutro"><summary>${servidoresSemBatida.length} servidor(es) cadastrado(s) sem batidas em ${rotuloPeriodo}</summary><p>${servidoresSemBatida.slice(0, 100).map(item => `${escapeHtml(item.nome)} (${escapeHtml(item.matricula || '-')})`).join(' · ') || 'Nenhum'}</p></details>`;
-  container.innerHTML = `<details class="rep-auditoria" open>
+  container.innerHTML = `<details class="rep-auditoria" ${estavaAberto ? 'open' : ''}>
     <summary><strong>${arquivos.length + falhas.length} arquivos AFD encontrados</strong><span>${arquivos.length}/${arquivos.length + falhas.length} com integridade confirmada · ${totalEncontradas.toLocaleString('pt-BR')} marcações brutas · ${repetidas.toLocaleString('pt-BR')} repetições agrupadas · <b class="${conciliado ? 'rep-valor-positivo' : 'rep-valor-negativo'}">${conciliado ? 'INTEGRIDADE E LEITURA 100% CONFIRMADAS' : 'EXIGE VERIFICAÇÃO'}</b></span></summary>
     <div class="rep-table-wrap"><table class="custom-table rep-tabela-auditoria"><thead><tr><th>Local / arquivo</th><th>Integridade</th><th>Encontradas</th><th>Válidas</th><th>Problemas</th><th>PIS/CPF</th><th>Período</th></tr></thead><tbody>${linhas}${linhasFalha}</tbody></table></div>
     <div class="rep-diagnosticos-identidade">${listaSemNome}${listaSemBatida}</div>
   </details>`;
-  const detalhes = container.querySelector('details');
-  setTimeout(() => {
-    if (detalhes && detalhes.isConnected) detalhes.removeAttribute('open');
-  }, 5000);
 }
 
 function atualizarProcessamentoRep(opcoes) {
@@ -6979,8 +6988,19 @@ function abrirAjusteDiaRep(pis, data) {
   const deficitMinutos = diaSemRegistroCompensavel
     ? Math.round(obterJornadaReferenciaRep_() * 60)
     : (Number.isFinite(dia.saldoDia) && dia.saldoDia < 0 ? Math.round(Math.abs(dia.saldoDia) * 60) : 0);
-  const saldosOrigem = new Map((emp.resumo.origensSaldoCompensacao || []).map(item => [item.data, Number(item.minutos || 0)]));
-  (dia.compensacao?.origensAplicadas || []).forEach(origem => saldosOrigem.set(origem.data, Number(saldosOrigem.get(origem.data) || 0) + Number(origem.minutos || 0)));
+  const saldosOrigem = new Map((emp.resumo.origensSaldoCompensacao || []).map(item => [item.data, {
+    liquido: Number(item.minutos || 0),
+    bruto: Number(item.minutosBrutos != null ? item.minutosBrutos : item.minutos || 0)
+  }]));
+  (dia.compensacao?.origensAplicadas || []).forEach(origem => {
+    const saldo = saldosOrigem.get(origem.data) || { liquido: 0, bruto: 0 };
+    saldo.liquido += Number(origem.minutosLiquidos != null ? origem.minutosLiquidos : origem.minutos || 0);
+    saldo.bruto += Number(origem.minutos || 0);
+    const diaOrigem = emp.dias.find(item => item.dataOriginal === origem.data);
+    const intervaloBruto = diaOrigem?.diaExtra ? Math.max(0, Math.round(Number(diaOrigem.descontoIntervalo || 0) * 60)) : 0;
+    saldo.bruto = Math.max(saldo.bruto, saldo.liquido + intervaloBruto);
+    saldosOrigem.set(origem.data, saldo);
+  });
   const origensRegistradas = Array.isArray(registroCompensacao?.origens) && registroCompensacao.origens.length
     ? registroCompensacao.origens
     : (dia.compensacao?.origensAplicadas || []);
@@ -6990,25 +7010,27 @@ function abrirAjusteDiaRep(pis, data) {
     .sort();
   const containerOrigens = document.getElementById('rep-compensacao-origens');
   containerOrigens.innerHTML = datasOrigem.map(dataOrigem => {
-    const capacidade = Math.max(0, Math.round(Number(saldosOrigem.get(dataOrigem) || 0)));
-    const valor = Math.min(capacidade, Math.max(0, Math.round(Number(valoresOrigem.get(dataOrigem) || 0))));
+    const saldo = saldosOrigem.get(dataOrigem) || { liquido: 0, bruto: 0 };
+    const capacidadeLiquida = Math.max(0, Math.round(Number(saldo.liquido || 0)));
+    const capacidadeBruta = Math.max(capacidadeLiquida, Math.round(Number(saldo.bruto || 0)));
+    const valor = Math.min(capacidadeBruta, Math.max(0, Math.round(Number(valoresOrigem.get(dataOrigem) || 0))));
     const diaOrigem = emp.dias.find(item => item.dataOriginal === dataOrigem);
-    return `<label class="rep-compensacao-origem"><span><strong>${escapeHtml(dataOrigem.split('-').reverse().join('/'))}${diaOrigem?.diaSemana ? ` · ${escapeHtml(diaOrigem.diaSemana)}` : ''}</strong><small>Hora positiva disponível: ${minutosParaHoraRep_(capacidade)}h</small></span><small>Retirar deste dia</small><input type="text" class="form-control rep-compensacao-origem-valor" data-data="${dataOrigem}" data-maximo="${capacidade}" value="${valor ? minutosParaHoraRep_(valor) : ''}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalOrigensCompensacaoRep_()"></label>`;
+    const detalheIntervalo = capacidadeBruta > capacidadeLiquida ? ` · aplica ${minutosParaHoraRep_(capacidadeLiquida)}h após o intervalo` : '';
+    return `<label class="rep-compensacao-origem"><span><strong>${escapeHtml(dataOrigem.split('-').reverse().join('/'))}${diaOrigem?.diaSemana ? ` · ${escapeHtml(diaOrigem.diaSemana)}` : ''}</strong><small>Disponível para retirar: ${minutosParaHoraRep_(capacidadeBruta)}h${detalheIntervalo}</small></span><small>Retirar deste dia</small><input type="text" class="form-control rep-compensacao-origem-valor" data-data="${dataOrigem}" data-maximo="${capacidadeBruta}" data-liquido-maximo="${capacidadeLiquida}" value="${valor ? minutosParaHoraRep_(valor) : ''}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalOrigensCompensacaoRep_()"></label>`;
   }).join('') || '<span class="form-help">Não há dias com saldo positivo disponível nesta competência.</span>';
-  const aplicadoAtual = Number(dia.compensacao?.minutosAplicados || 0);
-  const disponivelMinutos = Array.from(saldosOrigem.values()).reduce((total, minutos) => total + Math.max(0, Number(minutos || 0)), 0);
-  const maximoCompensavel = Math.min(deficitMinutos, disponivelMinutos);
+  const disponivelMinutos = Array.from(saldosOrigem.values()).reduce((total, saldo) => total + Math.max(0, Number(saldo.liquido || 0)), 0);
   const podeCompensar = deficitMinutos > 0 && !dia.ausencia && !dia.pendencia && (dia.jornadaIncompleta || diaSemRegistroCompensavel || dia.compensacao);
   ajusteRepAtual.compensacaoOriginal = Number(registroCompensacao?.minutos || 0);
   ajusteRepAtual.compensacaoObservacaoOriginal = String(registroCompensacao?.observacao || '');
   ajusteRepAtual.compensacaoOrigensOriginal = JSON.stringify(Array.isArray(registroCompensacao?.origens) ? registroCompensacao.origens : []);
-  ajusteRepAtual.maximoCompensavel = maximoCompensavel;
+  ajusteRepAtual.maximoCompensavel = deficitMinutos;
   const blocoCompensacao = document.getElementById('rep-ajuste-compensacao');
-  blocoCompensacao.hidden = !(podeCompensar && (maximoCompensavel > 0 || registroCompensacao));
-  blocoCompensacao.dataset.maximo = String(maximoCompensavel);
+  blocoCompensacao.hidden = !(podeCompensar && (disponivelMinutos > 0 || registroCompensacao));
+  blocoCompensacao.dataset.maximo = String(deficitMinutos);
   atualizarTotalOrigensCompensacaoRep_();
   document.getElementById('rep-ajuste-compensacao-observacao').value = registroCompensacao?.observacao || '';
-  document.getElementById('rep-ajuste-compensacao-resumo').innerHTML = `<span>${diaSemRegistroCompensavel ? 'Jornada sem registro a compensar' : 'Horas abaixo da jornada'}: <b>${minutosParaHoraRep_(deficitMinutos)}h</b></span><span>Saldo positivo disponível no mês: <b>${minutosParaHoraRep_(disponivelMinutos)}h</b></span>`;
+  document.getElementById('rep-ajuste-compensacao-resumo').innerHTML = `<span>${diaSemRegistroCompensavel ? 'Jornada sem registro a compensar' : 'Horas abaixo da jornada'}: <b>${minutosParaHoraRep_(deficitMinutos)}h</b></span><span>Saldo líquido disponível no mês: <b>${minutosParaHoraRep_(disponivelMinutos)}h</b></span><span>Aplicação desta compensação: <b id="rep-compensacao-total-liquido">00:00h</b></span>`;
+  atualizarTotalOrigensCompensacaoRep_();
   const registroValidacao = (validacoesRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data && item.validado);
   ajusteRepAtual.validadoOriginal = Boolean(registroValidacao);
   ajusteRepAtual.validacaoObservacaoOriginal = String(registroValidacao?.observacao || '');
@@ -7024,9 +7046,11 @@ function preencherCompensacaoMaximaRep_() {
   const bloco = document.getElementById('rep-ajuste-compensacao');
   let restante = Math.max(0, Number(bloco?.dataset.maximo || 0));
   document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-valor').forEach(input => {
-    const valor = Math.min(restante, Math.max(0, Number(input.dataset.maximo || 0)));
+    const maximoBruto = Math.max(0, Number(input.dataset.maximo || 0));
+    const maximoLiquido = Math.max(0, Number(input.dataset.liquidoMaximo || maximoBruto));
+    const valor = restante >= maximoLiquido ? maximoBruto : Math.min(restante, maximoBruto);
     input.value = valor ? minutosParaHoraRep_(valor) : '';
-    restante -= valor;
+    restante -= Math.min(valor, maximoLiquido);
   });
   atualizarTotalOrigensCompensacaoRep_();
 }
@@ -7039,15 +7063,18 @@ function limparOrigensCompensacaoRep_() {
 function obterOrigensCompensacaoFormularioRep_() {
   const origens = [];
   let invalida = false;
+  let minutosLiquidos = 0;
   document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-valor').forEach(input => {
     const texto = input.value.trim();
     if (!texto || texto === '00:00') return;
     const minutos = horaParaMinutosRep_(texto);
     const maximo = Math.max(0, Number(input.dataset.maximo || 0));
+    const maximoLiquido = Math.max(0, Number(input.dataset.liquidoMaximo || maximo));
     if (minutos === null || minutos <= 0 || minutos > maximo) { invalida = true; return; }
     origens.push({ data: input.dataset.data, minutos });
+    minutosLiquidos += Math.min(minutos, maximoLiquido);
   });
-  return { origens, invalida };
+  return { origens, invalida, minutosLiquidos };
 }
 
 function atualizarTotalOrigensCompensacaoRep_() {
@@ -7058,6 +7085,8 @@ function atualizarTotalOrigensCompensacaoRep_() {
     campo.value = minutosParaHoraRep_(total);
     campo.classList.toggle('input-error', resultado.invalida);
   }
+  const liquido = document.getElementById('rep-compensacao-total-liquido');
+  if (liquido) liquido.textContent = `${minutosParaHoraRep_(resultado.minutosLiquidos)}h`;
   return resultado;
 }
 
@@ -7093,7 +7122,7 @@ async function salvarAjustesDiaRep() {
     const valorCompensacao = document.getElementById('rep-ajuste-compensacao-horas').value.trim();
     minutosCompensacao = valorCompensacao ? horaParaMinutosRep_(valorCompensacao) : 0;
     if (minutosCompensacao === null) return mostrarToast('Informe a compensação no formato HH:MM.', 'warning');
-    if (minutosCompensacao > Number(ajusteRepAtual.maximoCompensavel || 0)) return mostrarToast(`O saldo permite compensar no máximo ${minutosParaHoraRep_(ajusteRepAtual.maximoCompensavel)}h neste dia.`, 'warning');
+    if (resultadoOrigens.minutosLiquidos > Number(ajusteRepAtual.maximoCompensavel || 0)) return mostrarToast(`A aplicação líquida não pode ultrapassar o débito de ${minutosParaHoraRep_(ajusteRepAtual.maximoCompensavel)}h deste dia.`, 'warning');
     observacaoCompensacao = document.getElementById('rep-ajuste-compensacao-observacao').value.trim();
   }
   if (linhaLancamento && minutosCompensacao > 0) return mostrarToast('Escolha entre associar uma ausência do RH ou compensar o dia com horas positivas.', 'warning');
@@ -7750,8 +7779,12 @@ function renderizarPainelRep(servidores, container) {
   const dias = diasFiltrados.map(dia => {
     const apontamentosDia = apontamentosSelecionado.filter(item => item.escopo !== 'SERVIDOR' && item.data === dia.dataOriginal);
     const infoAusencia = dia.ausencia ? `<div class="rep-ausencia-dia ${dia.ausenciaJustificada ? 'justificada' : 'conferir'}"><span>${dia.ausenciaJustificada ? 'Ausência registrada' : 'Atenção: ausência e batidas no mesmo dia'}</span><strong>${escapeHtml(dia.ausencia.tipo)}</strong><small>${escapeHtml(formatarPeriodoAusenciaRep_(dia.ausencia))} · 1Doc: ${escapeHtml(dia.ausencia.idoc || 'não informado')}${dia.ausencia.origem === 'manual' ? ' · associação manual' : ''}</small></div>` : '';
-    const origensCompensacaoTexto = (dia.compensacao?.origensAplicadas || []).map(origem => `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(origem.minutos)}h)`).join(' + ');
-    const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h de ${minutosParaHoraRep_(dia.compensacao.deficit)}h</strong><small>Origem: ${escapeHtml(origensCompensacaoTexto || 'registro antigo sem detalhamento')}${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
+    const origensCompensacaoTexto = (dia.compensacao?.origensAplicadas || []).map(origem => {
+      const bruto = Number(origem.minutos || 0);
+      const liquido = Number(origem.minutosLiquidos != null ? origem.minutosLiquidos : bruto);
+      return `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(bruto)}h retiradas${bruto !== liquido ? ` → ${minutosParaHoraRep_(liquido)}h aplicadas` : ''})`;
+    }).join(' + ');
+    const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h aplicadas de ${minutosParaHoraRep_(dia.compensacao.deficit)}h devidas</strong><small>Origem: ${escapeHtml(origensCompensacaoTexto || 'registro antigo sem detalhamento')}${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
     const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
@@ -8061,7 +8094,11 @@ function exportarRepPdfUmaPagina(emp) {
     const ausencia = dia.ausencia ? `${dia.ausencia.tipo} | ${formatarPeriodoAusenciaRep_(dia.ausencia)} | 1Doc: ${dia.ausencia.idoc || 'não informado'}` : '';
     const situacao = `${ausencia ? `${ausencia} | ` : ''}${textoSituacaoRep(dia.status)}${ajustes ? ` | Ajuste: ${ajustes}` : ''}`;
     const categoria = categoriaSituacaoRep(dia.status);
-    const origensCompensacao = (dia.compensacao?.origensAplicadas || []).map(origem => `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(origem.minutos)}h)`).join(' + ');
+    const origensCompensacao = (dia.compensacao?.origensAplicadas || []).map(origem => {
+      const bruto = Number(origem.minutos || 0);
+      const liquido = Number(origem.minutosLiquidos != null ? origem.minutosLiquidos : bruto);
+      return `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(bruto)}h retiradas${bruto !== liquido ? `, ${minutosParaHoraRep_(liquido)}h aplicadas` : ''})`;
+    }).join(' + ');
     const compensacao = dia.compensacao?.minutosAplicados ? `Compensado ${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h de ${minutosParaHoraRep_(dia.compensacao.deficit)}h | Origem: ${origensCompensacao || 'registro antigo sem detalhamento'}${dia.compensacao.observacao ? ` | ${dia.compensacao.observacao}` : ''}` : '';
     const situacaoFinal = `${situacao}${compensacao ? ` | ${compensacao}` : ''}`;
     const sinalizadores = `${dia.temHoraExtra ? '<em class="sinal he">HE</em>' : ''}${dia.temValeRefeicao ? '<em class="sinal vr">VR</em>' : ''}${dia.compensacao?.minutosAplicados ? '<em class="sinal comp">COMP</em>' : ''}`;
@@ -8158,7 +8195,11 @@ async function exportarRepExcel() {
         'Ausência Registrada': dia.ausencia ? dia.ausencia.tipo : '',
         '1Doc da Ausência': dia.ausencia ? dia.ausencia.idoc : '',
         'Horas Compensadas': dia.compensacao?.minutosAplicados ? minutosParaHoraRep_(dia.compensacao.minutosAplicados) : '',
-        'Origem da Compensação': (dia.compensacao?.origensAplicadas || []).map(origem => `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(origem.minutos)})`).join(' + '),
+        'Origem da Compensação': (dia.compensacao?.origensAplicadas || []).map(origem => {
+          const bruto = Number(origem.minutos || 0);
+          const liquido = Number(origem.minutosLiquidos != null ? origem.minutosLiquidos : bruto);
+          return `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(bruto)} retiradas${bruto !== liquido ? ` / ${minutosParaHoraRep_(liquido)} aplicadas` : ''})`;
+        }).join(' + '),
         'Observação da Compensação': dia.compensacao?.observacao || '',
         'Status': textoSituacaoRep(dia.status)
       });
