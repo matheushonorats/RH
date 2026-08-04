@@ -5901,9 +5901,32 @@ function obterJornadaReferenciaRep_() {
 }
 
 function aplicarCompensacoesRep_(emp, dias) {
-  let disponivel = Math.max(0, Math.round((Number(emp.resumo.horasExtras) || 0) * 60));
+  const saldoPorDia = new Map();
+  (dias || []).forEach(dia => {
+    if (!dia.pendencia && Number.isFinite(dia.extraDia) && dia.extraDia > 0) {
+      saldoPorDia.set(dia.dataOriginal, Math.max(0, Math.round(dia.extraDia * 60)));
+    }
+  });
+  let disponivel = Array.from(saldoPorDia.values()).reduce((total, minutos) => total + minutos, 0);
   let aplicadoTotal = 0;
   const jornadaReferenciaMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
+  const retirarDaOrigem = function(data, solicitado) {
+    const saldo = Math.max(0, Number(saldoPorDia.get(data) || 0));
+    const aplicado = Math.min(saldo, Math.max(0, Math.round(solicitado || 0)));
+    if (aplicado) saldoPorDia.set(data, saldo - aplicado);
+    return aplicado;
+  };
+  const alocarAutomaticamente = function(total, dataDestino) {
+    let restante = Math.max(0, Math.round(total || 0));
+    const origens = [];
+    Array.from(saldoPorDia.keys()).sort().forEach(dataOrigem => {
+      if (!restante || dataOrigem === dataDestino) return;
+      const aplicado = retirarDaOrigem(dataOrigem, restante);
+      if (aplicado) origens.push({ data: dataOrigem, minutos: aplicado });
+      restante -= aplicado;
+    });
+    return origens;
+  };
   const registros = (compensacoesRep || [])
     .filter(item => normalizarPisRep(item.pis) === normalizarPisRep(emp.pis) && Number(item.minutos) > 0)
     .sort((a, b) => String(a.data).localeCompare(String(b.data)));
@@ -5918,10 +5941,26 @@ function aplicarCompensacoesRep_(emp, dias) {
       : Math.max(0, Math.round(Math.abs(dia.saldoDia) * 60));
     const contavaComoPendencia = Boolean(dia.jornadaIncompleta || dia.pendencia);
     const solicitado = Math.max(0, Math.round(Number(registro.minutos) || 0));
-    const aplicado = Math.min(deficit, solicitado, disponivel);
+    let restante = Math.min(deficit, solicitado);
+    let origensAplicadas = [];
+    const origensInformadas = Array.isArray(registro.origens) ? registro.origens.filter(item => item && item.data && Number(item.minutos) > 0) : [];
+    if (origensInformadas.length) {
+      origensInformadas.forEach(origem => {
+        if (!restante || origem.data === registro.data) return;
+        const aplicadoOrigem = retirarDaOrigem(origem.data, Math.min(restante, Number(origem.minutos)));
+        if (aplicadoOrigem) origensAplicadas.push({ data: origem.data, minutos: aplicadoOrigem });
+        restante -= aplicadoOrigem;
+      });
+    } else {
+      origensAplicadas = alocarAutomaticamente(restante, registro.data);
+      restante -= origensAplicadas.reduce((total, origem) => total + origem.minutos, 0);
+    }
+    const aplicado = origensAplicadas.reduce((total, origem) => total + origem.minutos, 0);
     dia.compensacao = {
       minutos: solicitado, minutosAplicados: aplicado, deficit,
-      observacao: String(registro.observacao || ''), atualizadoPor: String(registro.atualizadoPor || '')
+      observacao: String(registro.observacao || ''), atualizadoPor: String(registro.atualizadoPor || ''),
+      origens: origensInformadas, origensAplicadas,
+      origemLegada: !origensInformadas.length
     };
     if (!aplicado) return;
     disponivel -= aplicado;
@@ -5940,6 +5979,7 @@ function aplicarCompensacoesRep_(emp, dias) {
   });
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
+  emp.resumo.origensSaldoCompensacao = Array.from(saldoPorDia.entries()).map(([data, minutos]) => ({ data, minutos })).sort((a, b) => a.data.localeCompare(b.data));
 }
 
 function aplicarValidacoesAlertasRep_(emp, dias) {
@@ -5960,6 +6000,19 @@ function aplicarValidacoesAlertasRep_(emp, dias) {
     dia.jornadaIncompleta = false;
     emp.resumo.pendencias = Math.max(0, emp.resumo.pendencias - 1);
   });
+}
+
+function obterDeficitDiaRep_(dia) {
+  if (!dia || dia.diaExtra || dia.ausencia || dia.validacaoManual || dia.pendencia) return 0;
+  let deficitMinutos = 0;
+  if (dia.semRegistro) deficitMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
+  else if (Number.isFinite(dia.saldoDia) && dia.saldoDia < 0) deficitMinutos = Math.round(Math.abs(dia.saldoDia) * 60);
+  const compensado = Math.max(0, Math.round(Number(dia.compensacao?.minutosAplicados || 0)));
+  return Math.max(0, deficitMinutos - compensado) / 60;
+}
+
+function atualizarHorasDevidasRep_(emp, dias) {
+  emp.resumo.horasDevidas = (dias || []).reduce((total, dia) => total + obterDeficitDiaRep_(dia), 0);
 }
 
 function processDataRep(employees, punches, lotacoes) {
@@ -6108,6 +6161,7 @@ function processDataRep(employees, punches, lotacoes) {
     aplicarAusenciasLancamentosRep_(empSeguro, dias);
     aplicarCompensacoesRep_(empSeguro, dias);
     aplicarValidacoesAlertasRep_(empSeguro, dias);
+    atualizarHorasDevidasRep_(empSeguro, dias);
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, lotacao: empSeguro.lotacao, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
   }
   return resultadoSeguro.sort((a, b) => a.nome.localeCompare(b.nome));
@@ -6226,6 +6280,11 @@ function completarDiasSemRegistroRep_(dias, feriados) {
     const data = `${ano}-${mes}-${String(numeroDia).padStart(2, '0')}`;
     if (existentes.has(data)) continue;
     const momento = new Date(Number(ano), Number(mes) - 1, numeroDia);
+    const indiceSemana = momento.getDay();
+    const ehFeriado = feriados.has(data);
+    const statusSemRegistro = ehFeriado
+      ? 'feriado_sem_registro'
+      : (indiceSemana === 0 ? 'descanso_semanal_remunerado' : (indiceSemana === 6 ? 'sabado_compensado' : 'falta_sem_registro'));
     dias.push({
       dataOriginal: data,
       dataFormatada: data.split('-').reverse().join('/'),
@@ -6233,8 +6292,8 @@ function completarDiasSemRegistroRep_(dias, feriados) {
       batidas: [], batidasOriginais: '', batidasDetalhadas: [],
       totalDia: null, saldoDia: null, extraDia: null,
       relogios: '-', reps: '-', fontes: '-',
-      status: 'sem_registro', pendencia: false, semRegistro: true,
-      diaExtra: momento.getDay() === 0 || momento.getDay() === 6 || feriados.has(data)
+      status: statusSemRegistro, pendencia: false, semRegistro: true,
+      diaExtra: indiceSemana === 0 || indiceSemana === 6 || ehFeriado
     });
   }
   dias.sort((a, b) => a.dataOriginal.localeCompare(b.dataOriginal));
@@ -6920,17 +6979,34 @@ function abrirAjusteDiaRep(pis, data) {
   const deficitMinutos = diaSemRegistroCompensavel
     ? Math.round(obterJornadaReferenciaRep_() * 60)
     : (Number.isFinite(dia.saldoDia) && dia.saldoDia < 0 ? Math.round(Math.abs(dia.saldoDia) * 60) : 0);
+  const saldosOrigem = new Map((emp.resumo.origensSaldoCompensacao || []).map(item => [item.data, Number(item.minutos || 0)]));
+  (dia.compensacao?.origensAplicadas || []).forEach(origem => saldosOrigem.set(origem.data, Number(saldosOrigem.get(origem.data) || 0) + Number(origem.minutos || 0)));
+  const origensRegistradas = Array.isArray(registroCompensacao?.origens) && registroCompensacao.origens.length
+    ? registroCompensacao.origens
+    : (dia.compensacao?.origensAplicadas || []);
+  const valoresOrigem = new Map(origensRegistradas.map(item => [item.data, Number(item.minutos || 0)]));
+  const datasOrigem = Array.from(new Set([...saldosOrigem.keys(), ...valoresOrigem.keys()]))
+    .filter(dataOrigem => dataOrigem !== data && dataOrigem.slice(0, 7) === data.slice(0, 7))
+    .sort();
+  const containerOrigens = document.getElementById('rep-compensacao-origens');
+  containerOrigens.innerHTML = datasOrigem.map(dataOrigem => {
+    const capacidade = Math.max(0, Math.round(Number(saldosOrigem.get(dataOrigem) || 0)));
+    const valor = Math.min(capacidade, Math.max(0, Math.round(Number(valoresOrigem.get(dataOrigem) || 0))));
+    const diaOrigem = emp.dias.find(item => item.dataOriginal === dataOrigem);
+    return `<label class="rep-compensacao-origem"><span><strong>${escapeHtml(dataOrigem.split('-').reverse().join('/'))}${diaOrigem?.diaSemana ? ` · ${escapeHtml(diaOrigem.diaSemana)}` : ''}</strong><small>Hora positiva disponível: ${minutosParaHoraRep_(capacidade)}h</small></span><small>Retirar deste dia</small><input type="text" class="form-control rep-compensacao-origem-valor" data-data="${dataOrigem}" data-maximo="${capacidade}" value="${valor ? minutosParaHoraRep_(valor) : ''}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalOrigensCompensacaoRep_()"></label>`;
+  }).join('') || '<span class="form-help">Não há dias com saldo positivo disponível nesta competência.</span>';
   const aplicadoAtual = Number(dia.compensacao?.minutosAplicados || 0);
-  const disponivelMinutos = Math.max(0, Math.round((Number(emp.resumo.saldoDisponivelCompensacao) || 0) * 60) + aplicadoAtual);
+  const disponivelMinutos = Array.from(saldosOrigem.values()).reduce((total, minutos) => total + Math.max(0, Number(minutos || 0)), 0);
   const maximoCompensavel = Math.min(deficitMinutos, disponivelMinutos);
   const podeCompensar = deficitMinutos > 0 && !dia.ausencia && !dia.pendencia && (dia.jornadaIncompleta || diaSemRegistroCompensavel || dia.compensacao);
   ajusteRepAtual.compensacaoOriginal = Number(registroCompensacao?.minutos || 0);
   ajusteRepAtual.compensacaoObservacaoOriginal = String(registroCompensacao?.observacao || '');
+  ajusteRepAtual.compensacaoOrigensOriginal = JSON.stringify(Array.isArray(registroCompensacao?.origens) ? registroCompensacao.origens : []);
   ajusteRepAtual.maximoCompensavel = maximoCompensavel;
   const blocoCompensacao = document.getElementById('rep-ajuste-compensacao');
   blocoCompensacao.hidden = !(podeCompensar && (maximoCompensavel > 0 || registroCompensacao));
   blocoCompensacao.dataset.maximo = String(maximoCompensavel);
-  document.getElementById('rep-ajuste-compensacao-horas').value = registroCompensacao ? minutosParaHoraRep_(registroCompensacao.minutos) : '';
+  atualizarTotalOrigensCompensacaoRep_();
   document.getElementById('rep-ajuste-compensacao-observacao').value = registroCompensacao?.observacao || '';
   document.getElementById('rep-ajuste-compensacao-resumo').innerHTML = `<span>${diaSemRegistroCompensavel ? 'Jornada sem registro a compensar' : 'Horas abaixo da jornada'}: <b>${minutosParaHoraRep_(deficitMinutos)}h</b></span><span>Saldo positivo disponível no mês: <b>${minutosParaHoraRep_(disponivelMinutos)}h</b></span>`;
   const registroValidacao = (validacoesRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data && item.validado);
@@ -6946,7 +7022,43 @@ function abrirAjusteDiaRep(pis, data) {
 
 function preencherCompensacaoMaximaRep_() {
   const bloco = document.getElementById('rep-ajuste-compensacao');
-  document.getElementById('rep-ajuste-compensacao-horas').value = minutosParaHoraRep_(Number(bloco?.dataset.maximo || 0));
+  let restante = Math.max(0, Number(bloco?.dataset.maximo || 0));
+  document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-valor').forEach(input => {
+    const valor = Math.min(restante, Math.max(0, Number(input.dataset.maximo || 0)));
+    input.value = valor ? minutosParaHoraRep_(valor) : '';
+    restante -= valor;
+  });
+  atualizarTotalOrigensCompensacaoRep_();
+}
+
+function limparOrigensCompensacaoRep_() {
+  document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-valor').forEach(input => { input.value = ''; });
+  atualizarTotalOrigensCompensacaoRep_();
+}
+
+function obterOrigensCompensacaoFormularioRep_() {
+  const origens = [];
+  let invalida = false;
+  document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-valor').forEach(input => {
+    const texto = input.value.trim();
+    if (!texto || texto === '00:00') return;
+    const minutos = horaParaMinutosRep_(texto);
+    const maximo = Math.max(0, Number(input.dataset.maximo || 0));
+    if (minutos === null || minutos <= 0 || minutos > maximo) { invalida = true; return; }
+    origens.push({ data: input.dataset.data, minutos });
+  });
+  return { origens, invalida };
+}
+
+function atualizarTotalOrigensCompensacaoRep_() {
+  const resultado = obterOrigensCompensacaoFormularioRep_();
+  const total = resultado.origens.reduce((soma, origem) => soma + origem.minutos, 0);
+  const campo = document.getElementById('rep-ajuste-compensacao-horas');
+  if (campo) {
+    campo.value = minutosParaHoraRep_(total);
+    campo.classList.toggle('input-error', resultado.invalida);
+  }
+  return resultado;
 }
 
 function adicionarLinhaAjusteRep() {
@@ -6971,7 +7083,13 @@ async function salvarAjustesDiaRep() {
   const blocoCompensacao = document.getElementById('rep-ajuste-compensacao');
   let minutosCompensacao = Number(ajusteRepAtual.compensacaoOriginal || 0);
   let observacaoCompensacao = String(ajusteRepAtual.compensacaoObservacaoOriginal || '');
+  let origensCompensacao = (() => {
+    try { return JSON.parse(ajusteRepAtual.compensacaoOrigensOriginal || '[]'); } catch (e) { return []; }
+  })();
   if (blocoCompensacao && !blocoCompensacao.hidden) {
+    const resultadoOrigens = obterOrigensCompensacaoFormularioRep_();
+    if (resultadoOrigens.invalida) return mostrarToast('Revise as horas retiradas: cada origem deve respeitar o saldo disponivel daquele dia.', 'warning');
+    origensCompensacao = resultadoOrigens.origens;
     const valorCompensacao = document.getElementById('rep-ajuste-compensacao-horas').value.trim();
     minutosCompensacao = valorCompensacao ? horaParaMinutosRep_(valorCompensacao) : 0;
     if (minutosCompensacao === null) return mostrarToast('Informe a compensação no formato HH:MM.', 'warning');
@@ -6979,7 +7097,12 @@ async function salvarAjustesDiaRep() {
     observacaoCompensacao = document.getElementById('rep-ajuste-compensacao-observacao').value.trim();
   }
   if (linhaLancamento && minutosCompensacao > 0) return mostrarToast('Escolha entre associar uma ausência do RH ou compensar o dia com horas positivas.', 'warning');
-  const alterouCompensacao = minutosCompensacao !== Number(ajusteRepAtual.compensacaoOriginal || 0) || observacaoCompensacao !== String(ajusteRepAtual.compensacaoObservacaoOriginal || '');
+  const origensNormalizadas = JSON.stringify((origensCompensacao || []).map(item => ({ data: String(item.data || ''), minutos: Number(item.minutos || 0) })).sort((a, b) => a.data.localeCompare(b.data)));
+  let origensOriginaisNormalizadas = '[]';
+  try {
+    origensOriginaisNormalizadas = JSON.stringify((JSON.parse(ajusteRepAtual.compensacaoOrigensOriginal || '[]') || []).map(item => ({ data: String(item.data || ''), minutos: Number(item.minutos || 0) })).sort((a, b) => a.data.localeCompare(b.data)));
+  } catch (e) {}
+  const alterouCompensacao = minutosCompensacao !== Number(ajusteRepAtual.compensacaoOriginal || 0) || observacaoCompensacao !== String(ajusteRepAtual.compensacaoObservacaoOriginal || '') || origensNormalizadas !== origensOriginaisNormalizadas;
   const blocoValidacao = document.getElementById('rep-ajuste-validacao');
   const validado = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validado').checked : Boolean(ajusteRepAtual.validadoOriginal);
   const observacaoValidacao = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validacao-observacao').value.trim() : String(ajusteRepAtual.validacaoObservacaoOriginal || '');
@@ -7048,9 +7171,9 @@ async function salvarAjustesDiaRep() {
   if (alterouCompensacao) {
     try {
       exibirLoader(true, 'Salvando compensação de jornada...');
-      await chamarBackendPromessa_('salvarCompensacaoRep', [{ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao }]);
+      await chamarBackendPromessa_('salvarCompensacaoRep', [{ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao, origens: origensCompensacao }]);
       compensacoesRep = (compensacoesRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === ajusteRepAtual.data));
-      if (minutosCompensacao) compensacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao });
+      if (minutosCompensacao) compensacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao, origens: origensCompensacao });
     } catch (erro) {
       estadoAnterior.forEach(item => {
         item.p.desconsiderada = item.desconsiderada;
@@ -7242,6 +7365,10 @@ function updateDashboardRep() {
 
 function textoSituacaoRep(status) {
   const textos = {
+    falta_sem_registro: 'Falta',
+    sabado_compensado: 'Compensado',
+    descanso_semanal_remunerado: 'Descanso Semanal Remunerado',
+    feriado_sem_registro: 'Feriado / Ponto Facultativo',
     intervalo_presumido: 'Almoço descontado (não registrado)',
     extra_intervalo_presumido: 'Extra com almoço descontado',
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
@@ -7257,6 +7384,10 @@ function textoSituacaoRep(status) {
 
 function categoriaSituacaoRep(status) {
   const categorias = {
+    falta_sem_registro: 'Falta',
+    sabado_compensado: 'Compensado',
+    descanso_semanal_remunerado: 'DSR',
+    feriado_sem_registro: 'Feriado',
     ok: 'Conferido',
     saldo_positivo: 'Saldo',
     jornada_incompleta: 'Jornada incompleta',
@@ -7546,7 +7677,7 @@ function definirFiltroDiasRep(tipo) {
 function diaAtendeFiltroRep_(dia, filtro, apontamentos) {
   if (filtro === 'he') return Boolean(dia.temHoraExtra);
   if (filtro === 'vr') return Boolean(dia.temValeRefeicao);
-  if (filtro === 'saldo') return !dia.pendencia && Number.isFinite(dia.saldoDia) && Math.abs(dia.saldoDia) > 0.001;
+  if (filtro === 'saldo') return obterDeficitDiaRep_(dia) > 0;
   if (filtro === 'alertas') return Boolean(dia.pendencia || dia.jornadaIncompleta);
   if (filtro === 'apontamentos') return (apontamentos || []).some(item => item.escopo !== 'SERVIDOR' && item.data === dia.dataOriginal);
   return true;
@@ -7614,14 +7745,15 @@ function renderizarPainelRep(servidores, container) {
   const apontamentosAbertos = apontamentosSelecionado.filter(item => item.status !== 'CONCLUIDO');
   const apontamentosConcluidos = apontamentosSelecionado.length - apontamentosAbertos.length;
   const apontamentosServidor = apontamentosSelecionado.filter(item => item.escopo === 'SERVIDOR');
-  const rotulosFiltro = { he: 'dias com horas extras', vr: 'dias com vale-refeição extra', saldo: 'dias que alteraram o balanço', alertas: 'dias que precisam de conferência', apontamentos: 'dias com apontamentos' };
+  const rotulosFiltro = { he: 'dias com horas extras', vr: 'dias com vale-refeição extra', saldo: 'dias com horas devidas', alertas: 'dias que precisam de conferência', apontamentos: 'dias com apontamentos' };
   const diasFiltrados = selecionado.dias.filter(dia => diaAtendeFiltroRep_(dia, filtroDiasRepAtual, apontamentosSelecionado));
   const dias = diasFiltrados.map(dia => {
     const apontamentosDia = apontamentosSelecionado.filter(item => item.escopo !== 'SERVIDOR' && item.data === dia.dataOriginal);
     const infoAusencia = dia.ausencia ? `<div class="rep-ausencia-dia ${dia.ausenciaJustificada ? 'justificada' : 'conferir'}"><span>${dia.ausenciaJustificada ? 'Ausência registrada' : 'Atenção: ausência e batidas no mesmo dia'}</span><strong>${escapeHtml(dia.ausencia.tipo)}</strong><small>${escapeHtml(formatarPeriodoAusenciaRep_(dia.ausencia))} · 1Doc: ${escapeHtml(dia.ausencia.idoc || 'não informado')}${dia.ausencia.origem === 'manual' ? ' · associação manual' : ''}</small></div>` : '';
-    const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h de ${minutosParaHoraRep_(dia.compensacao.deficit)}h</strong><small>Utilizado do saldo positivo deste mês${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
+    const origensCompensacaoTexto = (dia.compensacao?.origensAplicadas || []).map(origem => `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(origem.minutos)}h)`).join(' + ');
+    const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h de ${minutosParaHoraRep_(dia.compensacao.deficit)}h</strong><small>Origem: ${escapeHtml(origensCompensacaoTexto || 'registro antigo sem detalhamento')}${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
-    const eventos = dia.semRegistro ? '<span class="rep-sem-registro">Sem marcações neste dia no AFD</span>' : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
+    const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
       ${evento.dataReal && evento.dataReal !== dia.dataOriginal ? `<small class="rep-evento-virada">Batida real em ${escapeHtml(evento.dataReal.split('-').reverse().join('/'))} · vinculada a esta jornada</small>` : ''}
@@ -7652,7 +7784,7 @@ function renderizarPainelRep(servidores, container) {
         <div class="rep-grupo-resumo">
           <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Horas positivas</small><b>${formatHoursRep(selecionado.resumo.horasExtras)}h</b><em>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h disponíveis · ${formatHoursRep(selecionado.resumo.horasCompensadas || 0)}h compensadas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada arredondada ≥ 6h em dia não útil</em></button>
-          <button type="button" class="rep-indicador-resumo saldo ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Horas extras menos horas abaixo da jornada nos dias com batidas válidas."><small>Balanço estimado</small><b>${formatHoursRep(selecionado.resumo.saldo)}h</b><em>Extras menos horas faltantes</em></button>
+          <button type="button" class="rep-indicador-resumo devidas ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Soma do que ainda falta cumprir em dias úteis, após justificativas e compensações."><small>Horas devidas</small><b>${selecionado.resumo.horasDevidas > 0 ? '-' : ''}${formatHoursRep(selecionado.resumo.horasDevidas || 0)}h</b><em>Inclui falta de 8h em dia útil</em></button>
           <button type="button" class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''} ${filtroDiasRepAtual === 'alertas' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('alertas')" aria-pressed="${filtroDiasRepAtual === 'alertas'}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></button>
           <button type="button" class="rep-indicador-resumo apontamentos ${apontamentosAbertos.length ? 'tem-apontamento' : ''} ${filtroDiasRepAtual === 'apontamentos' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('apontamentos')" aria-pressed="${filtroDiasRepAtual === 'apontamentos'}"><small>Apontamentos abertos</small><b>${apontamentosAbertos.length}</b><em>${apontamentosConcluidos} concluído(s)</em></button>
         </div>
@@ -7929,7 +8061,8 @@ function exportarRepPdfUmaPagina(emp) {
     const ausencia = dia.ausencia ? `${dia.ausencia.tipo} | ${formatarPeriodoAusenciaRep_(dia.ausencia)} | 1Doc: ${dia.ausencia.idoc || 'não informado'}` : '';
     const situacao = `${ausencia ? `${ausencia} | ` : ''}${textoSituacaoRep(dia.status)}${ajustes ? ` | Ajuste: ${ajustes}` : ''}`;
     const categoria = categoriaSituacaoRep(dia.status);
-    const compensacao = dia.compensacao?.minutosAplicados ? `Compensado ${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h de ${minutosParaHoraRep_(dia.compensacao.deficit)}h${dia.compensacao.observacao ? ` | ${dia.compensacao.observacao}` : ''}` : '';
+    const origensCompensacao = (dia.compensacao?.origensAplicadas || []).map(origem => `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(origem.minutos)}h)`).join(' + ');
+    const compensacao = dia.compensacao?.minutosAplicados ? `Compensado ${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h de ${minutosParaHoraRep_(dia.compensacao.deficit)}h | Origem: ${origensCompensacao || 'registro antigo sem detalhamento'}${dia.compensacao.observacao ? ` | ${dia.compensacao.observacao}` : ''}` : '';
     const situacaoFinal = `${situacao}${compensacao ? ` | ${compensacao}` : ''}`;
     const sinalizadores = `${dia.temHoraExtra ? '<em class="sinal he">HE</em>' : ''}${dia.temValeRefeicao ? '<em class="sinal vr">VR</em>' : ''}${dia.compensacao?.minutosAplicados ? '<em class="sinal comp">COMP</em>' : ''}`;
     return `<tr>
@@ -7951,12 +8084,13 @@ function exportarRepPdfUmaPagina(emp) {
     *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
     .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
     table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo,.status-jornada_compensada{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido,.status-ausencia_justificada{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes,.status-jornada_compensada_parcial{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps,.status-ausencia_com_batidas{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-validado_manualmente{border-left-color:#8b5cf6;color:#6d28d9}.status-nao_conciliado,.status-sem_registro{border-left-color:#667085;color:#475467}.sinal{display:inline-block;margin-left:2px;padding:1px 3px;border-radius:2px;font-style:normal;font-weight:700;font-size:5.7px}.sinal.he{background:#2dd4a8;color:#093f31}.sinal.vr{background:#fbbf24;color:#4a2500}.sinal.comp{background:#bfdbfe;color:#153e75}
+    .status-falta_sem_registro{border-left-color:#c43434;color:#9f2222}.status-sabado_compensado{border-left-color:#667085;color:#475467}.status-descanso_semanal_remunerado{border-left-color:#8b5cf6;color:#6d28d9}.status-feriado_sem_registro{border-left-color:#dc2626;color:#991b1b}
     th:nth-child(1){width:8%}th:nth-child(2){width:8%}th:nth-child(3){width:22%}th:nth-child(4){width:8%}th:nth-child(5){width:8%}th:nth-child(6){width:21%}th:nth-child(7){width:25%}
     .rodape{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:10px;align-items:end;margin-top:5px;color:#687386}.nota{font-size:6px}.assinatura{border-top:1px solid #687386;padding-top:2px;text-align:center}.legenda{margin-top:3px;color:#687386;font-size:6px}.acoes{position:fixed;right:10px;top:8px;padding:7px 10px;background:#087f5b;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:11px}
     @media print{.acoes{display:none}.folha{page-break-after:avoid;page-break-inside:avoid}}
   </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><main class="folha">
     <header class="topo"><div><span class="marca">SETUR</span><h1>Espelho mensal de pre-leitura de ponto</h1><div class="subtitulo">Conferência auxiliar dos registros originais do AFD · ${escapeHtml(auditoriaPdf)}</div></div><div class="pessoa"><b>${escapeHtml(emp.nome)}</b><span>Lotação: ${escapeHtml(emp.lotacao || 'Não informada')} | PIS/CPF: ${escapeHtml(emp.pis)} | Emitido em ${new Date().toLocaleDateString('pt-BR')}</span></div></header>
-    <div class="resumo"><span>Horas positivas <b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>Compensadas <b>${formatHoursRep(emp.resumo.horasCompensadas || 0)}h</b></span><span>Saldo positivo disponivel <b>${formatHoursRep(emp.resumo.saldoDisponivelCompensacao || 0)}h</b></span><span>Alertas <b>${emp.resumo.pendencias}</b></span></div>
+    <div class="resumo"><span>Horas positivas <b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>Compensadas <b>${formatHoursRep(emp.resumo.horasCompensadas || 0)}h</b></span><span>Horas devidas <b>${emp.resumo.horasDevidas > 0 ? '-' : ''}${formatHoursRep(emp.resumo.horasDevidas || 0)}h</b></span><span>Alertas <b>${emp.resumo.pendencias}</b></span></div>
     <table><thead><tr><th>Data</th><th>Dia</th><th>Batidas</th><th>Horas</th><th>Saldo</th><th>Local</th><th>Situacao</th></tr></thead><tbody>${linhas}</tbody></table>
     <div class="legenda"><b>Cores:</b> verde = conferido/saldo; roxo = extra em dia não útil; azul = cálculo automático; laranja = atenção; vermelho = conferir; cinza = identificação pendente ou sem AFD. <b>HE</b> = hora extra estimada; <b>VR</b> = vale-refeição. * Marcação incluída ou corrigida manualmente.</div>
     <footer class="rodape"><div class="nota">Documento auxiliar; nao altera o AFD original. Horas extras dependem de validacao administrativa.</div><div class="assinatura">Responsavel pela conferencia</div><div class="assinatura">Servidor</div></footer>
@@ -8024,8 +8158,9 @@ async function exportarRepExcel() {
         'Ausência Registrada': dia.ausencia ? dia.ausencia.tipo : '',
         '1Doc da Ausência': dia.ausencia ? dia.ausencia.idoc : '',
         'Horas Compensadas': dia.compensacao?.minutosAplicados ? minutosParaHoraRep_(dia.compensacao.minutosAplicados) : '',
+        'Origem da Compensação': (dia.compensacao?.origensAplicadas || []).map(origem => `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(origem.minutos)})`).join(' + '),
         'Observação da Compensação': dia.compensacao?.observacao || '',
-        'Status': dia.status
+        'Status': textoSituacaoRep(dia.status)
       });
     }
   }

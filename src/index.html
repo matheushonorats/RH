@@ -619,12 +619,14 @@
                 <div id="rep-ajuste-compensacao" class="rep-ajuste-compensacao" hidden>
                   <label class="form-label" for="rep-ajuste-compensacao-horas">Compensação com horas positivas do mês</label>
                   <div id="rep-ajuste-compensacao-resumo" class="rep-compensacao-resumo"></div>
+                  <div id="rep-compensacao-origens" class="rep-compensacao-origens"></div>
                   <div class="rep-compensacao-campos">
-                    <input id="rep-ajuste-compensacao-horas" class="form-control" inputmode="numeric" placeholder="HH:MM" maxlength="5">
+                    <input id="rep-ajuste-compensacao-horas" class="form-control" inputmode="numeric" placeholder="Total" maxlength="5" readonly aria-label="Total da compensação">
                     <button type="button" class="btn btn-secondary" onclick="preencherCompensacaoMaximaRep_()">Usar saldo disponível</button>
+                    <button type="button" class="btn btn-secondary" onclick="limparOrigensCompensacaoRep_()">Remover compensação</button>
                   </div>
                   <input id="rep-ajuste-compensacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a compensação">
-                  <small class="form-help">Informe qualquer quantidade em HH:MM, até o déficit do dia e o saldo positivo acumulado no mês. Use 00:00 para remover. A operação não altera o AFD original.</small>
+                  <small class="form-help">Informe quanto será retirado de cada dia de origem. É possível combinar vários dias, até o déficit e o saldo disponível. A operação não altera o AFD original.</small>
                 </div>
                 <div id="rep-ajuste-validacao" class="rep-ajuste-validacao" hidden>
                   <label class="rep-validacao-check"><input type="checkbox" id="rep-ajuste-validado"> <span><b>Validar e desconsiderar este alerta</b><small>O AFD e as batidas permanecem visíveis, mas este dia deixa de contar em “Dias a conferir”. Desmarque para reabrir.</small></span></label>

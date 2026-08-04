@@ -25,7 +25,7 @@ const REP_ONLINE_CABECALHO_JUSTIFICATIVAS_ = [
   'PIS', 'Data', 'Linha_Lancamento', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
 ];
 const REP_ONLINE_CABECALHO_COMPENSACOES_ = [
-  'PIS', 'Data', 'Minutos', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
+  'PIS', 'Data', 'Minutos', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo', 'Origens_JSON'
 ];
 const REP_ONLINE_CABECALHO_VALIDACOES_ = [
   'PIS', 'Data', 'Validado', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
@@ -326,7 +326,11 @@ function obterAbaJustificativasRep_() {
 }
 
 function obterAbaCompensacoesRep_() {
-  return obterAbaRepOnline_(REP_ONLINE_ABA_COMPENSACOES_, REP_ONLINE_CABECALHO_COMPENSACOES_);
+  const aba = obterAbaRepOnline_(REP_ONLINE_ABA_COMPENSACOES_, REP_ONLINE_CABECALHO_COMPENSACOES_);
+  if (String(aba.getRange(1, 8).getValue() || '') !== 'Origens_JSON') {
+    aba.getRange(1, 8).setValue('Origens_JSON').setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+  }
+  return aba;
 }
 
 function obterAbaValidacoesRep_() {
@@ -533,11 +537,14 @@ function listarCompensacoesRep() {
   return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_COMPENSACOES_.length).getValues()
     .filter(function(linha) { return linha[0] && String(linha[6] || 'Sim').toLowerCase() !== 'não'; })
     .map(function(linha) {
+      let origens = [];
+      try { origens = JSON.parse(String(linha[7] || '[]')); } catch (e) {}
       return {
         pis: normalizarIdentificadorRep_(linha[0]),
         data: linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || ''),
         minutos: Number(linha[2] || 0), observacao: String(linha[3] || ''),
-        atualizadoEm: linha[4] instanceof Date ? linha[4].toISOString() : String(linha[4] || ''), atualizadoPor: String(linha[5] || '')
+        atualizadoEm: linha[4] instanceof Date ? linha[4].toISOString() : String(linha[4] || ''), atualizadoPor: String(linha[5] || ''),
+        origens: Array.isArray(origens) ? origens : []
       };
     });
 }
@@ -549,8 +556,13 @@ function salvarCompensacaoRep(dados) {
   const data = String(dados.data || '');
   const minutos = Number(dados.minutos || 0);
   const observacao = String(dados.observacao || '').trim().slice(0, 500);
+  const origens = (Array.isArray(dados.origens) ? dados.origens : []).slice(0, 31).map(function(item) {
+    return { data: String(item && item.data || ''), minutos: Number(item && item.minutos || 0) };
+  }).filter(function(item) { return /^\d{4}-\d{2}-\d{2}$/.test(item.data) && Number.isInteger(item.minutos) && item.minutos > 0 && item.minutos <= 1440; });
   if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para a compensação.');
   if (!Number.isInteger(minutos) || minutos < 0 || minutos > 1440) throw new Error('Informe uma compensação válida de até 24 horas.');
+  if (origens.some(function(item) { return item.data === data || item.data.slice(0, 7) !== data.slice(0, 7); })) throw new Error('As horas devem vir de outros dias da mesma competência.');
+  if (origens.length && origens.reduce(function(total, item) { return total + item.minutos; }, 0) !== minutos) throw new Error('A soma das horas de origem difere do total da compensação.');
 
   const lock = LockService.getDocumentLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a compensação. Tente novamente.');
@@ -566,7 +578,7 @@ function salvarCompensacaoRep(dados) {
       }
       return false;
     });
-    const valores = [[pis, data, minutos || '', observacao, new Date(), usuario.email || usuario.nome || '', minutos ? 'Sim' : 'Não']];
+    const valores = [[pis, data, minutos || '', observacao, new Date(), usuario.email || usuario.nome || '', minutos ? 'Sim' : 'Não', minutos ? JSON.stringify(origens) : '[]']];
     const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
     aba.getRange(destino, 2).setNumberFormat('@');
     aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_COMPENSACOES_.length).setValues(valores);
