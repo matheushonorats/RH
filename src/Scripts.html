@@ -7320,6 +7320,97 @@ async function salvarAjustesDiaRep() {
   mostrarToast(alterouValidacao && !alteracoes && !alterouLancamento && !alterouCompensacao ? (validado ? 'Alerta validado e retirado da conferência.' : 'Alerta reaberto para conferência.') : (alterouCompensacao && !alteracoes && !alterouLancamento ? 'Compensação de jornada salva.' : 'Ajuste aplicado sem alterar o AFD original.'), 'success');
 }
 
+function iniciarArrasteMarcacaoRep_(event, eventId, dataOrigem) {
+  if (!event?.dataTransfer || !eventId || !pisSelecionadoRep) return;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', JSON.stringify({
+    pis: String(pisSelecionadoRep),
+    eventId: String(eventId),
+    dataOrigem: String(dataOrigem || '')
+  }));
+  event.currentTarget?.classList.add('arrastando');
+}
+
+function finalizarArrasteMarcacaoRep_(event) {
+  event?.currentTarget?.classList.remove('arrastando');
+  document.querySelectorAll('.rep-dia-destino-arraste').forEach(item => item.classList.remove('rep-dia-destino-arraste'));
+}
+
+function permitirSoltarMarcacaoRep_(event) {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  event.currentTarget?.classList.add('rep-dia-destino-arraste');
+}
+
+function sairDestinoMarcacaoRep_(event) {
+  if (event.currentTarget && !event.currentTarget.contains(event.relatedTarget)) {
+    event.currentTarget.classList.remove('rep-dia-destino-arraste');
+  }
+}
+
+async function soltarMarcacaoRep_(event, dataDestino) {
+  event.preventDefault();
+  event.currentTarget?.classList.remove('rep-dia-destino-arraste');
+  let dados;
+  try { dados = JSON.parse(event.dataTransfer?.getData('text/plain') || '{}'); } catch (e) { return; }
+  if (!dados.eventId || dados.pis !== String(pisSelecionadoRep) || dados.dataOrigem === dataDestino) return;
+
+  const registro = (dadosRepCache.punches || []).find(item => String(item.eventId || '') === String(dados.eventId));
+  if (!registro || registro.desconsiderada) return mostrarToast('Essa marcação não está mais disponível para mover.', 'warning');
+  const hora = `${String(registro.datetime.getHours()).padStart(2, '0')}:${String(registro.datetime.getMinutes()).padStart(2, '0')}`;
+  const origemExibida = String(dados.dataOrigem || toDateStringRep(registro.datetime)).split('-').reverse().join('/');
+  const destinoExibido = String(dataDestino).split('-').reverse().join('/');
+  const confirmou = await abrirConfirm(`Mover a marcação das ${hora} de ${origemExibida} para a jornada de ${destinoExibido}?\n\nO AFD original será preservado e o ajuste ficará disponível para toda a equipe.`, 'Confirmar mudança de dia');
+  if (!confirmou) return;
+
+  const origemAjuste = String(registro.ajusteOrigemData || dados.dataOrigem || toDateStringRep(registro.datetime));
+  const competencia = origemAjuste.slice(0, 7);
+  const estadoAnterior = {
+    desconsiderada: registro.desconsiderada,
+    ajusteJustificativa: registro.ajusteJustificativa,
+    dataReferencia: registro.dataReferencia
+  };
+  let novo = null;
+
+  if (registro.manual) {
+    registro.dataReferencia = dataDestino;
+    registro.justificativa = registro.justificativa || 'Marcação vinculada a outra jornada por arrastar e soltar.';
+  } else {
+    registro.desconsiderada = true;
+    registro.ajusteJustificativa = 'Marcação vinculada a outra jornada por arrastar e soltar.';
+    const idManual = `MANUAL|${gerarUuidSeguroCliente_()}|ARRASTE`;
+    novo = {
+      pis: dados.pis,
+      datetime: new Date(registro.datetime.getTime()),
+      clock: registro.clock || 'Local não informado',
+      deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '',
+      eventId: idManual, eventKey: `AJUSTE|${idManual}`,
+      nomeNoMomento: dadosRepCache.employees.get(dados.pis) || '',
+      sourceFile: 'Ajuste compartilhado', rawTimestamp: registro.datetime.getTime(),
+      manual: true, ajusteCompartilhado: true, dataReferencia: dataDestino,
+      ajusteOrigemData: origemAjuste,
+      justificativa: 'Marcação vinculada a outra jornada por arrastar e soltar.'
+    };
+  }
+
+  try {
+    exibirLoader(true, 'Movendo marcação para o dia correto...');
+    await salvarAjustesCompetenciaRep_(dados.pis, competencia, novo ? [novo] : [], [origemAjuste]);
+    if (novo) dadosRepCache.punches.push(novo);
+    aplicarAjustesCompartilhadosRep_();
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast(`Marcação das ${hora} movida para ${destinoExibido}.`, 'success');
+  } catch (erro) {
+    registro.desconsiderada = estadoAnterior.desconsiderada;
+    registro.ajusteJustificativa = estadoAnterior.ajusteJustificativa;
+    registro.dataReferencia = estadoAnterior.dataReferencia;
+    mostrarToast('Não foi possível mover a marcação: ' + mensagemErro(erro), 'error');
+  } finally {
+    exibirLoader(false);
+    finalizarArrasteMarcacaoRep_(event);
+  }
+}
+
 async function restaurarAjustesDiaRep() {
   if (!ajusteRepAtual) return;
   const listaAnterior = dadosRepCache.punches.slice();
@@ -7875,7 +7966,7 @@ function renderizarPainelRep(servidores, container) {
     const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h aplicadas de ${minutosParaHoraRep_(dia.compensacao.deficit)}h devidas</strong><small>Origem: ${escapeHtml(origensCompensacaoTexto || 'registro antigo sem detalhamento')}${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
     const infoDescarteHe = dia.horaExtraDesconsiderada ? `<div class="rep-descarte-he-dia"><span>Hora extra desconsiderada neste dia</span><strong>${formatHoursRep(dia.horaExtraDesconsiderada.horas)}h não contabilizadas</strong><small>${dia.horaExtraDesconsiderada.atualizadoPor ? `Por ${escapeHtml(primeiroNomeRep_(dia.horaExtraDesconsiderada.atualizadoPor))}` : 'Decisão manual da conferência'}</small></div>` : '';
-    const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
+    const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento" draggable="true" data-event-id="${escapeHtml(evento.eventId || '')}" title="Arraste esta marcação para o dia correto" ondragstart="iniciarArrasteMarcacaoRep_(event,this.dataset.eventId,'${dia.dataOriginal}')" ondragend="finalizarArrasteMarcacaoRep_(event)">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
       ${evento.dataReal && evento.dataReal !== dia.dataOriginal ? `<small class="rep-evento-virada">Batida real em ${escapeHtml(evento.dataReal.split('-').reverse().join('/'))} · vinculada a esta jornada</small>` : ''}
@@ -7890,7 +7981,7 @@ function renderizarPainelRep(servidores, container) {
       ? `<button type="button" class="rep-ajustar-dia descarte-he ativo" onclick="alternarDescarteHoraExtraRep('${selecionado.pis}','${dia.dataOriginal}')">Restaurar HE</button>`
       : (dia.temHoraExtra ? `<button type="button" class="rep-ajustar-dia descarte-he" onclick="alternarDescarteHoraExtraRep('${selecionado.pis}','${dia.dataOriginal}')">Desconsiderar HE</button>` : '');
     const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
-    return `<tr class="${classesDia}">
+    return `<tr class="${classesDia}" data-rep-data="${dia.dataOriginal}" ondragover="permitirSoltarMarcacaoRep_(event)" ondragleave="sairDestinoMarcacaoRep_(event)" ondrop="soltarMarcacaoRep_(event,'${dia.dataOriginal}')">
       <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button>${acaoValidacao}${acaoDescarteHe}</div></td>
       <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
