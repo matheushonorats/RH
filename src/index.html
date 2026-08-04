@@ -556,6 +556,14 @@
                     <option value="saldo">Com saldo estimado positivo</option>
                   </select>
                 </div>
+                <div style="width: 190px;">
+                  <label class="rep-filter-label" for="rep-filter-conferencia">Conferência</label>
+                  <select id="rep-filter-conferencia" class="form-control" onchange="renderizarListaRep()">
+                    <option value="all">Todos</option>
+                    <option value="pending">Ainda não conferidos</option>
+                    <option value="checked">Já conferidos</option>
+                  </select>
+                </div>
                 <div style="min-width: 220px;">
                   <label class="rep-filter-label" for="rep-filter-local">Local histórico</label>
                   <select id="rep-filter-local" class="form-control" onchange="atualizarProcessamentoRep()">
@@ -589,7 +597,8 @@
                 <button class="modal-close" onclick="fecharModal('modal-ajuste-rep')"><span data-lucide="x"></span></button>
               </div>
               <div class="modal-body">
-                <p class="form-help">O AFD original não será alterado. Inclusões, correções e desconsiderações ficam registradas somente nesta pré-leitura.</p>
+                <p class="form-help">O AFD original não será alterado. Inclusões, correções, mudanças de data e desconsiderações ficam compartilhadas com toda a equipe.</p>
+                <p class="rep-ajuste-virada-dia"><b>Jornada após a meia-noite:</b> na batida de saída, escolha em “Dia da jornada” a data em que o trabalho começou. A data e a hora reais do AFD continuam preservadas.</p>
                 <div id="rep-ajuste-eventos" class="rep-ajuste-eventos"></div>
                 <button type="button" class="btn btn-secondary" onclick="adicionarLinhaAjusteRep()"><span data-lucide="plus"></span> Adicionar marcação</button>
                 <div class="rep-ajuste-ausencia">

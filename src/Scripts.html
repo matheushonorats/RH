@@ -5230,7 +5230,7 @@ function exibirInsightStatus(texto) {
 }
 
 // ==========================================
-// MÓDULO PRÉ-LEITURA REP (100% LOCAL / CLIENT-SIDE)
+// MÓDULO PRÉ-LEITURA REP (processamento no navegador + colaboração compartilhada)
 // ==========================================
 let dadosRepCache = { employees: new Map(), lotacoes: new Map(), vinculos: new Map(), vinculosCarregados: false, punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
 let dadosRepProcessados = [];
@@ -5245,6 +5245,9 @@ let apontamentoRepAtual = null;
 let justificativasLancamentoRep = [];
 let compensacoesRep = [];
 let validacoesRep = [];
+let feriadosCompartilhadosRep = [];
+let ajustesCompartilhadosRep = [];
+let conferenciasRep = [];
 let falhasIntegridadeRep = [];
 let infoPastaEntradaRep = null;
 let repOnlineCarregado = false;
@@ -5384,7 +5387,10 @@ async function carregarModuloRepOnline(forcar) {
       chamarBackendPromessa_('listarApontamentosRep', []),
       chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
       chamarBackendPromessa_('listarCompensacoesRep', []),
-      chamarBackendPromessa_('listarValidacoesRep', [])
+      chamarBackendPromessa_('listarValidacoesRep', []),
+      chamarBackendPromessa_('listarFeriadosRep', []),
+      chamarBackendPromessa_('listarAjustesRep', []),
+      chamarBackendPromessa_('listarConferenciasRep', [])
     ]);
     infoPastaEntradaRep = resultados[0] || null;
     const arquivosEntrada = Array.isArray(resultados[1]) ? resultados[1] : [];
@@ -5392,6 +5398,10 @@ async function carregarModuloRepOnline(forcar) {
     justificativasLancamentoRep = Array.isArray(resultados[3]) ? resultados[3] : [];
     compensacoesRep = Array.isArray(resultados[4]) ? resultados[4] : [];
     validacoesRep = Array.isArray(resultados[5]) ? resultados[5] : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados[6]) ? resultados[6] : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados[7]) ? resultados[7] : [];
+    conferenciasRep = Array.isArray(resultados[8]) ? resultados[8] : [];
+    atualizarCampoFeriadosCompartilhadosRep_();
     repOnlineCarregado = true;
     falhasIntegridadeRep = [];
     const statusPasta = document.getElementById('rep-pasta-status');
@@ -5718,6 +5728,12 @@ function obterFeriadosRep() {
   return new Set(obterTokensFeriadosRep_().map(normalizarDataFeriadoRep_).filter(Boolean));
 }
 
+function atualizarCampoFeriadosCompartilhadosRep_() {
+  const campo = document.getElementById('rep-feriados');
+  if (!campo) return;
+  campo.value = (feriadosCompartilhadosRep || []).map(item => formatarDataExibicaoFeriadoRep_(item.data)).filter(Boolean).join(', ');
+}
+
 /** Adiciona a última data digitada e mantém o campo pronto para a próxima. */
 function adicionarFeriadoRep() {
   const campo = document.getElementById('rep-feriados');
@@ -5950,7 +5966,7 @@ function processDataRep(employees, punches, lotacoes) {
     }
     const empSeguro = dataByPisSeguro.get(pis);
     // A data pertence ao momento original: arredondar 23:46 não a move para o dia seguinte.
-    const dataOriginal = toDateStringRep(punch.datetime);
+    const dataOriginal = /^\d{4}-\d{2}-\d{2}$/.test(String(punch.dataReferencia || '')) ? String(punch.dataReferencia) : toDateStringRep(punch.datetime);
     if (!empSeguro.dias.has(dataOriginal)) {
       empSeguro.dias.set(dataOriginal, { data: dataOriginal, eventos: [], relogios: new Set(), reps: new Set(), fontes: new Set() });
     }
@@ -5965,7 +5981,7 @@ function processDataRep(employees, punches, lotacoes) {
       arquivo: punch.sourceFile
       , eventId: punch.eventId, eventKey: punch.eventKey || punch.eventId,
       manual: Boolean(punch.manual),
-      justificativa: punch.justificativa || ''
+      justificativa: punch.justificativa || '', dataReferencia: punch.dataReferencia || '', ajusteOrigemData: punch.ajusteOrigemData || ''
     });
     if (punch.clock) diaSeguro.relogios.add(punch.clock);
     if (punch.deviceSerial) diaSeguro.reps.add(punch.deviceSerial);
@@ -5988,7 +6004,8 @@ function processDataRep(employees, punches, lotacoes) {
         chavesMomento.get(chave).add(evento.rep);
       });
       const colisaoReps = Array.from(chavesMomento.values()).some(reps => reps.size > 1);
-      const diaSemana = batidas[0].getDay();
+      const partesDataJornada = diaSeguro.data.split('-').map(Number);
+      const diaSemana = new Date(partesDataJornada[0], partesDataJornada[1] - 1, partesDataJornada[2]).getDay();
       const diaExtra = diaSemana === 0 || diaSemana === 6 || feriados.has(diaSeguro.data);
       // O VR segue a mesma jornada arredondada exibida na conferência.
       // Em dia não útil, 06h00 exatas já geram o vale.
@@ -6042,14 +6059,16 @@ function processDataRep(employees, punches, lotacoes) {
       dias.push({
         dataOriginal: diaSeguro.data,
         dataFormatada: diaSeguro.data.split('-').reverse().join('/'),
-        diaSemana: ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'][eventos[0].original.getDay()],
+        diaSemana: ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'][diaSemana],
         batidas: batidas.map(d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`),
         batidasOriginais: eventos.map(evento => `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`).join(' - '),
         batidasDetalhadas: eventos.map(evento => ({
           horarioOriginal: `${String(evento.original.getHours()).padStart(2, '0')}:${String(evento.original.getMinutes()).padStart(2, '0')}`,
           horarioArredondado: `${String(evento.arredondada.getHours()).padStart(2, '0')}:${String(evento.arredondada.getMinutes()).padStart(2, '0')}`,
+          dataReal: toDateStringRep(evento.original),
           local: evento.local, rep: evento.rep, nsr: evento.nsr, linha: evento.linha, arquivo: evento.arquivo
-          , eventId: evento.eventId, eventKey: evento.eventKey || evento.eventId, manual: evento.manual, justificativa: evento.justificativa
+          , eventId: evento.eventId, eventKey: evento.eventKey || evento.eventId, manual: evento.manual, justificativa: evento.justificativa,
+          dataReferencia: evento.dataReferencia || '', ajusteOrigemData: evento.ajusteOrigemData || ''
         })),
         totalDia, saldoDia, extraDia: saldoDia,
         relogios: Array.from(diaSeguro.relogios).join(', '),
@@ -6407,6 +6426,7 @@ async function processarArquivosRep(files, opcoes) {
   aplicarVinculosRepPersistidos_();
   // Unifica e remove batidas duplicadas entre relógios e arquivos
   dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punches);
+  aplicarAjustesCompartilhadosRep_();
 
   // Popula seletor de Anos dinamicamente
   const anosSet = new Set();
@@ -6414,8 +6434,9 @@ async function processarArquivosRep(files, opcoes) {
   let mesMaisRecente = "";
 
   dadosRepCache.punches.forEach(p => {
-    const y = String(p.datetime.getFullYear());
-    const m = String(p.datetime.getMonth() + 1).padStart(2, '0');
+    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
+    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
+    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
     anosSet.add(y);
     if (!anoMaisRecente || p.datetime > new Date(`${anoMaisRecente}-${mesMaisRecente}-01`)) {
       anoMaisRecente = y;
@@ -6509,6 +6530,79 @@ function aplicarVinculosRepPersistidos_() {
   });
 }
 
+function aplicarAjustesCompartilhadosRep_() {
+  if (!dadosRepCache || !Array.isArray(dadosRepCache.punches)) return;
+  dadosRepCache.punches = dadosRepCache.punches.filter(item => !item.ajusteCompartilhado);
+  dadosRepCache.punches.forEach(item => {
+    if (!item.desconsideradaCompartilhada) return;
+    item.desconsiderada = false;
+    item.desconsideradaCompartilhada = false;
+    delete item.ajusteJustificativa;
+  });
+  (ajustesCompartilhadosRep || []).forEach(registro => {
+    const pis = normalizarPisRep(registro.pis);
+    (registro.ajustes || []).forEach(ajuste => {
+      if (ajuste.tipo === 'DESCONSIDERAR') {
+        const original = dadosRepCache.punches.find(item => !item.manual && normalizarPisRep(item.pis) === pis && String(item.eventKey || item.eventId || '') === String(ajuste.eventoChave || ''));
+        if (original) {
+          original.desconsiderada = true;
+          original.desconsideradaCompartilhada = true;
+          original.ajusteJustificativa = ajuste.justificativa || '';
+        }
+        return;
+      }
+      if (ajuste.tipo !== 'ADICIONAR') return;
+      const data = criarDataAjusteRep(ajuste.data, ajuste.hora);
+      if (!data || isNaN(data)) return;
+      dadosRepCache.punches.push({
+        pis, datetime: data, clock: ajuste.local || 'Local informado manualmente',
+        deviceSerial: 'AJUSTE COMPARTILHADO', nsr: 'MANUAL', lineNumber: '',
+        eventId: String(ajuste.id || `AJUSTE|${pis}|${ajuste.data}|${ajuste.hora}`),
+        eventKey: `AJUSTE|${String(ajuste.id || `${pis}|${ajuste.data}|${ajuste.hora}`)}`,
+        nomeNoMomento: dadosRepCache.employees.get(pis) || '', sourceFile: 'Ajuste compartilhado',
+        rawTimestamp: data.getTime(), manual: true, ajusteCompartilhado: true,
+        dataReferencia: ajuste.dataReferencia || ajuste.data, ajusteOrigemData: ajuste.origemData || ajuste.dataReferencia || ajuste.data, justificativa: ajuste.justificativa || ''
+      });
+    });
+  });
+}
+
+function montarAjustesCompetenciaRep_(pis, competencia, adicionais) {
+  const identificador = normalizarPisRep(pis);
+  const eventos = [...(dadosRepCache.punches || []), ...(adicionais || [])];
+  const acoes = [];
+  const vistos = new Set();
+  eventos.forEach(item => {
+    if (normalizarPisRep(item.pis) !== identificador || !(item.datetime instanceof Date) || isNaN(item.datetime)) return;
+    const data = toDateStringRep(item.datetime);
+    if (!item.manual && item.desconsiderada && data.slice(0, 7) === competencia) {
+      const eventoChave = String(item.eventKey || item.eventId || '');
+      const chave = 'D|' + eventoChave;
+      if (eventoChave && !vistos.has(chave)) {
+        vistos.add(chave);
+        acoes.push({ tipo: 'DESCONSIDERAR', origemData: data, eventoChave, justificativa: item.ajusteJustificativa || '' });
+      }
+    } else if (item.manual && !item.desconsiderada && String(item.ajusteOrigemData || data).slice(0, 7) === competencia) {
+      const id = String(item.eventId || gerarUuidSeguroCliente_());
+      const chave = 'A|' + id;
+      if (!vistos.has(chave)) {
+        vistos.add(chave);
+        acoes.push({ tipo: 'ADICIONAR', id, data, dataReferencia: item.dataReferencia || data, origemData: item.ajusteOrigemData || item.dataReferencia || data, hora: `${String(item.datetime.getHours()).padStart(2, '0')}:${String(item.datetime.getMinutes()).padStart(2, '0')}`, local: item.clock || 'Local informado manualmente', justificativa: item.justificativa || '' });
+      }
+    }
+  });
+  return acoes;
+}
+
+async function salvarAjustesCompetenciaRep_(pis, competencia, adicionais, origensSubstituidas) {
+  const ajustes = montarAjustesCompetenciaRep_(pis, competencia, adicionais);
+  const resultado = await chamarBackendPromessa_('salvarAjustesRep', [{ pis, competencia, ajustes, origensSubstituidas: origensSubstituidas || [] }]);
+  const ajustesFinais = Array.isArray(resultado?.ajustes) ? resultado.ajustes : ajustes;
+  ajustesCompartilhadosRep = (ajustesCompartilhadosRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.competencia === competencia));
+  if (ajustesFinais.length) ajustesCompartilhadosRep.push({ pis, competencia, ajustes: ajustesFinais, atualizadoPor: resultado?.atualizadoPor || '' });
+  return ajustesFinais;
+}
+
 function adicionarArquivosRep() {
   const input = document.getElementById('rep-file-input');
   if (!input) return;
@@ -6578,8 +6672,9 @@ function atualizarProcessamentoRep(opcoes) {
 
   const punchesFiltrados = dadosRepCache.punches.filter(p => {
     if (p.desconsiderada) return false;
-    const y = String(p.datetime.getFullYear());
-    const m = String(p.datetime.getMonth() + 1).padStart(2, '0');
+    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
+    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
+    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
 
     if (anoSel !== 'all' && y !== anoSel) return false;
     if (mesSel !== 'all' && m !== mesSel) return false;
@@ -6743,7 +6838,7 @@ function observarPreLeituraRepEntidade_(notificar) {
   exibirInsightStatus(mensagem);
 }
 
-function aplicarFeriadosRep() {
+async function aplicarFeriadosRep() {
   formatarCampoFeriadosRep();
   const tokens = obterTokensFeriadosRep_();
   const invalidos = tokens.filter(valor => !normalizarDataFeriadoRep_(valor));
@@ -6751,15 +6846,26 @@ function aplicarFeriadosRep() {
     mostrarToast('Corrija a(s) data(s) inválida(s): ' + invalidos.join(', '), 'warning');
     return;
   }
-  atualizarProcessamentoRep();
-  mostrarToast(tokens.length ? `${tokens.length} data(s) aplicada(s) à pré-leitura.` : 'Nenhum feriado informado.', 'success');
+  const datas = Array.from(new Set(tokens.map(normalizarDataFeriadoRep_).filter(Boolean))).sort();
+  try {
+    exibirLoader(true, 'Salvando feriados para toda a equipe...');
+    const salvos = await chamarBackendPromessa_('salvarFeriadosRep', [{ datas }]);
+    feriadosCompartilhadosRep = Array.isArray(salvos) ? salvos : datas.map(data => ({ data }));
+    atualizarCampoFeriadosCompartilhadosRep_();
+    atualizarProcessamentoRep();
+    mostrarToast(datas.length ? `${datas.length} data(s) compartilhada(s) com toda a equipe.` : 'Calendário compartilhado de feriados limpo.', 'success');
+  } catch (erro) {
+    mostrarToast('Não foi possível salvar os feriados: ' + mensagemErro(erro), 'error');
+  } finally { exibirLoader(false); }
 }
 
-function criarLinhaAjusteRep(evento) {
+function criarLinhaAjusteRep(evento, dataPadrao) {
   const linha = document.createElement('div');
   linha.className = 'rep-ajuste-linha';
   linha.dataset.eventId = evento?.eventId || '';
-  linha.innerHTML = `<div><label>Horário</label><input type="time" class="form-control rep-ajuste-hora" value="${escapeHtml(evento?.horarioOriginal || '')}"></div>
+  linha.dataset.origemData = evento?.ajusteOrigemData || dataPadrao || '';
+  linha.innerHTML = `<div><label>Dia da jornada</label><input type="date" class="form-control rep-ajuste-data" value="${escapeHtml(dataPadrao || '')}" title="Use o dia anterior quando a saída ocorreu após a meia-noite"></div>
+    <div><label>Horário</label><input type="time" class="form-control rep-ajuste-hora" value="${escapeHtml(evento?.horarioOriginal || '')}"></div>
     <div class="rep-ajuste-local"><label>Local</label><input type="text" class="form-control rep-ajuste-local-input" value="${escapeHtml(evento?.local || '')}" placeholder="Local informado na justificativa"></div>
     <label class="rep-ajuste-remover"><input type="checkbox" class="rep-ajuste-desconsiderar"> Desconsiderar</label>`;
   return linha;
@@ -6775,7 +6881,7 @@ function abrirAjusteDiaRep(pis, data) {
   document.getElementById('rep-ajuste-titulo').textContent = `${emp.nome} · ${dia.dataFormatada} (${dia.diaSemana})`;
   const container = document.getElementById('rep-ajuste-eventos');
   container.innerHTML = '';
-  (dia.batidasDetalhadas || []).forEach(evento => container.appendChild(criarLinhaAjusteRep(evento)));
+  (dia.batidasDetalhadas || []).forEach(evento => container.appendChild(criarLinhaAjusteRep(evento, data)));
   const detectada = document.getElementById('rep-ajuste-ausencia-detectada');
   detectada.innerHTML = dia.ausencia
     ? `<strong>${escapeHtml(dia.ausencia.tipo)}</strong><span>${escapeHtml(formatarPeriodoAusenciaRep_(dia.ausencia))} · 1Doc: ${escapeHtml(dia.ausencia.idoc || 'não informado')} · ${dia.ausencia.origem === 'manual' ? 'associação manual' : 'identificado automaticamente'}</span>`
@@ -6818,7 +6924,7 @@ function preencherCompensacaoMaximaRep_() {
 }
 
 function adicionarLinhaAjusteRep() {
-  document.getElementById('rep-ajuste-eventos').appendChild(criarLinhaAjusteRep(null));
+  document.getElementById('rep-ajuste-eventos').appendChild(criarLinhaAjusteRep(null, ajusteRepAtual?.data || ''));
 }
 
 function criarDataAjusteRep(dataIso, hora) {
@@ -6852,12 +6958,19 @@ async function salvarAjustesDiaRep() {
   const observacaoValidacao = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validacao-observacao').value.trim() : String(ajusteRepAtual.validacaoObservacaoOriginal || '');
   const alterouValidacao = validado !== Boolean(ajusteRepAtual.validadoOriginal) || observacaoValidacao !== String(ajusteRepAtual.validacaoObservacaoOriginal || '');
   const novos = [];
+  const competenciasAfetadas = new Set([ajusteRepAtual.data.slice(0, 7)]);
+  const origensAfetadas = new Set([ajusteRepAtual.data]);
   linhas.forEach((linha, indice) => {
     const eventId = linha.dataset.eventId;
+    const dataInformada = linha.querySelector('.rep-ajuste-data').value || ajusteRepAtual.data;
     const hora = linha.querySelector('.rep-ajuste-hora').value;
     const local = linha.querySelector('.rep-ajuste-local-input').value.trim() || 'Local informado manualmente';
     const remover = linha.querySelector('.rep-ajuste-desconsiderar').checked;
     const existente = eventId ? dadosRepCache.punches.find(p => p.eventId === eventId) : null;
+    if (existente?.ajusteOrigemData) {
+      competenciasAfetadas.add(String(existente.ajusteOrigemData).slice(0, 7));
+      origensAfetadas.add(String(existente.ajusteOrigemData));
+    }
     if (existente && remover) {
       existente.desconsiderada = true;
       existente.ajusteJustificativa = justificativa;
@@ -6865,20 +6978,27 @@ async function salvarAjustesDiaRep() {
       return;
     }
     if (!hora) return;
-    const novaData = criarDataAjusteRep(ajusteRepAtual.data, hora);
+    const dataReal = existente ? toDateStringRep(existente.datetime) : dataInformada;
+    const novaData = criarDataAjusteRep(dataReal, hora);
     if (!novaData) return;
     const horaExistente = existente ? `${String(existente.datetime.getHours()).padStart(2, '0')}:${String(existente.datetime.getMinutes()).padStart(2, '0')}` : '';
-    if (existente && horaExistente === hora && existente.clock === local) return;
+    const dataExistente = existente ? toDateStringRep(existente.datetime) : '';
+    const referenciaExistente = existente ? (existente.dataReferencia || dataExistente) : '';
+    if (existente && referenciaExistente === dataInformada && horaExistente === hora && existente.clock === local) return;
     if (existente) {
       existente.desconsiderada = true;
       existente.ajusteJustificativa = justificativa;
     }
+    const idManual = `MANUAL|${gerarUuidSeguroCliente_()}|${indice}`;
     novos.push({
       pis: ajusteRepAtual.pis, datetime: novaData, clock: local,
       deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '',
-      eventId: `MANUAL|${gerarUuidSeguroCliente_()}|${indice}`,
+      eventId: idManual,
+      eventKey: `AJUSTE|${idManual}`,
       nomeNoMomento: dadosRepCache.employees.get(ajusteRepAtual.pis) || '',
-      sourceFile: 'Ajuste manual', rawTimestamp: novaData.getTime(), manual: true, justificativa
+      sourceFile: 'Ajuste compartilhado', rawTimestamp: novaData.getTime(), manual: true,
+      ajusteCompartilhado: true, dataReferencia: dataInformada,
+      ajusteOrigemData: existente?.ajusteOrigemData || linha.dataset.origemData || ajusteRepAtual.data, justificativa
     });
     alteracoes++;
   });
@@ -6918,7 +7038,7 @@ async function salvarAjustesDiaRep() {
       exibirLoader(true, validado ? 'Validando conferência do dia...' : 'Reabrindo alerta do dia...');
       await chamarBackendPromessa_('salvarValidacaoRep', [{ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado, observacao: observacaoValidacao }]);
       validacoesRep = (validacoesRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === ajusteRepAtual.data));
-      if (validado) validacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado: true, observacao: observacaoValidacao, atualizadoPor: AppState.usuario?.email || '' });
+      if (validado) validacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado: true, observacao: observacaoValidacao, atualizadoPor: AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || '' });
     } catch (erro) {
       estadoAnterior.forEach(item => {
         item.p.desconsiderada = item.desconsiderada;
@@ -6928,25 +7048,60 @@ async function salvarAjustesDiaRep() {
       return mostrarToast('Não foi possível salvar a validação: ' + mensagemErro(erro), 'error');
     }
   }
+  if (alteracoes) {
+    try {
+      exibirLoader(true, 'Salvando ajustes para toda a equipe...');
+      for (const competencia of competenciasAfetadas) {
+        const origens = Array.from(origensAfetadas).filter(data => data.slice(0, 7) === competencia);
+        await salvarAjustesCompetenciaRep_(ajusteRepAtual.pis, competencia, novos, origens);
+      }
+    } catch (erro) {
+      estadoAnterior.forEach(item => {
+        item.p.desconsiderada = item.desconsiderada;
+        item.p.ajusteJustificativa = item.ajusteJustificativa;
+      });
+      exibirLoader(false);
+      return mostrarToast('Não foi possível compartilhar os ajustes: ' + mensagemErro(erro), 'error');
+    }
+  }
   dadosRepCache.punches.push(...novos);
+  if (alteracoes) aplicarAjustesCompartilhadosRep_();
   fecharModal('modal-ajuste-rep');
   atualizarProcessamentoRep();
   exibirLoader(false);
   mostrarToast(alterouValidacao && !alteracoes && !alterouLancamento && !alterouCompensacao ? (validado ? 'Alerta validado e retirado da conferência.' : 'Alerta reaberto para conferência.') : (alterouCompensacao && !alteracoes && !alterouLancamento ? 'Compensação de jornada salva.' : 'Ajuste aplicado sem alterar o AFD original.'), 'success');
 }
 
-function restaurarAjustesDiaRep() {
+async function restaurarAjustesDiaRep() {
   if (!ajusteRepAtual) return;
+  const listaAnterior = dadosRepCache.punches.slice();
+  const estados = listaAnterior.map(p => ({ p, desconsiderada: p.desconsiderada, desconsideradaCompartilhada: p.desconsideradaCompartilhada, ajusteJustificativa: p.ajusteJustificativa }));
   dadosRepCache.punches.forEach(p => {
-    if (!p.manual && p.pis === ajusteRepAtual.pis && toDateStringRep(p.datetime) === ajusteRepAtual.data) {
+    if (!p.manual && normalizarPisRep(p.pis) === normalizarPisRep(ajusteRepAtual.pis) && toDateStringRep(p.datetime) === ajusteRepAtual.data) {
       p.desconsiderada = false;
+      p.desconsideradaCompartilhada = false;
       delete p.ajusteJustificativa;
     }
   });
-  dadosRepCache.punches = dadosRepCache.punches.filter(p => !(p.manual && p.pis === ajusteRepAtual.pis && toDateStringRep(p.datetime) === ajusteRepAtual.data));
+  dadosRepCache.punches = dadosRepCache.punches.filter(p => !(p.manual && normalizarPisRep(p.pis) === normalizarPisRep(ajusteRepAtual.pis) && String(p.ajusteOrigemData || toDateStringRep(p.datetime)) === ajusteRepAtual.data));
+  try {
+    exibirLoader(true, 'Restaurando dados para toda a equipe...');
+    await salvarAjustesCompetenciaRep_(ajusteRepAtual.pis, ajusteRepAtual.data.slice(0, 7), [], [ajusteRepAtual.data]);
+    aplicarAjustesCompartilhadosRep_();
+  } catch (erro) {
+    dadosRepCache.punches = listaAnterior;
+    estados.forEach(item => {
+      item.p.desconsiderada = item.desconsiderada;
+      item.p.desconsideradaCompartilhada = item.desconsideradaCompartilhada;
+      item.p.ajusteJustificativa = item.ajusteJustificativa;
+    });
+    exibirLoader(false);
+    return mostrarToast('Não foi possível restaurar os ajustes compartilhados: ' + mensagemErro(erro), 'error');
+  }
   fecharModal('modal-ajuste-rep');
   atualizarProcessamentoRep();
-  mostrarToast('Dados originais restaurados para o dia.', 'success');
+  exibirLoader(false);
+  mostrarToast('Dados originais restaurados para toda a equipe.', 'success');
 }
 
 function abrirFusaoRep(identificadorRep) {
@@ -7275,12 +7430,20 @@ function atualizarApontamentosRepSegundoPlano_() {
     chamarBackendPromessa_('listarApontamentosRep', []),
     chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
     chamarBackendPromessa_('listarCompensacoesRep', []),
-    chamarBackendPromessa_('listarValidacoesRep', [])
+    chamarBackendPromessa_('listarValidacoesRep', []),
+    chamarBackendPromessa_('listarFeriadosRep', []),
+    chamarBackendPromessa_('listarAjustesRep', []),
+    chamarBackendPromessa_('listarConferenciasRep', [])
   ]).then(function(resultados) {
     apontamentosRep = Array.isArray(resultados[0]) ? resultados[0] : [];
     justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
     compensacoesRep = Array.isArray(resultados[2]) ? resultados[2] : [];
     validacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados[4]) ? resultados[4] : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados[5]) ? resultados[5] : [];
+    conferenciasRep = Array.isArray(resultados[6]) ? resultados[6] : [];
+    atualizarCampoFeriadosCompartilhadosRep_();
+    aplicarAjustesCompartilhadosRep_();
     if (currentView === 'pre-leitura-rep' && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
     else if (currentView === 'pre-leitura-rep' && dadosRepProcessados.length) renderizarListaRep();
   }).catch(function(erro) { console.warn('Dados complementares do REP não puderam ser atualizados:', mensagemErro(erro)); });
@@ -7362,6 +7525,42 @@ function diaAtendeFiltroRep_(dia, filtro, apontamentos) {
   return true;
 }
 
+function obterCompetenciaAtualRep_() {
+  const ano = document.getElementById('rep-filter-ano')?.value || '';
+  const mes = document.getElementById('rep-filter-mes')?.value || '';
+  return /^\d{4}$/.test(ano) && /^\d{2}$/.test(mes) ? `${ano}-${mes}` : '';
+}
+
+function obterConferenciaServidorRep_(pis) {
+  const competencia = obterCompetenciaAtualRep_();
+  if (!competencia) return null;
+  return (conferenciasRep || []).find(item => item.conferido && normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.competencia === competencia) || null;
+}
+
+function primeiroNomeRep_(valor) {
+  const texto = String(valor || '').trim();
+  if (!texto) return 'usuário';
+  const base = texto.includes('@') ? texto.split('@')[0].replace(/[._-]+/g, ' ') : texto;
+  const primeiro = base.trim().split(/\s+/)[0] || 'usuário';
+  return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
+}
+
+async function alternarConferenciaServidorRep(pis) {
+  const competencia = obterCompetenciaAtualRep_();
+  if (!competencia) return mostrarToast('Selecione um ano e um mês específicos para marcar a conferência.', 'warning');
+  const atual = obterConferenciaServidorRep_(pis);
+  try {
+    exibirLoader(true, atual ? 'Reabrindo conferência...' : 'Marcando como conferido...');
+    const resultado = await chamarBackendPromessa_('salvarConferenciaRep', [{ pis, competencia, conferido: !atual }]);
+    conferenciasRep = (conferenciasRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.competencia === competencia));
+    if (!atual) conferenciasRep.push({ pis, competencia, conferido: true, conferidoPor: resultado?.conferidoPor || AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || '' });
+    renderizarListaRep();
+    mostrarToast(atual ? 'Servidor marcado novamente como pendente de conferência.' : `Conferência registrada por ${primeiroNomeRep_(resultado?.conferidoPor || AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email)}.`, 'success');
+  } catch (erro) {
+    mostrarToast('Não foi possível atualizar a conferência: ' + mensagemErro(erro), 'error');
+  } finally { exibirLoader(false); }
+}
+
 function renderizarPainelRep(servidores, container) {
   const listaAnterior = container.querySelector('.rep-pessoas');
   if (listaAnterior) rolagemPessoasRep = listaAnterior.scrollTop;
@@ -7376,10 +7575,12 @@ function renderizarPainelRep(servidores, container) {
     : `<button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button>`;
   const resumo = servidores.map(emp => {
     const abertos = obterApontamentosServidorPeriodoRep_(emp.pis, emp.dias).filter(item => item.status !== 'CONCLUIDO').length;
-    return `<button type="button" class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''}" onclick="selecionarServidorRep('${emp.pis}')">
+    const conferencia = obterConferenciaServidorRep_(emp.pis);
+    const rotuloConferencia = conferencia ? `Conferido por ${primeiroNomeRep_(conferencia.conferidoPor)}` : 'Marcar como conferido';
+    return `<div class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''} ${conferencia ? 'conferido' : ''}" onclick="selecionarServidorRep('${emp.pis}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); selecionarServidorRep('${emp.pis}'); }" role="button" tabindex="0">
       <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
-      <span class="rep-pessoa-metricas"><b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador apontamento ${abertos ? 'tem-apontamento' : ''}" title="Apontamentos abertos">${abertos} AP</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small></span>
-    </button>`;
+      <span class="rep-pessoa-metricas"><b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador apontamento ${abertos ? 'tem-apontamento' : ''}" title="Apontamentos abertos">${abertos} AP</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small><button type="button" class="rep-conferencia-servidor ${conferencia ? 'conferido' : ''}" onclick="event.stopPropagation(); alternarConferenciaServidorRep('${emp.pis}')" title="${conferencia ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferencia ? 'circle-check-big' : 'circle'}"></span>${escapeHtml(rotuloConferencia)}</button></span>
+    </div>`;
   }).join('');
 
   const apontamentosSelecionado = obterApontamentosServidorPeriodoRep_(selecionado.pis, selecionado.dias);
@@ -7396,6 +7597,7 @@ function renderizarPainelRep(servidores, container) {
     const eventos = dia.semRegistro ? '<span class="rep-sem-registro">Sem marcações neste dia no AFD</span>' : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
+      ${evento.dataReal && evento.dataReal !== dia.dataOriginal ? `<small class="rep-evento-virada">Batida real em ${escapeHtml(evento.dataReal.split('-').reverse().join('/'))} · vinculada a esta jornada</small>` : ''}
       <small>${evento.manual ? 'AJUSTE MANUAL' : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
       <button type="button" class="rep-apontar-registro" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','REGISTRO','${escapeHtml(evento.eventKey || evento.eventId || '')}','')">Apontar</button>
     </div>`).join('');
@@ -7489,6 +7691,7 @@ function renderizarListaRep() {
 
   const searchTerm = (searchInput?.value || '').toLowerCase();
   const statusFilter = filterStatus?.value || 'all';
+  const conferenciaFilter = document.getElementById('rep-filter-conferencia')?.value || 'all';
   const lotacaoFilter = document.getElementById('rep-filter-lotacao')?.value || 'all';
 
   listContainer.innerHTML = '';
@@ -7503,7 +7706,9 @@ function renderizarListaRep() {
     } else if (statusFilter === 'saldo') {
       matchesStatus = emp.resumo.horasExtras > 0;
     }
-    return matchesSearch && matchesStatus && (lotacaoFilter === 'all' || emp.lotacao === lotacaoFilter);
+    const conferencia = obterConferenciaServidorRep_(emp.pis);
+    const matchesConferencia = conferenciaFilter === 'all' || (conferenciaFilter === 'checked' ? Boolean(conferencia) : !conferencia);
+    return matchesSearch && matchesStatus && matchesConferencia && (lotacaoFilter === 'all' || emp.lotacao === lotacaoFilter);
   });
 
   if (filtered.length === 0) {
@@ -7686,7 +7891,7 @@ function exportarRepPdfUmaPagina(emp) {
     : `${arquivosAuditados.length} AFD(S) · INTEGRIDADE E LEITURA CONFIRMADAS`;
   const linhas = emp.dias.map(dia => {
     const batidas = (dia.batidasDetalhadas || []).map(evento =>
-      `${escapeHtml(evento.horarioOriginal)}${evento.manual ? '*' : ''}`
+      `${escapeHtml(evento.horarioOriginal)}${evento.dataReal && evento.dataReal !== dia.dataOriginal ? ' (+1 dia)' : ''}${evento.manual ? '*' : ''}`
     ).join(' - ');
     const locais = Array.from(new Set((dia.batidasDetalhadas || [])
       .map(evento => evento.local || '')

@@ -4,6 +4,9 @@ const REP_ONLINE_ABA_APONTAMENTOS_ = 'REP_Apontamentos';
 const REP_ONLINE_ABA_JUSTIFICATIVAS_ = 'REP_Justificativas';
 const REP_ONLINE_ABA_COMPENSACOES_ = 'REP_Compensacoes';
 const REP_ONLINE_ABA_VALIDACOES_ = 'REP_Validacoes';
+const REP_ONLINE_ABA_FERIADOS_ = 'REP_Feriados';
+const REP_ONLINE_ABA_AJUSTES_ = 'REP_Ajustes';
+const REP_ONLINE_ABA_CONFERENCIAS_ = 'REP_Conferencias';
 const REP_ONLINE_PASTA_PROP_ = 'REP_ONLINE_PASTA_ID';
 const REP_ENTRADA_PASTA_PROP_ = 'REP_ENTRADA_PASTA_ID';
 const REP_ENTRADA_NOME_PASTA_ = 'RHV2 - Entrada de AFDs';
@@ -27,6 +30,9 @@ const REP_ONLINE_CABECALHO_COMPENSACOES_ = [
 const REP_ONLINE_CABECALHO_VALIDACOES_ = [
   'PIS', 'Data', 'Validado', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
 ];
+const REP_ONLINE_CABECALHO_FERIADOS_ = ['Data', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
+const REP_ONLINE_CABECALHO_AJUSTES_ = ['PIS', 'Competencia', 'Ajustes_JSON', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
+const REP_ONLINE_CABECALHO_CONFERENCIAS_ = ['PIS', 'Competencia', 'Conferido', 'Conferido_Em', 'Conferido_Por', 'Ativo'];
 
 function normalizarNomeArquivoRepOnline_(nomeOriginal) {
   return String(nomeOriginal || 'AFD').trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120) || 'AFD';
@@ -325,6 +331,152 @@ function obterAbaCompensacoesRep_() {
 
 function obterAbaValidacoesRep_() {
   return obterAbaRepOnline_(REP_ONLINE_ABA_VALIDACOES_, REP_ONLINE_CABECALHO_VALIDACOES_);
+}
+
+function obterAbaFeriadosRep_() {
+  return obterAbaRepOnline_(REP_ONLINE_ABA_FERIADOS_, REP_ONLINE_CABECALHO_FERIADOS_);
+}
+
+function obterAbaAjustesRep_() {
+  return obterAbaRepOnline_(REP_ONLINE_ABA_AJUSTES_, REP_ONLINE_CABECALHO_AJUSTES_);
+}
+
+function obterAbaConferenciasRep_() {
+  return obterAbaRepOnline_(REP_ONLINE_ABA_CONFERENCIAS_, REP_ONLINE_CABECALHO_CONFERENCIAS_);
+}
+
+function dataIsoRep_(valor) {
+  return valor instanceof Date ? Utilities.formatDate(valor, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(valor || '').trim();
+}
+
+function listarFeriadosRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaFeriadosRep_();
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_FERIADOS_.length).getValues()
+    .filter(function(linha) { return /^\d{4}-\d{2}-\d{2}$/.test(dataIsoRep_(linha[0])) && String(linha[3] || 'Sim').toLowerCase() !== 'não'; })
+    .map(function(linha) { return { data: dataIsoRep_(linha[0]), atualizadoEm: linha[1] instanceof Date ? linha[1].toISOString() : String(linha[1] || ''), atualizadoPor: String(linha[2] || '') }; })
+    .sort(function(a, b) { return a.data.localeCompare(b.data); });
+}
+
+function salvarFeriadosRep(dados) {
+  const usuario = obterDadosUsuarioLogado();
+  const datas = Array.from(new Set(((dados && dados.datas) || []).map(String).map(function(valor) { return valor.trim(); }).filter(function(valor) { return /^\d{4}-\d{2}-\d{2}$/.test(valor); }))).sort();
+  if (datas.length > 500) throw new Error('Quantidade de feriados acima do limite permitido.');
+  const desejadas = {};
+  datas.forEach(function(data) { desejadas[data] = true; });
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar os feriados. Tente novamente.');
+  try {
+    const aba = obterAbaFeriadosRep_();
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_FERIADOS_.length).getValues() : [];
+    const encontrados = {};
+    const agora = new Date();
+    const por = usuario.nome || usuario.email || '';
+    existentes.forEach(function(linha) {
+      const data = dataIsoRep_(linha[0]);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return;
+      encontrados[data] = true;
+      linha[3] = desejadas[data] ? 'Sim' : 'Não';
+      if (desejadas[data]) { linha[1] = agora; linha[2] = por; }
+    });
+    if (existentes.length) aba.getRange(2, 1, existentes.length, REP_ONLINE_CABECALHO_FERIADOS_.length).setValues(existentes);
+    const novas = datas.filter(function(data) { return !encontrados[data]; }).map(function(data) { return [data, agora, por, 'Sim']; });
+    if (novas.length) {
+      const inicio = aba.getLastRow() + 1;
+      aba.getRange(inicio, 1, novas.length, REP_ONLINE_CABECALHO_FERIADOS_.length).setValues(novas);
+      aba.getRange(inicio, 1, novas.length, 1).setNumberFormat('@');
+    }
+    try { lancarLog('REP_FERIADOS', 'REP_Feriados', 'Atualizou calendário compartilhado do REP.', '', '', String(datas.length), ''); } catch (e) {}
+    return listarFeriadosRep();
+  } finally { lock.releaseLock(); }
+}
+
+function listarAjustesRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaAjustesRep_();
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_AJUSTES_.length).getValues()
+    .filter(function(linha) { return linha[0] && String(linha[5] || 'Sim').toLowerCase() !== 'não'; })
+    .map(function(linha) {
+      let ajustes = [];
+      try { ajustes = JSON.parse(String(linha[2] || '[]')); } catch (e) {}
+      return { pis: normalizarIdentificadorRep_(linha[0]), competencia: String(linha[1] || ''), ajustes: Array.isArray(ajustes) ? ajustes : [], atualizadoEm: linha[3] instanceof Date ? linha[3].toISOString() : String(linha[3] || ''), atualizadoPor: String(linha[4] || '') };
+    });
+}
+
+function salvarAjustesRep(dados) {
+  const usuario = obterDadosUsuarioLogado();
+  dados = dados || {};
+  const pis = normalizarIdentificadorRep_(dados.pis);
+  const competencia = String(dados.competencia || '');
+  if (!pis || !/^\d{4}-\d{2}$/.test(competencia)) throw new Error('Servidor ou competência inválida para salvar os ajustes.');
+  const ajustes = (Array.isArray(dados.ajustes) ? dados.ajustes : []).slice(0, 500).map(function(item) {
+    const tipo = String(item && item.tipo || '').toUpperCase();
+    if (tipo === 'DESCONSIDERAR') return { tipo: tipo, origemData: /^\d{4}-\d{2}-\d{2}$/.test(String(item.origemData || '')) ? String(item.origemData) : '', eventoChave: String(item.eventoChave || '').slice(0, 500), justificativa: String(item.justificativa || '').slice(0, 500) };
+    if (tipo === 'ADICIONAR' && /^\d{4}-\d{2}-\d{2}$/.test(String(item.data || '')) && /^\d{2}:\d{2}$/.test(String(item.hora || ''))) return { tipo: tipo, id: String(item.id || Utilities.getUuid()).slice(0, 120), data: String(item.data), dataReferencia: /^\d{4}-\d{2}-\d{2}$/.test(String(item.dataReferencia || '')) ? String(item.dataReferencia) : String(item.data), origemData: /^\d{4}-\d{2}-\d{2}$/.test(String(item.origemData || '')) ? String(item.origemData) : String(item.data), hora: String(item.hora), local: String(item.local || 'Local informado manualmente').slice(0, 200), justificativa: String(item.justificativa || '').slice(0, 500) };
+    return null;
+  }).filter(Boolean);
+  const origensSubstituidas = Array.from(new Set((Array.isArray(dados.origensSubstituidas) ? dados.origensSubstituidas : []).map(String).filter(function(valor) { return /^\d{4}-\d{2}-\d{2}$/.test(valor); })));
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar os ajustes. Tente novamente.');
+  try {
+    const aba = obterAbaAjustesRep_();
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_AJUSTES_.length).getValues() : [];
+    let linhaAlvo = -1;
+    existentes.some(function(linha, indice) { if (normalizarIdentificadorRep_(linha[0]) === pis && String(linha[1]) === competencia) { linhaAlvo = indice + 2; return true; } return false; });
+    let anteriores = [];
+    if (linhaAlvo > 0) {
+      try { anteriores = JSON.parse(String(existentes[linhaAlvo - 2][2] || '[]')); } catch (e) {}
+    }
+    const origens = origensSubstituidas.length ? origensSubstituidas : ajustes.map(function(item) { return String(item.origemData || ''); }).filter(Boolean);
+    const conjuntoOrigens = {};
+    origens.forEach(function(origem) { conjuntoOrigens[origem] = true; });
+    const preservados = (Array.isArray(anteriores) ? anteriores : []).filter(function(item) { return !conjuntoOrigens[String(item && item.origemData || '')]; });
+    const recebidos = ajustes.filter(function(item) { return !origens.length || conjuntoOrigens[String(item.origemData || '')]; });
+    const ajustesFinais = preservados.concat(recebidos).slice(0, 500);
+    const json = JSON.stringify(ajustesFinais);
+    if (json.length > 30000) throw new Error('Os ajustes desta competência ultrapassaram o limite permitido.');
+    const valores = [[pis, competencia, json, new Date(), usuario.nome || usuario.email || '', ajustesFinais.length ? 'Sim' : 'Não']];
+    const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
+    aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_AJUSTES_.length).setValues(valores);
+    aba.getRange(destino, 1, 1, 2).setNumberFormat('@');
+    try { lancarLog('REP_AJUSTE', 'REP_Ajustes', (ajustesFinais.length ? 'Salvou' : 'Removeu') + ' ajustes compartilhados em ' + competencia + '.', '', '', String(ajustesFinais.length), pis); } catch (e) {}
+    return { sucesso: true, removido: !ajustesFinais.length, ajustes: ajustesFinais, atualizadoPor: usuario.nome || usuario.email || '' };
+  } finally { lock.releaseLock(); }
+}
+
+function listarConferenciasRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaConferenciasRep_();
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_CONFERENCIAS_.length).getValues()
+    .filter(function(linha) { return linha[0] && /^\d{4}-\d{2}$/.test(String(linha[1] || '')) && String(linha[5] || 'Sim').toLowerCase() !== 'não'; })
+    .map(function(linha) { return { pis: normalizarIdentificadorRep_(linha[0]), competencia: String(linha[1]), conferido: String(linha[2] || '').toLowerCase() === 'sim', conferidoEm: linha[3] instanceof Date ? linha[3].toISOString() : String(linha[3] || ''), conferidoPor: String(linha[4] || '') }; });
+}
+
+function salvarConferenciaRep(dados) {
+  const usuario = obterDadosUsuarioLogado();
+  dados = dados || {};
+  const pis = normalizarIdentificadorRep_(dados.pis);
+  const competencia = String(dados.competencia || '');
+  const conferido = dados.conferido === true;
+  if (!pis || !/^\d{4}-\d{2}$/.test(competencia)) throw new Error('Servidor ou competência inválida para a conferência.');
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a conferência. Tente novamente.');
+  try {
+    const aba = obterAbaConferenciasRep_();
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_CONFERENCIAS_.length).getValues() : [];
+    let linhaAlvo = -1;
+    existentes.some(function(linha, indice) { if (normalizarIdentificadorRep_(linha[0]) === pis && String(linha[1]) === competencia) { linhaAlvo = indice + 2; return true; } return false; });
+    const por = usuario.nome || usuario.email || '';
+    const valores = [[pis, competencia, conferido ? 'Sim' : 'Não', conferido ? new Date() : '', conferido ? por : '', conferido ? 'Sim' : 'Não']];
+    const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
+    aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_CONFERENCIAS_.length).setValues(valores);
+    aba.getRange(destino, 1, 1, 2).setNumberFormat('@');
+    try { lancarLog('REP_CONFERENCIA', 'REP_Conferencias', (conferido ? 'Marcou' : 'Desmarcou') + ' servidor conferido em ' + competencia + '.', '', '', por, pis); } catch (e) {}
+    return { sucesso: true, conferido: conferido, conferidoPor: conferido ? por : '', competencia: competencia };
+  } finally { lock.releaseLock(); }
 }
 
 function listarValidacoesRep() {
