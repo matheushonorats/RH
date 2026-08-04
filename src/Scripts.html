@@ -5917,13 +5917,14 @@ function aplicarCompensacoesRep_(emp, dias) {
   const jornadaReferenciaMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
   const retirarDaOrigem = function(data, solicitadoBruto, limiteLiquido) {
     const saldo = saldoPorDia.get(data) || { liquido: 0, bruto: 0 };
-    const limite = Math.max(0, Math.round(Number(limiteLiquido) || 0));
+    const temLimite = Number.isFinite(Number(limiteLiquido));
+    const limite = temLimite ? Math.max(0, Math.round(Number(limiteLiquido) || 0)) : saldo.liquido;
     let bruto = Math.min(saldo.bruto, Math.max(0, Math.round(solicitadoBruto || 0)));
-    if (limite && limite < saldo.liquido && bruto > limite) bruto = limite;
-    let liquido = Math.min(saldo.liquido, bruto, limite || saldo.liquido);
+    let liquido = Math.min(saldo.liquido, bruto, limite);
     saldo.bruto = Math.max(0, saldo.bruto - bruto);
     saldo.liquido = Math.max(0, saldo.liquido - liquido);
     if (!saldo.liquido) saldo.bruto = 0;
+    if (!saldo.bruto) saldo.liquido = 0;
     saldoPorDia.set(data, saldo);
     return { bruto, liquido };
   };
@@ -5953,13 +5954,15 @@ function aplicarCompensacoesRep_(emp, dias) {
     const contavaComoPendencia = Boolean(dia.jornadaIncompleta || dia.pendencia);
     const solicitado = Math.max(0, Math.round(Number(registro.minutos) || 0));
     let restante = Math.min(deficit, solicitado);
+    let brutoPermitido = Math.min(solicitado, deficit + 60);
     let origensAplicadas = [];
     const origensInformadas = Array.isArray(registro.origens) ? registro.origens.filter(item => item && item.data && Number(item.minutos) > 0) : [];
     if (origensInformadas.length) {
       origensInformadas.forEach(origem => {
-        if (!restante || origem.data === registro.data) return;
-        const aplicadoOrigem = retirarDaOrigem(origem.data, Number(origem.minutos), restante);
-        if (aplicadoOrigem.liquido) origensAplicadas.push({ data: origem.data, minutos: aplicadoOrigem.bruto, minutosLiquidos: aplicadoOrigem.liquido });
+        if (!brutoPermitido || origem.data === registro.data) return;
+        const aplicadoOrigem = retirarDaOrigem(origem.data, Math.min(Number(origem.minutos), brutoPermitido), restante);
+        if (aplicadoOrigem.bruto) origensAplicadas.push({ data: origem.data, minutos: aplicadoOrigem.bruto, minutosLiquidos: aplicadoOrigem.liquido });
+        brutoPermitido -= aplicadoOrigem.bruto;
         restante -= aplicadoOrigem.liquido;
       });
     } else {
@@ -5974,7 +5977,6 @@ function aplicarCompensacoesRep_(emp, dias) {
       origemLegada: !origensInformadas.length
     };
     if (!aplicado) return;
-    disponivel -= aplicado;
     aplicadoTotal += aplicado;
     if (aplicado >= deficit) {
       dia.statusAnteriorCompensacao = dia.status;
@@ -5988,6 +5990,7 @@ function aplicarCompensacoesRep_(emp, dias) {
       dia.compensacaoDiaSemRegistro = diaSemRegistroCompensavel;
     }
   });
+  disponivel = Array.from(saldoPorDia.values()).reduce((total, saldo) => total + saldo.liquido, 0);
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
   emp.resumo.origensSaldoCompensacao = Array.from(saldoPorDia.entries()).map(([data, saldo]) => ({ data, minutos: saldo.liquido, minutosBrutos: saldo.bruto })).filter(item => item.minutos > 0).sort((a, b) => a.data.localeCompare(b.data));
@@ -7063,18 +7066,20 @@ function limparOrigensCompensacaoRep_() {
 function obterOrigensCompensacaoFormularioRep_() {
   const origens = [];
   let invalida = false;
-  let minutosLiquidos = 0;
+  let totalBruto = 0;
   document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-valor').forEach(input => {
     const texto = input.value.trim();
     if (!texto || texto === '00:00') return;
     const minutos = horaParaMinutosRep_(texto);
     const maximo = Math.max(0, Number(input.dataset.maximo || 0));
-    const maximoLiquido = Math.max(0, Number(input.dataset.liquidoMaximo || maximo));
     if (minutos === null || minutos <= 0 || minutos > maximo) { invalida = true; return; }
     origens.push({ data: input.dataset.data, minutos });
-    minutosLiquidos += Math.min(minutos, maximoLiquido);
+    totalBruto += minutos;
   });
-  return { origens, invalida, minutosLiquidos };
+  const deficit = Math.max(0, Number(document.getElementById('rep-ajuste-compensacao')?.dataset.maximo || 0));
+  const minutosLiquidos = deficit ? Math.min(totalBruto, deficit) : totalBruto;
+  if (deficit && totalBruto > deficit + 60) invalida = true;
+  return { origens, invalida, minutosLiquidos, totalBruto };
 }
 
 function atualizarTotalOrigensCompensacaoRep_() {
