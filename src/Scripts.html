@@ -5249,6 +5249,7 @@ let apontamentoRepAtual = null;
 let justificativasLancamentoRep = [];
 let compensacoesRep = [];
 let validacoesRep = [];
+let descartesHoraExtraRep = [];
 let feriadosCompartilhadosRep = [];
 let ajustesCompartilhadosRep = [];
 let conferenciasRep = [];
@@ -5392,6 +5393,7 @@ async function carregarModuloRepOnline(forcar) {
       chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
       chamarBackendPromessa_('listarCompensacoesRep', []),
       chamarBackendPromessa_('listarValidacoesRep', []),
+      chamarBackendPromessa_('listarDescartesHoraExtraRep', []),
       chamarBackendPromessa_('listarFeriadosRep', []),
       chamarBackendPromessa_('listarAjustesRep', []),
       chamarBackendPromessa_('listarConferenciasRep', [])
@@ -5402,9 +5404,10 @@ async function carregarModuloRepOnline(forcar) {
     justificativasLancamentoRep = Array.isArray(resultados[3]) ? resultados[3] : [];
     compensacoesRep = Array.isArray(resultados[4]) ? resultados[4] : [];
     validacoesRep = Array.isArray(resultados[5]) ? resultados[5] : [];
-    feriadosCompartilhadosRep = Array.isArray(resultados[6]) ? resultados[6] : [];
-    ajustesCompartilhadosRep = Array.isArray(resultados[7]) ? resultados[7] : [];
-    conferenciasRep = Array.isArray(resultados[8]) ? resultados[8] : [];
+    descartesHoraExtraRep = Array.isArray(resultados[6]) ? resultados[6] : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados[7]) ? resultados[7] : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados[8]) ? resultados[8] : [];
+    conferenciasRep = Array.isArray(resultados[9]) ? resultados[9] : [];
     atualizarCampoFeriadosCompartilhadosRep_();
     repOnlineCarregado = true;
     falhasIntegridadeRep = [];
@@ -5905,6 +5908,27 @@ function aplicarAusenciasLancamentosRep_(emp, dias) {
   });
 }
 
+function aplicarDescartesHoraExtraRep_(emp, dias) {
+  const registros = (descartesHoraExtraRep || []).filter(item => item.descartado && normalizarPisRep(item.pis) === normalizarPisRep(emp.pis));
+  let totalDesconsiderado = 0;
+  registros.forEach(registro => {
+    const dia = (dias || []).find(item => item.dataOriginal === registro.data);
+    if (!dia || dia.pendencia || dia.ausencia || !Number.isFinite(dia.extraDia) || dia.extraDia <= 0) return;
+    const horas = dia.extraDia;
+    totalDesconsiderado += horas;
+    dia.saldoOriginalAntesDescarteHe = horas;
+    dia.statusAntesDescarteHe = dia.status;
+    dia.horaExtraDesconsiderada = { horas, atualizadoPor: String(registro.atualizadoPor || ''), atualizadoEm: String(registro.atualizadoEm || '') };
+    dia.extraDia = 0;
+    dia.temHoraExtra = false;
+    dia.status = 'hora_extra_desconsiderada';
+  });
+  emp.resumo.horasExtras = Math.max(0, Number(emp.resumo.horasExtras || 0) - totalDesconsiderado);
+  emp.resumo.extras = Number(emp.resumo.extras || 0) - totalDesconsiderado;
+  emp.resumo.saldo = Number(emp.resumo.saldo || 0) - totalDesconsiderado;
+  emp.resumo.horasExtrasDesconsideradas = totalDesconsiderado;
+}
+
 function minutosParaHoraRep_(minutos) {
   const total = Math.max(0, Math.round(Number(minutos) || 0));
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
@@ -6199,6 +6223,7 @@ function processDataRep(employees, punches, lotacoes) {
     }
     completarDiasSemRegistroRep_(dias, feriados);
     aplicarAusenciasLancamentosRep_(empSeguro, dias);
+    aplicarDescartesHoraExtraRep_(empSeguro, dias);
     aplicarCompensacoesRep_(empSeguro, dias);
     aplicarValidacoesAlertasRep_(empSeguro, dias);
     atualizarHorasDevidasRep_(empSeguro, dias);
@@ -7442,6 +7467,7 @@ function textoSituacaoRep(status) {
     sabado_compensado: 'Compensado',
     descanso_semanal_remunerado: 'Descanso Semanal Remunerado',
     feriado_sem_registro: 'Feriado / Ponto Facultativo',
+    hora_extra_desconsiderada: 'Hora extra desconsiderada manualmente neste dia',
     intervalo_presumido: 'Almoço descontado (não registrado)',
     extra_intervalo_presumido: 'Extra com almoço descontado',
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
@@ -7461,6 +7487,7 @@ function categoriaSituacaoRep(status) {
     sabado_compensado: 'Compensado',
     descanso_semanal_remunerado: 'DSR',
     feriado_sem_registro: 'Feriado',
+    hora_extra_desconsiderada: 'HE desconsiderada',
     ok: 'Conferido',
     saldo_positivo: 'Saldo',
     jornada_incompleta: 'Jornada incompleta',
@@ -7662,6 +7689,7 @@ function atualizarApontamentosRepSegundoPlano_() {
     chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
     chamarBackendPromessa_('listarCompensacoesRep', []),
     chamarBackendPromessa_('listarValidacoesRep', []),
+    chamarBackendPromessa_('listarDescartesHoraExtraRep', []),
     chamarBackendPromessa_('listarFeriadosRep', []),
     chamarBackendPromessa_('listarAjustesRep', []),
     chamarBackendPromessa_('listarConferenciasRep', [])
@@ -7670,9 +7698,10 @@ function atualizarApontamentosRepSegundoPlano_() {
     justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
     compensacoesRep = Array.isArray(resultados[2]) ? resultados[2] : [];
     validacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
-    feriadosCompartilhadosRep = Array.isArray(resultados[4]) ? resultados[4] : [];
-    ajustesCompartilhadosRep = Array.isArray(resultados[5]) ? resultados[5] : [];
-    conferenciasRep = Array.isArray(resultados[6]) ? resultados[6] : [];
+    descartesHoraExtraRep = Array.isArray(resultados[4]) ? resultados[4] : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados[5]) ? resultados[5] : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados[6]) ? resultados[6] : [];
+    conferenciasRep = Array.isArray(resultados[7]) ? resultados[7] : [];
     atualizarCampoFeriadosCompartilhadosRep_();
     aplicarAjustesCompartilhadosRep_();
     if (currentView === 'pre-leitura-rep' && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
@@ -7792,6 +7821,21 @@ async function alternarConferenciaServidorRep(pis) {
   } finally { exibirLoader(false); }
 }
 
+async function alternarDescarteHoraExtraRep(pis, data) {
+  const existente = (descartesHoraExtraRep || []).find(item => item.descartado && normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data);
+  const descartar = !existente;
+  try {
+    exibirLoader(true, descartar ? 'Desconsiderando a hora extra deste dia...' : 'Restaurando a hora extra deste dia...');
+    const resultado = await chamarBackendPromessa_('salvarDescarteHoraExtraRep', [{ pis, data, descartado: descartar }]);
+    descartesHoraExtraRep = (descartesHoraExtraRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data));
+    if (descartar) descartesHoraExtraRep.push({ pis, data, descartado: true, atualizadoPor: resultado?.atualizadoPor || AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || '' });
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast(descartar ? 'Hora extra desconsiderada somente neste dia.' : 'Hora extra restaurada neste dia.', 'success');
+  } catch (erro) {
+    mostrarToast('Não foi possível atualizar a hora extra: ' + mensagemErro(erro), 'error');
+  } finally { exibirLoader(false); }
+}
+
 function renderizarPainelRep(servidores, container) {
   const listaAnterior = container.querySelector('.rep-pessoas');
   if (listaAnterior) rolagemPessoasRep = listaAnterior.scrollTop;
@@ -7830,6 +7874,7 @@ function renderizarPainelRep(servidores, container) {
     }).join(' + ');
     const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h aplicadas de ${minutosParaHoraRep_(dia.compensacao.deficit)}h devidas</strong><small>Origem: ${escapeHtml(origensCompensacaoTexto || 'registro antigo sem detalhamento')}${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
+    const infoDescarteHe = dia.horaExtraDesconsiderada ? `<div class="rep-descarte-he-dia"><span>Hora extra desconsiderada neste dia</span><strong>${formatHoursRep(dia.horaExtraDesconsiderada.horas)}h não contabilizadas</strong><small>${dia.horaExtraDesconsiderada.atualizadoPor ? `Por ${escapeHtml(primeiroNomeRep_(dia.horaExtraDesconsiderada.atualizadoPor))}` : 'Decisão manual da conferência'}</small></div>` : '';
     const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento">
       <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
@@ -7841,10 +7886,13 @@ function renderizarPainelRep(servidores, container) {
     const acaoValidacao = dia.validacaoManual
       ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Reabrir alerta</button>`
       : (dia.pendencia || dia.jornadaIncompleta ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Validar alerta</button>` : '');
+    const acaoDescarteHe = dia.horaExtraDesconsiderada
+      ? `<button type="button" class="rep-ajustar-dia descarte-he ativo" onclick="alternarDescarteHoraExtraRep('${selecionado.pis}','${dia.dataOriginal}')">Restaurar HE</button>`
+      : (dia.temHoraExtra ? `<button type="button" class="rep-ajustar-dia descarte-he" onclick="alternarDescarteHoraExtraRep('${selecionado.pis}','${dia.dataOriginal}')">Desconsiderar HE</button>` : '');
     const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
     return `<tr class="${classesDia}">
-      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button>${acaoValidacao}</div></td>
-      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoValidacao}${htmlApontamentosRep_(apontamentosDia)}</td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button>${acaoValidacao}${acaoDescarteHe}</div></td>
+      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro || !Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
       <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadores}</span></td>
@@ -7859,7 +7907,7 @@ function renderizarPainelRep(servidores, container) {
     <section class="rep-detalhe">
       <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button><button type="button" class="rep-ajuda-entidade" onclick="pedirAjudaEntidadeRep()"><span data-lucide="ghost"></span> Ajuda da Entidade</button></div></div>
         <div class="rep-grupo-resumo">
-          <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Saldo de horas positivas</small><b>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h</b><em>${formatHoursRep(selecionado.resumo.horasExtras)}h geradas · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h retiradas · ${formatHoursRep(selecionado.resumo.horasCompensadas || 0)}h aplicadas</em></button>
+          <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Saldo de horas positivas</small><b>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h</b><em>${formatHoursRep(selecionado.resumo.horasExtras)}h válidas · ${formatHoursRep(selecionado.resumo.horasExtrasDesconsideradas || 0)}h desconsideradas · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h retiradas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada arredondada ≥ 6h em dia não útil</em></button>
           <button type="button" class="rep-indicador-resumo devidas ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Soma do que ainda falta cumprir em dias úteis, após justificativas e compensações."><small>Horas devidas</small><b>${selecionado.resumo.horasDevidas > 0 ? '-' : ''}${formatHoursRep(selecionado.resumo.horasDevidas || 0)}h</b><em>Inclui falta de 8h em dia útil</em></button>
           <button type="button" class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''} ${filtroDiasRepAtual === 'alertas' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('alertas')" aria-pressed="${filtroDiasRepAtual === 'alertas'}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></button>
@@ -8126,6 +8174,7 @@ function exportarRepPdfUmaPagina(emp) {
     ? `ARQUIVOS ÍNTEGROS · LEITURA COM ${problemasAuditoria} ITEM(NS) A CONFERIR`
     : `${arquivosAuditados.length} AFD(S) · INTEGRIDADE E LEITURA CONFIRMADAS`;
   const linhas = emp.dias.map(dia => {
+    const saldoExibido = dia.horaExtraDesconsiderada ? 0 : dia.saldoDia;
     const batidas = (dia.batidasDetalhadas || []).map(evento =>
       `${escapeHtml(evento.horarioOriginal)}${evento.dataReal && evento.dataReal !== dia.dataOriginal ? ' (+1 dia)' : ''}${evento.manual ? '*' : ''}`
     ).join(' - ');
@@ -8151,7 +8200,7 @@ function exportarRepPdfUmaPagina(emp) {
       <td class="nowrap">${escapeHtml((dia.diaSemana || '').replace('-feira', ''))}</td>
       <td class="batidas">${batidas || 'Sem registros AFD'}</td>
       <td class="numero">${dia.semRegistro ? '-' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
-      <td class="numero ${!dia.pendencia && dia.saldoDia > 0 ? 'positivo' : ''}">${dia.semRegistro ? '-' : (dia.pendencia ? '-' : formatHoursRep(dia.saldoDia) + 'h')}</td>
+      <td class="numero ${!dia.pendencia && saldoExibido > 0 ? 'positivo' : ''}">${dia.semRegistro ? '-' : (dia.pendencia ? '-' : formatHoursRep(saldoExibido) + 'h')}</td>
       <td class="local" title="${escapeHtml(locais)}">${escapeHtml(locais)}</td>
       <td class="situacao status-${escapeHtml(dia.status)}" title="${escapeHtml(situacaoFinal)}"><b>${escapeHtml(categoria)}:</b> ${escapeHtml(situacaoFinal)}${sinalizadores}</td>
     </tr>`;
@@ -8165,7 +8214,7 @@ function exportarRepPdfUmaPagina(emp) {
     *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
     .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
     table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{background:#087f5b;color:#fff;text-align:left;font-size:6.5px;text-transform:uppercase;letter-spacing:.2px;padding:3px}td{border:1px solid #dfe7e3;padding:2px 3px;vertical-align:middle;height:4.4mm;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#f5f8f7}tr{break-inside:avoid}.nowrap,.numero{white-space:nowrap}.numero{text-align:center;font-weight:700}.positivo{color:#087f5b}.batidas{font-weight:700;font-size:7.5px}.local,.situacao{font-size:6.4px}.situacao{color:#344054;border-left-width:3px}.situacao b{font-weight:700}.status-ok,.status-saldo_positivo,.status-jornada_compensada{border-left-color:#16805e;color:#086747}.status-extra_dia_nao_util{border-left-color:#6d4bd1;color:#5b35bd}.status-intervalo_presumido,.status-extra_intervalo_presumido,.status-ausencia_justificada{border-left-color:#1878b8;color:#125d91}.status-intervalo_inferior_minimo,.status-intervalo_nao_identificado,.status-batidas_excedentes,.status-jornada_compensada_parcial{border-left-color:#b76908;color:#8c4c02}.status-impar,.status-colisao_reps,.status-ausencia_com_batidas{border-left-color:#c43434;color:#9f2222}.status-conflito_arredondamento{border-left-color:#9a3bb4;color:#78298d}.status-validado_manualmente{border-left-color:#8b5cf6;color:#6d28d9}.status-nao_conciliado,.status-sem_registro{border-left-color:#667085;color:#475467}.sinal{display:inline-block;margin-left:2px;padding:1px 3px;border-radius:2px;font-style:normal;font-weight:700;font-size:5.7px}.sinal.he{background:#2dd4a8;color:#093f31}.sinal.vr{background:#fbbf24;color:#4a2500}.sinal.comp{background:#bfdbfe;color:#153e75}
-    .status-falta_sem_registro{border-left-color:#c43434;color:#9f2222}.status-sabado_compensado{border-left-color:#667085;color:#475467}.status-descanso_semanal_remunerado{border-left-color:#8b5cf6;color:#6d28d9}.status-feriado_sem_registro{border-left-color:#dc2626;color:#991b1b}
+    .status-falta_sem_registro{border-left-color:#c43434;color:#9f2222}.status-sabado_compensado{border-left-color:#667085;color:#475467}.status-descanso_semanal_remunerado{border-left-color:#8b5cf6;color:#6d28d9}.status-feriado_sem_registro{border-left-color:#dc2626;color:#991b1b}.status-hora_extra_desconsiderada{border-left-color:#d97706;color:#92400e}
     th:nth-child(1){width:8%}th:nth-child(2){width:8%}th:nth-child(3){width:22%}th:nth-child(4){width:8%}th:nth-child(5){width:8%}th:nth-child(6){width:21%}th:nth-child(7){width:25%}
     .rodape{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:10px;align-items:end;margin-top:5px;color:#687386}.nota{font-size:6px}.assinatura{border-top:1px solid #687386;padding-top:2px;text-align:center}.legenda{margin-top:3px;color:#687386;font-size:6px}.acoes{position:fixed;right:10px;top:8px;padding:7px 10px;background:#087f5b;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:11px}
     @media print{.acoes{display:none}.folha{page-break-after:avoid;page-break-inside:avoid}}
@@ -8232,7 +8281,8 @@ async function exportarRepExcel() {
         'Batidas Originais': dia.batidasOriginais,
         'Batidas Arredondadas': dia.batidas.join(' - '),
         'Total Horas Dia': dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia),
-        'Saldo Estimado (não é hora extra autorizada)': dia.pendencia ? 'Conferir' : formatHoursRep(dia.saldoDia),
+        'Saldo Considerado': dia.pendencia ? 'Conferir' : formatHoursRep(dia.horaExtraDesconsiderada ? 0 : dia.saldoDia),
+        'Hora Extra Desconsiderada': dia.horaExtraDesconsiderada ? formatHoursRep(dia.horaExtraDesconsiderada.horas) : '',
         'REPs Utilizados': dia.reps,
         'Locais Históricos': dia.relogios,
         'Arquivo de Origem': dia.fontes,

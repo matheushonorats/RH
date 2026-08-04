@@ -4,6 +4,7 @@ const REP_ONLINE_ABA_APONTAMENTOS_ = 'REP_Apontamentos';
 const REP_ONLINE_ABA_JUSTIFICATIVAS_ = 'REP_Justificativas';
 const REP_ONLINE_ABA_COMPENSACOES_ = 'REP_Compensacoes';
 const REP_ONLINE_ABA_VALIDACOES_ = 'REP_Validacoes';
+const REP_ONLINE_ABA_DESCARTES_HE_ = 'REP_Descartes_HE';
 const REP_ONLINE_ABA_FERIADOS_ = 'REP_Feriados';
 const REP_ONLINE_ABA_AJUSTES_ = 'REP_Ajustes';
 const REP_ONLINE_ABA_CONFERENCIAS_ = 'REP_Conferencias';
@@ -30,6 +31,7 @@ const REP_ONLINE_CABECALHO_COMPENSACOES_ = [
 const REP_ONLINE_CABECALHO_VALIDACOES_ = [
   'PIS', 'Data', 'Validado', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
 ];
+const REP_ONLINE_CABECALHO_DESCARTES_HE_ = ['PIS', 'Data', 'Descartado', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
 const REP_ONLINE_CABECALHO_FERIADOS_ = ['Data', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
 const REP_ONLINE_CABECALHO_AJUSTES_ = ['PIS', 'Competencia', 'Ajustes_JSON', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
 const REP_ONLINE_CABECALHO_CONFERENCIAS_ = ['PIS', 'Competencia', 'Conferido', 'Conferido_Em', 'Conferido_Por', 'Ativo'];
@@ -337,6 +339,10 @@ function obterAbaValidacoesRep_() {
   return obterAbaRepOnline_(REP_ONLINE_ABA_VALIDACOES_, REP_ONLINE_CABECALHO_VALIDACOES_);
 }
 
+function obterAbaDescartesHoraExtraRep_() {
+  return obterAbaRepOnline_(REP_ONLINE_ABA_DESCARTES_HE_, REP_ONLINE_CABECALHO_DESCARTES_HE_);
+}
+
 function obterAbaFeriadosRep_() {
   return obterAbaRepOnline_(REP_ONLINE_ABA_FERIADOS_, REP_ONLINE_CABECALHO_FERIADOS_);
 }
@@ -552,6 +558,47 @@ function listarValidacoesRep() {
         atualizadoEm: linha[4] instanceof Date ? linha[4].toISOString() : String(linha[4] || ''), atualizadoPor: String(linha[5] || '')
       };
     });
+}
+
+function listarDescartesHoraExtraRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaDescartesHoraExtraRep_();
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_DESCARTES_HE_.length).getValues()
+    .filter(function(linha) { return linha[0] && /^\d{4}-\d{2}-\d{2}$/.test(dataIsoRep_(linha[1])) && String(linha[5] || 'Sim').toLowerCase() !== 'não'; })
+    .map(function(linha) {
+      return {
+        pis: normalizarIdentificadorRep_(linha[0]), data: dataIsoRep_(linha[1]), descartado: String(linha[2] || '').toLowerCase() === 'sim',
+        atualizadoEm: linha[3] instanceof Date ? linha[3].toISOString() : String(linha[3] || ''), atualizadoPor: String(linha[4] || '')
+      };
+    });
+}
+
+function salvarDescarteHoraExtraRep(dados) {
+  const usuario = obterDadosUsuarioLogado();
+  dados = dados || {};
+  const pis = normalizarIdentificadorRep_(dados.pis);
+  const data = String(dados.data || '');
+  const descartado = dados.descartado === true;
+  if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para desconsiderar a hora extra.');
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao atualizar a hora extra. Tente novamente.');
+  try {
+    const aba = obterAbaDescartesHoraExtraRep_();
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_DESCARTES_HE_.length).getValues() : [];
+    let linhaAlvo = -1;
+    existentes.some(function(linha, indice) {
+      if (normalizarIdentificadorRep_(linha[0]) === pis && dataIsoRep_(linha[1]) === data) { linhaAlvo = indice + 2; return true; }
+      return false;
+    });
+    const por = usuario.nome || usuario.email || '';
+    const valores = [[pis, data, descartado ? 'Sim' : 'Não', new Date(), por, descartado ? 'Sim' : 'Não']];
+    const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
+    aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_DESCARTES_HE_.length).setValues(valores);
+    aba.getRange(destino, 1, 1, 2).setNumberFormat('@');
+    try { lancarLog('REP_DESCARTE_HE', 'REP_Descartes_HE', (descartado ? 'Desconsiderou' : 'Restaurou') + ' a hora extra de ' + data + '.', '', '', por, pis); } catch (e) {}
+    return { sucesso: true, descartado: descartado, atualizadoPor: por };
+  } finally { lock.releaseLock(); }
 }
 
 function salvarValidacaoRep(dados) {
