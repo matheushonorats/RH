@@ -5895,16 +5895,28 @@ function horaParaMinutosRep_(valor) {
   return Number(partes[1]) * 60 + Number(partes[2]);
 }
 
+function obterJornadaReferenciaRep_() {
+  const valor = Number(document.getElementById('rep-jornada-horas')?.value);
+  return Number.isFinite(valor) && valor > 0 ? valor : 8;
+}
+
 function aplicarCompensacoesRep_(emp, dias) {
   let disponivel = Math.max(0, Math.round((Number(emp.resumo.horasExtras) || 0) * 60));
   let aplicadoTotal = 0;
+  const jornadaReferenciaMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
   const registros = (compensacoesRep || [])
     .filter(item => normalizarPisRep(item.pis) === normalizarPisRep(emp.pis) && Number(item.minutos) > 0)
     .sort((a, b) => String(a.data).localeCompare(String(b.data)));
   registros.forEach(registro => {
     const dia = (dias || []).find(item => item.dataOriginal === registro.data);
-    if (!dia || dia.ausencia || !dia.jornadaIncompleta || dia.pendencia || !Number.isFinite(dia.saldoDia) || dia.saldoDia >= 0) return;
-    const deficit = Math.max(0, Math.round(Math.abs(dia.saldoDia) * 60));
+    if (!dia || dia.ausencia || dia.diaExtra || dia.pendencia) return;
+    const diaSemRegistroCompensavel = Boolean(dia.semRegistro);
+    const jornadaIncompletaCompensavel = Boolean(dia.jornadaIncompleta && Number.isFinite(dia.saldoDia) && dia.saldoDia < 0);
+    if (!diaSemRegistroCompensavel && !jornadaIncompletaCompensavel) return;
+    const deficit = diaSemRegistroCompensavel
+      ? jornadaReferenciaMinutos
+      : Math.max(0, Math.round(Math.abs(dia.saldoDia) * 60));
+    const contavaComoPendencia = Boolean(dia.jornadaIncompleta || dia.pendencia);
     const solicitado = Math.max(0, Math.round(Number(registro.minutos) || 0));
     const aplicado = Math.min(deficit, solicitado, disponivel);
     dia.compensacao = {
@@ -5918,10 +5930,12 @@ function aplicarCompensacoesRep_(emp, dias) {
       dia.statusAnteriorCompensacao = dia.status;
       dia.status = 'jornada_compensada';
       dia.jornadaIncompleta = false;
-      emp.resumo.pendencias = Math.max(0, emp.resumo.pendencias - 1);
+      dia.compensacaoDiaSemRegistro = diaSemRegistroCompensavel;
+      if (contavaComoPendencia) emp.resumo.pendencias = Math.max(0, emp.resumo.pendencias - 1);
     } else {
       dia.statusAnteriorCompensacao = dia.status;
       dia.status = 'jornada_compensada_parcial';
+      dia.compensacaoDiaSemRegistro = diaSemRegistroCompensavel;
     }
   });
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
@@ -5950,8 +5964,7 @@ function aplicarValidacoesAlertasRep_(emp, dias) {
 
 function processDataRep(employees, punches, lotacoes) {
   const dataByPisSeguro = new Map();
-  const jornadaInput = document.getElementById('rep-jornada-horas');
-  const jornadaReferencia = Number(jornadaInput && jornadaInput.value) || 8;
+  const jornadaReferencia = obterJornadaReferenciaRep_();
   const intervaloPresumidoInput = document.getElementById('rep-intervalo-presumido-horas');
   const intervaloPresumidoInformado = Number(intervaloPresumidoInput && intervaloPresumidoInput.value);
   const horasIntervaloSemBatida = Number.isFinite(intervaloPresumidoInformado) && intervaloPresumidoInformado >= 0
@@ -6903,11 +6916,14 @@ function abrirAjusteDiaRep(pis, data) {
   }).join('');
   seletor.value = String(ajusteRepAtual.linhaLancamentoOriginal || 0);
   const registroCompensacao = (compensacoesRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data);
-  const deficitMinutos = Number.isFinite(dia.saldoDia) && dia.saldoDia < 0 ? Math.round(Math.abs(dia.saldoDia) * 60) : 0;
+  const diaSemRegistroCompensavel = Boolean(dia.semRegistro && !dia.diaExtra && !dia.ausencia);
+  const deficitMinutos = diaSemRegistroCompensavel
+    ? Math.round(obterJornadaReferenciaRep_() * 60)
+    : (Number.isFinite(dia.saldoDia) && dia.saldoDia < 0 ? Math.round(Math.abs(dia.saldoDia) * 60) : 0);
   const aplicadoAtual = Number(dia.compensacao?.minutosAplicados || 0);
   const disponivelMinutos = Math.max(0, Math.round((Number(emp.resumo.saldoDisponivelCompensacao) || 0) * 60) + aplicadoAtual);
   const maximoCompensavel = Math.min(deficitMinutos, disponivelMinutos);
-  const podeCompensar = deficitMinutos > 0 && !dia.ausencia && !dia.pendencia && (dia.jornadaIncompleta || dia.compensacao);
+  const podeCompensar = deficitMinutos > 0 && !dia.ausencia && !dia.pendencia && (dia.jornadaIncompleta || diaSemRegistroCompensavel || dia.compensacao);
   ajusteRepAtual.compensacaoOriginal = Number(registroCompensacao?.minutos || 0);
   ajusteRepAtual.compensacaoObservacaoOriginal = String(registroCompensacao?.observacao || '');
   ajusteRepAtual.maximoCompensavel = maximoCompensavel;
@@ -6916,7 +6932,7 @@ function abrirAjusteDiaRep(pis, data) {
   blocoCompensacao.dataset.maximo = String(maximoCompensavel);
   document.getElementById('rep-ajuste-compensacao-horas').value = registroCompensacao ? minutosParaHoraRep_(registroCompensacao.minutos) : '';
   document.getElementById('rep-ajuste-compensacao-observacao').value = registroCompensacao?.observacao || '';
-  document.getElementById('rep-ajuste-compensacao-resumo').innerHTML = `<span>Horas abaixo da jornada: <b>${minutosParaHoraRep_(deficitMinutos)}h</b></span><span>Saldo positivo disponível no mês: <b>${minutosParaHoraRep_(disponivelMinutos)}h</b></span>`;
+  document.getElementById('rep-ajuste-compensacao-resumo').innerHTML = `<span>${diaSemRegistroCompensavel ? 'Jornada sem registro a compensar' : 'Horas abaixo da jornada'}: <b>${minutosParaHoraRep_(deficitMinutos)}h</b></span><span>Saldo positivo disponível no mês: <b>${minutosParaHoraRep_(disponivelMinutos)}h</b></span>`;
   const registroValidacao = (validacoesRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data && item.validado);
   ajusteRepAtual.validadoOriginal = Boolean(registroValidacao);
   ajusteRepAtual.validacaoObservacaoOriginal = String(registroValidacao?.observacao || '');
@@ -6962,6 +6978,7 @@ async function salvarAjustesDiaRep() {
     if (minutosCompensacao > Number(ajusteRepAtual.maximoCompensavel || 0)) return mostrarToast(`O saldo permite compensar no máximo ${minutosParaHoraRep_(ajusteRepAtual.maximoCompensavel)}h neste dia.`, 'warning');
     observacaoCompensacao = document.getElementById('rep-ajuste-compensacao-observacao').value.trim();
   }
+  if (linhaLancamento && minutosCompensacao > 0) return mostrarToast('Escolha entre associar uma ausência do RH ou compensar o dia com horas positivas.', 'warning');
   const alterouCompensacao = minutosCompensacao !== Number(ajusteRepAtual.compensacaoOriginal || 0) || observacaoCompensacao !== String(ajusteRepAtual.compensacaoObservacaoOriginal || '');
   const blocoValidacao = document.getElementById('rep-ajuste-validacao');
   const validado = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validado').checked : Boolean(ajusteRepAtual.validadoOriginal);
