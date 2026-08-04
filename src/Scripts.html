@@ -4016,9 +4016,13 @@ function avancarPassoLancamento() {
     // Validação da Etapa 2 baseada no Tipo
     const tipo = document.getElementById('lanc-tipo').value;
     
-    if (tipo.includes("Férias") || tipo === "Licença Prêmio") {
+    if (tipo.includes("Férias") || tipo === "Licença Prêmio" || tipo === "Atestado") {
       if (!document.getElementById('lanc-data-inicio').value) {
         mostrarToast("A Data de Início é obrigatória para este tipo de documento.", "warning");
+        return;
+      }
+      if (tipo === "Atestado" && Number(document.getElementById('lanc-dias').value || 0) < 1) {
+        mostrarToast("Informe pelo menos um dia de afastamento para o atestado.", "warning");
         return;
       }
     } else if (tipo === "Autorização de Horas Extras") {
