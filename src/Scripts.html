@@ -5914,6 +5914,7 @@ function aplicarCompensacoesRep_(emp, dias) {
   });
   let disponivel = Array.from(saldoPorDia.values()).reduce((total, saldo) => total + saldo.liquido, 0);
   let aplicadoTotal = 0;
+  let retiradoTotal = 0;
   const jornadaReferenciaMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
   const retirarDaOrigem = function(data, solicitadoBruto, limiteLiquido) {
     const saldo = saldoPorDia.get(data) || { liquido: 0, bruto: 0 };
@@ -5970,6 +5971,7 @@ function aplicarCompensacoesRep_(emp, dias) {
       restante -= origensAplicadas.reduce((total, origem) => total + origem.minutosLiquidos, 0);
     }
     const aplicado = origensAplicadas.reduce((total, origem) => total + origem.minutosLiquidos, 0);
+    const retirado = origensAplicadas.reduce((total, origem) => total + origem.minutos, 0);
     dia.compensacao = {
       minutos: solicitado, minutosAplicados: aplicado, deficit,
       observacao: String(registro.observacao || ''), atualizadoPor: String(registro.atualizadoPor || ''),
@@ -5977,6 +5979,7 @@ function aplicarCompensacoesRep_(emp, dias) {
       origemLegada: !origensInformadas.length
     };
     if (!aplicado) return;
+    retiradoTotal += retirado;
     aplicadoTotal += aplicado;
     if (aplicado >= deficit) {
       dia.statusAnteriorCompensacao = dia.status;
@@ -5992,6 +5995,7 @@ function aplicarCompensacoesRep_(emp, dias) {
   });
   disponivel = Array.from(saldoPorDia.values()).reduce((total, saldo) => total + saldo.liquido, 0);
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
+  emp.resumo.horasRetiradasCompensacao = retiradoTotal / 60;
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
   emp.resumo.origensSaldoCompensacao = Array.from(saldoPorDia.entries()).map(([data, saldo]) => ({ data, minutos: saldo.liquido, minutosBrutos: saldo.bruto })).filter(item => item.minutos > 0).sort((a, b) => a.data.localeCompare(b.data));
 }
@@ -7820,7 +7824,7 @@ function renderizarPainelRep(servidores, container) {
     <section class="rep-detalhe">
       <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button><button type="button" class="rep-ajuda-entidade" onclick="pedirAjudaEntidadeRep()"><span data-lucide="ghost"></span> Ajuda da Entidade</button></div></div>
         <div class="rep-grupo-resumo">
-          <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Horas positivas</small><b>${formatHoursRep(selecionado.resumo.horasExtras)}h</b><em>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h disponíveis · ${formatHoursRep(selecionado.resumo.horasCompensadas || 0)}h compensadas</em></button>
+          <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Saldo de horas positivas</small><b>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h</b><em>${formatHoursRep(selecionado.resumo.horasExtras)}h geradas · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h retiradas · ${formatHoursRep(selecionado.resumo.horasCompensadas || 0)}h aplicadas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada arredondada ≥ 6h em dia não útil</em></button>
           <button type="button" class="rep-indicador-resumo devidas ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Soma do que ainda falta cumprir em dias úteis, após justificativas e compensações."><small>Horas devidas</small><b>${selecionado.resumo.horasDevidas > 0 ? '-' : ''}${formatHoursRep(selecionado.resumo.horasDevidas || 0)}h</b><em>Inclui falta de 8h em dia útil</em></button>
           <button type="button" class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''} ${filtroDiasRepAtual === 'alertas' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('alertas')" aria-pressed="${filtroDiasRepAtual === 'alertas'}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></button>
