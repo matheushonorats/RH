@@ -5737,14 +5737,16 @@ function obterFeriadosRep() {
   return new Set(obterTokensFeriadosRep_().map(normalizarDataFeriadoRep_).filter(Boolean));
 }
 
-function atualizarCampoFeriadosCompartilhadosRep_() {
+function atualizarCampoFeriadosCompartilhadosRep_(forcar) {
   const campo = document.getElementById('rep-feriados');
   if (!campo) return;
+  if (!forcar && campo.dataset.sujo === 'true') return;
   campo.value = (feriadosCompartilhadosRep || []).map(item => formatarDataExibicaoFeriadoRep_(item.data)).filter(Boolean).join(', ');
+  campo.dataset.sujo = 'false';
 }
 
-/** Adiciona a última data digitada e mantém o campo pronto para a próxima. */
-function adicionarFeriadoRep() {
+/** Salva a data ao pressionar Enter e mantém o campo pronto para a próxima. */
+async function adicionarFeriadoRep() {
   const campo = document.getElementById('rep-feriados');
   if (!campo) return;
 
@@ -5761,16 +5763,32 @@ function adicionarFeriadoRep() {
     mostrarToast('Há uma data anterior inválida. Corrija-a antes de adicionar outra.', 'warning');
     return;
   }
-  if (anteriores.includes(ultimaData)) {
-    campo.value = anteriores.join(', ') + ', ';
+  const ultimaIso = normalizarDataFeriadoRep_(ultimaData);
+  const jaCompartilhada = (feriadosCompartilhadosRep || []).some(item => item.data === ultimaIso);
+  if (anteriores.includes(ultimaData) && jaCompartilhada) {
+    campo.value = anteriores.concat(ultimaData).join(', ') + ', ';
     campo.focus();
     mostrarToast('Esta data já foi informada.', 'info');
     return;
   }
 
+  const datasCampo = anteriores.concat(ultimaData).map(normalizarDataFeriadoRep_).filter(Boolean);
+  const atuais = new Set((feriadosCompartilhadosRep || []).map(item => item.data));
+  const adicionar = datasCampo.filter(data => !atuais.has(data));
   campo.value = anteriores.concat(ultimaData).join(', ') + ', ';
-  campo.focus();
-  mostrarToast(`${ultimaData} adicionada. Digite a próxima data e pressione Enter.`, 'success');
+  try {
+    const salvos = await chamarBackendPromessa_('atualizarFeriadosRep', [{ adicionar, remover: [] }]);
+    feriadosCompartilhadosRep = Array.isArray(salvos) ? salvos : datasCampo.map(data => ({ data }));
+    atualizarCampoFeriadosCompartilhadosRep_(true);
+    campo.value = campo.value ? campo.value + ', ' : '';
+    campo.dataset.sujo = 'false';
+    campo.focus();
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast(`${ultimaData} salva para toda a equipe. Digite a próxima e pressione Enter.`, 'success');
+  } catch (erro) {
+    campo.dataset.sujo = 'true';
+    mostrarToast('Não foi possível salvar o feriado: ' + mensagemErro(erro), 'error');
+  }
 }
 
 function formatHoursRep(decimalHours) {
@@ -6949,11 +6967,24 @@ async function aplicarFeriadosRep() {
     return;
   }
   const datas = Array.from(new Set(tokens.map(normalizarDataFeriadoRep_).filter(Boolean))).sort();
+  const atuais = Array.from(new Set((feriadosCompartilhadosRep || []).map(item => item.data).filter(Boolean))).sort();
+  const atuaisSet = new Set(atuais);
+  const datasSet = new Set(datas);
+  const adicionar = datas.filter(data => !atuaisSet.has(data));
+  const remover = atuais.filter(data => !datasSet.has(data));
+  if (remover.length) {
+    const nomes = remover.map(formatarDataExibicaoFeriadoRep_).join(', ');
+    const confirmou = await abrirConfirm(`Você removeu ${remover.length} data(s) do calendário compartilhado: ${nomes}.\n\nIsso recalculará as horas extras de toda a equipe. Deseja realmente remover?`);
+    if (!confirmou) {
+      atualizarCampoFeriadosCompartilhadosRep_(true);
+      return;
+    }
+  }
   try {
     exibirLoader(true, 'Salvando feriados para toda a equipe...');
-    const salvos = await chamarBackendPromessa_('salvarFeriadosRep', [{ datas }]);
+    const salvos = await chamarBackendPromessa_('atualizarFeriadosRep', [{ adicionar, remover }]);
     feriadosCompartilhadosRep = Array.isArray(salvos) ? salvos : datas.map(data => ({ data }));
-    atualizarCampoFeriadosCompartilhadosRep_();
+    atualizarCampoFeriadosCompartilhadosRep_(true);
     atualizarProcessamentoRep();
     mostrarToast(datas.length ? `${datas.length} data(s) compartilhada(s) com toda a equipe.` : 'Calendário compartilhado de feriados limpo.', 'success');
   } catch (erro) {

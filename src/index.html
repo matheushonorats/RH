@@ -587,7 +587,7 @@
                 <div style="min-width: 245px;">
                   <label class="rep-filter-label" for="rep-feriados">Feriados</label>
                   <div style="display:flex; gap:6px;">
-                    <input type="text" id="rep-feriados" class="form-control" placeholder="Digite 09072026 e pressione Enter" title="Digite uma data sem barras e pressione Enter para adicionar outra" aria-label="Feriados separados por vírgula" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); adicionarFeriadoRep(); }">
+                    <input type="text" id="rep-feriados" class="form-control" placeholder="Digite 09072026 e pressione Enter" title="Digite uma data sem barras e pressione Enter para salvar e adicionar outra" aria-label="Feriados separados por vírgula" oninput="this.dataset.sujo='true'" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); adicionarFeriadoRep(); }">
                     <button type="button" class="btn btn-secondary" onclick="aplicarFeriadosRep()">Aplicar</button>
                   </div>
                 </div>

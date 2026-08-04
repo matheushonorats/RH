@@ -381,8 +381,14 @@ function salvarFeriadosRep(dados) {
       const data = dataIsoRep_(linha[0]);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return;
       encontrados[data] = true;
-      linha[3] = desejadas[data] ? 'Sim' : 'Não';
-      if (desejadas[data]) { linha[1] = agora; linha[2] = por; }
+      // Compatibilidade com telas antigas: a lista recebida é mesclada e nunca
+      // desativa datas ausentes. Exclusões usam atualizarFeriadosRep com uma
+      // lista explícita, evitando que uma sessão desatualizada apague feriados.
+      if (desejadas[data]) {
+        linha[3] = 'Sim';
+        linha[1] = agora;
+        linha[2] = por;
+      }
     });
     if (existentes.length) aba.getRange(2, 1, existentes.length, REP_ONLINE_CABECALHO_FERIADOS_.length).setValues(existentes);
     const novas = datas.filter(function(data) { return !encontrados[data]; }).map(function(data) { return [data, agora, por, 'Sim']; });
@@ -392,6 +398,55 @@ function salvarFeriadosRep(dados) {
       aba.getRange(inicio, 1, novas.length, 1).setNumberFormat('@');
     }
     try { lancarLog('REP_FERIADOS', 'REP_Feriados', 'Atualizou calendário compartilhado do REP.', '', '', String(datas.length), ''); } catch (e) {}
+    return listarFeriadosRep();
+  } finally { lock.releaseLock(); }
+}
+
+/** Atualiza somente as datas explicitamente informadas, sem apagar o trabalho de outro usuário. */
+function atualizarFeriadosRep(dados) {
+  const usuario = obterDadosUsuarioLogado();
+  dados = dados || {};
+  const normalizarDatas = function(lista) {
+    return Array.from(new Set((Array.isArray(lista) ? lista : []).map(String).map(function(valor) { return valor.trim(); }).filter(function(valor) { return /^\d{4}-\d{2}-\d{2}$/.test(valor); })));
+  };
+  const adicionar = normalizarDatas(dados.adicionar);
+  const remover = normalizarDatas(dados.remover);
+  const adicionarSet = {};
+  const removerSet = {};
+  adicionar.forEach(function(data) { adicionarSet[data] = true; });
+  remover.forEach(function(data) { if (!adicionarSet[data]) removerSet[data] = true; });
+  if (adicionar.length + remover.length > 500) throw new Error('Quantidade de alterações de feriados acima do limite permitido.');
+
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao atualizar os feriados. Tente novamente.');
+  try {
+    const aba = obterAbaFeriadosRep_();
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_FERIADOS_.length).getValues() : [];
+    const encontrados = {};
+    const agora = new Date();
+    const por = usuario.nome || usuario.email || '';
+    existentes.forEach(function(linha) {
+      const data = dataIsoRep_(linha[0]);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return;
+      encontrados[data] = true;
+      if (adicionarSet[data]) {
+        linha[1] = agora;
+        linha[2] = por;
+        linha[3] = 'Sim';
+      } else if (removerSet[data]) {
+        linha[1] = agora;
+        linha[2] = por;
+        linha[3] = 'Não';
+      }
+    });
+    if (existentes.length) aba.getRange(2, 1, existentes.length, REP_ONLINE_CABECALHO_FERIADOS_.length).setValues(existentes);
+    const novas = adicionar.filter(function(data) { return !encontrados[data]; }).map(function(data) { return [data, agora, por, 'Sim']; });
+    if (novas.length) {
+      const inicio = aba.getLastRow() + 1;
+      aba.getRange(inicio, 1, novas.length, REP_ONLINE_CABECALHO_FERIADOS_.length).setValues(novas);
+      aba.getRange(inicio, 1, novas.length, 1).setNumberFormat('@');
+    }
+    try { lancarLog('REP_FERIADOS', 'REP_Feriados', 'Atualizou datas pontuais do calendário compartilhado.', '', '', 'Adicionadas: ' + adicionar.length + ' | Removidas: ' + remover.length, ''); } catch (e) {}
     return listarFeriadosRep();
   } finally { lock.releaseLock(); }
 }
