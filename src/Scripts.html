@@ -6020,10 +6020,10 @@ function processDataRep(employees, punches, lotacoes) {
       // O VR segue a mesma jornada arredondada exibida na conferência.
       // Em dia não útil, 06h00 exatas já geram o vale.
       let elegivelValeRefeicao = false;
-      // Jornada contínua acima de 6h sem marcações de almoço: aplica o
+      // Jornada contínua de 7h ou mais sem marcações de almoço: aplica o
       // desconto selecionado. O padrão administrativo é sempre 1 hora.
       const tempoBrutoCorrido = getHoursDiffRep(batidas[0], batidas[1]);
-      const intervaloPresumido = !isImpar && batidas.length === 2 && tempoBrutoCorrido > 6;
+      const intervaloPresumido = !isImpar && batidas.length === 2 && tempoBrutoCorrido >= 7;
       let totalDia = null;
       let saldoDia = null;
       let intervaloConsiderado = 0;
