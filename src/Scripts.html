@@ -2222,12 +2222,13 @@ function ajustarCamposFormularioLancamento() {
     document.getElementById(id).disabled = true;
   });
   
-  if (tipo === "Férias" || tipo === "Férias (1/3 Pecúnia)" || tipo === "Licença Prêmio") {
+  if (tipo === "Férias" || tipo === "Férias (1/3 Pecúnia)" || tipo === "Licença Prêmio" || tipo === "Atestado") {
     blocoFerias.style.display = "flex";
     document.getElementById('lanc-data-inicio').disabled = false;
     document.getElementById('lanc-data-inicio').required = true;
     document.getElementById('lanc-dias').disabled = false;
     document.getElementById('lanc-dias').required = true;
+    if (tipo === "Atestado") labelDias.textContent = "Dias de afastamento *";
     if (tipo === "Férias (1/3 Pecúnia)") {
       blocoDiasPecunia.style.display = "block";
       labelDias.textContent = "Dias de Gozo *";
@@ -2288,6 +2289,9 @@ function sugerirDespacho() {
     const limite = 5; // Padrão
     const restante = Math.max(0, limite - novoUsado);
     texto = `Possuía direito a ${limite} abonadas. Solicitou a ${novoUsado}ª abonada. Restam ${restante}.`;
+  } else if (tipo === "Atestado") {
+    const dias = parseInt(document.getElementById('lanc-dias').value, 10) || 1;
+    texto = `Afastamento por atestado registrado por ${dias} dia${dias === 1 ? '' : 's'}.`;
   } else if (tipo === "Autorização de Horas Extras") {
     const qtdHoras = document.getElementById('lanc-qtd-horas').value || "0";
     const mes = document.getElementById('lanc-mes-he').value;
@@ -2608,7 +2612,7 @@ async function salvarDadosLancamento(event) {
   let diasPecuniaInput = 0;
   let qtdHorasInput = "";
   
-  if (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)" || tipoDoc === "Licença Prêmio") {
+  if (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)" || tipoDoc === "Licença Prêmio" || tipoDoc === "Atestado") {
     dataInicioInput = document.getElementById('lanc-data-inicio').value;
     diasInput = parseInt(document.getElementById('lanc-dias').value) || 0;
     diasPecuniaInput = tipoDoc === "Férias (1/3 Pecúnia)"

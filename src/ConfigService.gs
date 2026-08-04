@@ -128,6 +128,16 @@ function obterListaTiposDocumento() {
   const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Tipos_Documento");
   if (!aba) return [];
+
+  // Migração segura para planilhas já existentes: disponibiliza Atestado sem
+  // exigir que o setup completo seja executado novamente.
+  const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, 2).getDisplayValues() : [];
+  const possuiAtestado = existentes.some(function(linha) {
+    return String(linha[0] || '').trim().toLowerCase() === 'atestado' || String(linha[1] || '').trim().toLowerCase() === 'atestado';
+  });
+  if (!possuiAtestado) {
+    aba.appendRow(['atestado', 'Atestado', 'Não', 'Não', '["data_inicio", "dias_ferias", "anexo1", "anexo2", "anexo3", "despacho_individual", "observacao_individual"]', 'Sim']);
+  }
   
   const dados = aba.getDataRange().getValues();
   let tipos = [];

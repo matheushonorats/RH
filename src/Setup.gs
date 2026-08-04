@@ -285,6 +285,7 @@ function popularDadosPadrao(ss) {
       ["ferias", "Férias", "Sim", "Não", "[\"data_inicio\", \"dias_ferias\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["ferias_pecunia", "Férias (1/3 Pecúnia)", "Sim", "Não", "[\"data_inicio\", \"dias_ferias\", \"dias_pecunia\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["licenca_premio", "Licença Prêmio", "Não", "Não", "[\"data_inicio\", \"dias_ferias\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
+      ["atestado", "Atestado", "Não", "Não", "[\"data_inicio\", \"dias_ferias\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["hora_extra", "Hora Extra", "Não", "Não", "[\"data_falta\", \"quant_horas\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["estagio_probatorio", "Avaliação do Estágio Probatório", "Não", "Não", "[\"data_falta\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"],
       ["não_efetivado", "Não Efetivado (Anulado)", "Não", "Não", "[\"data_falta\", \"anexo1\", \"anexo2\", \"anexo3\", \"despacho_individual\", \"observacao_individual\"]", "Sim"]
