@@ -5952,6 +5952,11 @@ function processDataRep(employees, punches, lotacoes) {
   const dataByPisSeguro = new Map();
   const jornadaInput = document.getElementById('rep-jornada-horas');
   const jornadaReferencia = Number(jornadaInput && jornadaInput.value) || 8;
+  const intervaloPresumidoInput = document.getElementById('rep-intervalo-presumido-horas');
+  const intervaloPresumidoInformado = Number(intervaloPresumidoInput && intervaloPresumidoInput.value);
+  const horasIntervaloSemBatida = Number.isFinite(intervaloPresumidoInformado) && intervaloPresumidoInformado >= 0
+    ? intervaloPresumidoInformado
+    : 1;
   const feriados = obterFeriadosRep();
 
   for (const punch of punches.slice().sort((a, b) => a.datetime - b.datetime)) {
@@ -6015,8 +6020,8 @@ function processDataRep(employees, punches, lotacoes) {
       // O VR segue a mesma jornada arredondada exibida na conferência.
       // Em dia não útil, 06h00 exatas já geram o vale.
       let elegivelValeRefeicao = false;
-      // Jornada continua acima de 6h sem marcacoes de almoco: presume e desconta
-      // 1 hora de intervalo (para 6h ate 9.9h) ou 2 horas (para 10h ou mais).
+      // Jornada contínua acima de 6h sem marcações de almoço: aplica o
+      // desconto selecionado. O padrão administrativo é sempre 1 hora.
       const tempoBrutoCorrido = getHoursDiffRep(batidas[0], batidas[1]);
       const intervaloPresumido = !isImpar && batidas.length === 2 && tempoBrutoCorrido > 6;
       let totalDia = null;
@@ -6027,9 +6032,9 @@ function processDataRep(employees, punches, lotacoes) {
       if (!isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
-        // Em jornada superior a 6 horas sem almoco, deduz 1h (6h-9.9h) ou 2h (>=10h)
+        // A duração total da jornada não aumenta automaticamente o desconto.
         if (intervaloPresumido) {
-          descontoIntervalo = tempoBrutoCorrido >= 10 ? 2 : 1;
+          descontoIntervalo = Math.min(tempoBrutoCorrido, horasIntervaloSemBatida);
           totalDia = Math.max(0, totalDia - descontoIntervalo);
         } else if (batidas.length >= 4 && getHoursDiffRep(batidas[0], batidas[batidas.length - 1]) > 6) {
           for (let i = 1; i < batidas.length - 1; i += 2) {

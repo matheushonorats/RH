@@ -574,6 +574,15 @@
                   <label class="rep-filter-label" for="rep-jornada-horas">Jornada de referência</label>
                   <input type="number" id="rep-jornada-horas" class="form-control" min="1" max="12" step="0.5" value="8" title="Jornada de referência (horas)" onchange="atualizarProcessamentoRep()" aria-label="Jornada de referência em horas">
                 </div>
+                <div style="width: 185px;">
+                  <label class="rep-filter-label" for="rep-intervalo-presumido-horas">Intervalo presumido</label>
+                  <select id="rep-intervalo-presumido-horas" class="form-control" onchange="atualizarProcessamentoRep()" title="Desconto aplicado quando há somente entrada e saída em uma jornada acima de 6 horas">
+                    <option value="0.5">30 minutos</option>
+                    <option value="1" selected>1 hora (padrão)</option>
+                    <option value="1.5">1 hora e 30 minutos</option>
+                    <option value="2">2 horas</option>
+                  </select>
+                </div>
                 <div style="min-width: 245px;">
                   <label class="rep-filter-label" for="rep-feriados">Feriados</label>
                   <div style="display:flex; gap:6px;">
