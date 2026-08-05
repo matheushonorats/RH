@@ -6096,12 +6096,15 @@ function aplicarCompensacoesRep_(emp, dias) {
     dia.minutosCompensadosComoOrigem = minutosUsados;
     dia.extraDia = saldoRestante / 60;
     dia.temHoraExtra = dia.extraDia > 0;
+    // Para o REP, a hora retirada para compensação também deixa de compor a
+    // jornada que dá direito ao VR. Ex.: 6h em dia não útil - 1h retirada =
+    // 5h consideradas e, portanto, sem VR.
+    dia.temValeRefeicao = Boolean(dia.diaExtra && dia.extraDia >= 6);
   });
 
-  // "horasExtras" é a HE ainda válida para novo uso. Já a quantidade de VR
-  // continua baseada na jornada realmente trabalhada no dia não útil (>= 6h),
-  // pois a compensação não apaga o trabalho que deu origem ao benefício.
+  // HE e VR refletem o saldo depois das retiradas de compensação.
   emp.resumo.horasExtras = Math.max(0, Number(emp.resumo.horasExtras || 0) - (aplicadoTotal / 60));
+  emp.resumo.valeRefeicao = (dias || []).filter(dia => Boolean(dia.temValeRefeicao)).length;
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
   emp.resumo.horasRetiradasCompensacao = retiradoTotal / 60;
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
