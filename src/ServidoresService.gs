@@ -195,11 +195,12 @@ function salvarServidor(dadosServidor) {
   const situacoesPermitidas = {
     ESTATUTARIO: "ESTATUTÁRIO",
     COMISSIONADO: "COMISSIONADO",
-    ESTAGIARIO: "ESTAGIÁRIO"
+    ESTAGIARIO: "ESTAGIÁRIO",
+    PEAD: "PEAD"
   };
   const chaveSituacao = normalizarCabecalho_(dadosServidor && dadosServidor.situacao || '').toUpperCase();
   if (!situacoesPermitidas[chaveSituacao]) {
-    throw new Error("Situação funcional inválida. Selecione Estatutário, Comissionado ou Estagiário.");
+    throw new Error("Situação funcional inválida. Selecione Estatutário, Comissionado, Estagiário ou PEAD.");
   }
   dadosServidor.situacao = situacoesPermitidas[chaveSituacao];
   dadosServidor.pis = normalizarPisCpfServidor_(dadosServidor.pis);

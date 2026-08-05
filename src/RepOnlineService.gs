@@ -511,6 +511,77 @@ function salvarAjustesRep(dados) {
   } finally { lock.releaseLock(); }
 }
 
+function salvarEmLoteRep(lotes) {
+  const usuario = obterDadosUsuarioLogado();
+  if (!Array.isArray(lotes) || lotes.length === 0) return [];
+  
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(30000)) throw new Error('Sistema ocupado ao salvar os ajustes. Tente novamente.');
+  
+  const resultados = [];
+  try {
+    const aba = obterAbaAjustesRep_();
+    let existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_AJUSTES_.length).getValues() : [];
+    
+    // Agrupa dados para batch update no final se houver novas linhas
+    let novasLinhas = [];
+    
+    lotes.forEach(function(dados) {
+      if (!dados) return;
+      const pis = normalizarIdentificadorRep_(dados.pis);
+      const competencia = String(dados.competencia || '');
+      if (!pis || !/^\d{4}-\d{2}$/.test(competencia)) return;
+      
+      const ajustes = (Array.isArray(dados.ajustes) ? dados.ajustes : []).slice(0, 500).map(function(item) {
+        const tipo = String(item && item.tipo || '').toUpperCase();
+        if (tipo === 'DESCONSIDERAR') return { tipo: tipo, origemData: /^\d{4}-\d{2}-\d{2}$/.test(String(item.origemData || '')) ? String(item.origemData) : '', eventoChave: String(item.eventoChave || '').slice(0, 500), justificativa: String(item.justificativa || '').slice(0, 500) };
+        if (tipo === 'ADICIONAR' && /^\d{4}-\d{2}-\d{2}$/.test(String(item.data || '')) && /^\d{2}:\d{2}$/.test(String(item.hora || ''))) return { tipo: tipo, id: String(item.id || Utilities.getUuid()).slice(0, 120), data: String(item.data), dataReferencia: /^\d{4}-\d{2}-\d{2}$/.test(String(item.dataReferencia || '')) ? String(item.dataReferencia) : String(item.data), origemData: /^\d{4}-\d{2}-\d{2}$/.test(String(item.origemData || '')) ? String(item.origemData) : String(item.data), hora: String(item.hora), local: String(item.local || 'Local informado manualmente').slice(0, 200), justificativa: String(item.justificativa || '').slice(0, 500) };
+        return null;
+      }).filter(Boolean);
+      const origensSubstituidas = Array.from(new Set((Array.isArray(dados.origensSubstituidas) ? dados.origensSubstituidas : []).map(String).filter(function(valor) { return /^\d{4}-\d{2}-\d{2}$/.test(valor); })));
+      
+      let linhaAlvo = -1;
+      existentes.some(function(linha, indice) { if (normalizarIdentificadorRep_(linha[0]) === pis && String(linha[1]) === competencia) { linhaAlvo = indice + 2; return true; } return false; });
+      let anteriores = [];
+      if (linhaAlvo > 0) {
+        try { anteriores = JSON.parse(String(existentes[linhaAlvo - 2][2] || '[]')); } catch (e) {}
+      }
+      const origens = origensSubstituidas.length ? origensSubstituidas : ajustes.map(function(item) { return String(item.origemData || ''); }).filter(Boolean);
+      const conjuntoOrigens = {};
+      origens.forEach(function(origem) { conjuntoOrigens[origem] = true; });
+      const preservados = (Array.isArray(anteriores) ? anteriores : []).filter(function(item) { return !conjuntoOrigens[String(item && item.origemData || '')]; });
+      const recebidos = ajustes.filter(function(item) { return !origens.length || conjuntoOrigens[String(item.origemData || '')]; });
+      const ajustesFinais = preservados.concat(recebidos).slice(0, 500);
+      const json = JSON.stringify(ajustesFinais);
+      
+      if (json.length > 30000) return; // ignora falhas individuais por tamanho
+      
+      const valores = [pis, competencia, json, new Date(), usuario.nome || usuario.email || '', ajustesFinais.length ? 'Sim' : 'Não'];
+      
+      if (linhaAlvo > 0) {
+        // Atualiza a linha existente imediatamente (para simplicidade e segurança)
+        aba.getRange(linhaAlvo, 1, 1, REP_ONLINE_CABECALHO_AJUSTES_.length).setValues([valores]);
+        existentes[linhaAlvo - 2] = valores; // Atualiza a memória
+      } else {
+        // Adiciona à lista de novas linhas
+        novasLinhas.push(valores);
+        existentes.push(valores);
+      }
+      
+      resultados.push({ pis: pis, competencia: competencia, sucesso: true, removido: !ajustesFinais.length, ajustes: ajustesFinais, atualizadoPor: usuario.nome || usuario.email || '' });
+    });
+    
+    if (novasLinhas.length > 0) {
+      const destinoNova = aba.getLastRow() + 1;
+      aba.getRange(destinoNova, 1, novasLinhas.length, REP_ONLINE_CABECALHO_AJUSTES_.length).setValues(novasLinhas);
+      aba.getRange(destinoNova, 1, novasLinhas.length, 2).setNumberFormat('@');
+    }
+    
+    try { lancarLog('REP_AJUSTE', 'REP_Ajustes', 'Salvou lote de ' + resultados.length + ' ajustes simultâneos.', '', '', String(resultados.length), ''); } catch (e) {}
+    return resultados;
+  } finally { lock.releaseLock(); }
+}
+
 function listarConferenciasRep() {
   obterDadosUsuarioLogado();
   const aba = obterAbaConferenciasRep_();

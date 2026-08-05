@@ -426,6 +426,12 @@ function salvarLancamento(dadosLanc) {
     if (conflitosPeriodo.length) {
       throw new Error(mensagemConflitoCandidatoLancamento_(dadosLanc, conflitosPeriodo[0]));
     }
+    
+    // Bloqueia Falta Abonada / Abono para Estagiários e PEAD
+    const isEstagPead = servidor.situacao === "ESTAGIÁRIO" || servidor.situacao === "PEAD";
+    if (isEstagPead && (tipoNormalizado.includes("ABONADA") || tipoNormalizado.includes("ABONO"))) {
+      throw new Error(`A situação funcional (${servidor.situacao}) não possui direito a faltas abonadas ou abonos.`);
+    }
 
     if (tipoNormalizado.includes("FERIAS")) {
       const totalSolicitado = diasGozo + diasPecunia;

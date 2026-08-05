@@ -725,6 +725,11 @@ window.addEventListener('DOMContentLoaded', () => {
   const temCache = restaurarCacheLocal();
   if (temCache) {
     popularFiltroLotacoes();
+
+  // 1. Restaurar cache local (renderiza dados antigos imediatamente)
+  const temCache = restaurarCacheLocal();
+  if (temCache) {
+    popularFiltroLotacoes();
   }
 
   // 2. Busca usuário, restaura a fila dele e faz o sincronismo
@@ -734,10 +739,22 @@ window.addEventListener('DOMContentLoaded', () => {
   iniciarPolling();
 });
 
+window.addEventListener('beforeunload', function (e) {
+  if (typeof repLotesPendentes !== 'undefined' && Object.keys(repLotesPendentes).length > 0) {
+    e.preventDefault();
+    e.returnValue = ''; // Exibe o prompt padrão do navegador
+    repSalvarTudoPendendente();
+  }
+});
+
 /**
  * Controla a navegação SPA entre as abas do menu
  */
 function navegarPara(idView) {
+  if (currentView === 'pre-leitura-rep' && idView !== 'pre-leitura-rep') {
+    if (typeof repSalvarTudoPendendente === 'function') repSalvarTudoPendendente();
+  }
+  
   currentView = idView;
   // 1. Ocultar todas as views e desativar todos os links
   document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
@@ -1301,6 +1318,15 @@ function carregarDashboard() {
   const resumo = AppState.dashboard || {};
   
   document.getElementById('dash-servidores-ativos').innerText = resumo.ativos || 0;
+  
+  if (resumo.ativosPorSituacao) {
+    let breakdown = [];
+    if (resumo.ativosPorSituacao["ESTATUTÁRIO"]) breakdown.push(resumo.ativosPorSituacao["ESTATUTÁRIO"] + " estat.");
+    if (resumo.ativosPorSituacao["COMISSIONADO"]) breakdown.push(resumo.ativosPorSituacao["COMISSIONADO"] + " comiss.");
+    if (resumo.ativosPorSituacao["ESTAGIÁRIO"]) breakdown.push(resumo.ativosPorSituacao["ESTAGIÁRIO"] + " estag.");
+    if (resumo.ativosPorSituacao["PEAD"]) breakdown.push(resumo.ativosPorSituacao["PEAD"] + " PEAD");
+    document.getElementById('dash-servidores-breakdown').innerText = breakdown.join(' · ') || 'Equipe cadastrada';
+  }
   document.getElementById('dash-ferias-compulsorias').innerText = resumo.compulsorias || 0;
   document.getElementById('dash-ausentes-hoje').innerText = resumo.ausentesHoje || 0;
   document.getElementById('dash-protocolos-pendentes').innerText = resumo.protocolosPendentes || 0;
@@ -1700,9 +1726,11 @@ function obterLotacaoFormularioServidor_() {
 /**
  * Abre o modal de cadastro/edição de servidor
  */
-function abrirModalServidor(matricula) {
+function abrirModalServidor(matricula = null) {
   const form = document.getElementById('form-servidor');
   form.reset();
+  document.getElementById('serv-matricula-error').innerText = '';
+  document.getElementById('serv-matricula').classList.remove('input-error');
   
   const titulo = document.getElementById('modal-servidor-titulo');
   const inputMatricula = document.getElementById('serv-matricula');
@@ -1747,25 +1775,33 @@ function abrirModalServidor(matricula) {
     document.getElementById('serv-penalidade-abonos').value = 0;
     selecionarLotacaoServidor_(document.getElementById('serv-lotacao').value);
   }
-  
+
   abrirModal('modal-servidor');
   toggleCamposObrigatoriosServidor();
 }
 
-/**
- * Alterna a obrigatoriedade dos campos com base no status "Inativo"
- */
 function toggleCamposObrigatoriosServidor() {
   const isAtivo = document.getElementById('serv-ativo').value !== 'Não';
-  const camposRequired = ['serv-matricula', 'serv-situacao', 'serv-nome', 'serv-email'];
-  camposRequired.forEach(id => {
+  const situacao = document.getElementById('serv-situacao').value;
+  const isEstagiarioOuPead = (situacao === 'ESTAGIÁRIO' || situacao === 'PEAD');
+  
+  const camposRequired = ['serv-nome', 'serv-situacao'];
+  if (!isEstagiarioOuPead) {
+    camposRequired.push('serv-matricula', 'serv-email');
+  }
+  
+  ['serv-matricula', 'serv-situacao', 'serv-nome', 'serv-email'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) {
-      el.required = isAtivo;
-    }
+    if (el) el.required = false;
   });
-}
 
+  if (isAtivo) {
+    camposRequired.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.required = true;
+    });
+  }
+}
 
 /**
  * Envia os dados do formulário de servidor ao backend do Apps Script
@@ -6745,13 +6781,49 @@ function montarAjustesCompetenciaRep_(pis, competencia, adicionais) {
   return acoes;
 }
 
+let repLotesPendentes = {};
+let isRepSalvando = false;
+
 async function salvarAjustesCompetenciaRep_(pis, competencia, adicionais, origensSubstituidas) {
   const ajustes = montarAjustesCompetenciaRep_(pis, competencia, adicionais);
-  const resultado = await chamarBackendPromessa_('salvarAjustesRep', [{ pis, competencia, ajustes, origensSubstituidas: origensSubstituidas || [] }]);
-  const ajustesFinais = Array.isArray(resultado?.ajustes) ? resultado.ajustes : ajustes;
+  
+  const chave = `${pis}|${competencia}`;
+  repLotesPendentes[chave] = { pis, competencia, ajustes, origensSubstituidas: origensSubstituidas || [] };
+  
+  const ajustesFinais = ajustes;
   ajustesCompartilhadosRep = (ajustesCompartilhadosRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.competencia === competencia));
-  if (ajustesFinais.length) ajustesCompartilhadosRep.push({ pis, competencia, ajustes: ajustesFinais, atualizadoPor: resultado?.atualizadoPor || '' });
+  if (ajustesFinais.length) ajustesCompartilhadosRep.push({ pis, competencia, ajustes: ajustesFinais, atualizadoPor: 'Você (Pendente)' });
+  
+  const btnSalvar = document.getElementById('btn-rep-salvar-manual');
+  if (btnSalvar) btnSalvar.style.display = 'inline-block';
+  
   return ajustesFinais;
+}
+
+async function repSalvarTudoPendendente() {
+  const chaves = Object.keys(repLotesPendentes);
+  if (chaves.length === 0) return;
+  
+  if (isRepSalvando) return;
+  isRepSalvando = true;
+  
+  const btnSalvar = document.getElementById('btn-rep-salvar-manual');
+  if (btnSalvar) btnSalvar.disabled = true;
+  
+  const lotes = chaves.map(k => repLotesPendentes[k]);
+  try {
+    exibirLoader(true);
+    const resultados = await chamarBackendPromessa_('salvarEmLoteRep', [lotes]);
+    repLotesPendentes = {};
+    if (btnSalvar) btnSalvar.style.display = 'none';
+    mostrarToast(`Salvo ${resultados.length} competências no servidor.`, 'success');
+  } catch (e) {
+    mostrarToast("Erro ao salvar ajustes: " + e.message, 'error');
+  } finally {
+    isRepSalvando = false;
+    if (btnSalvar) btnSalvar.disabled = false;
+    exibirLoader(false);
+  }
 }
 
 function adicionarArquivosRep() {

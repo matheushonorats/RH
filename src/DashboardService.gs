@@ -15,6 +15,7 @@ function obterResumoDashboard() {
   hoje.setHours(0, 0, 0, 0);
   
   let totalAtivos = 0;
+  let ativosPorSituacao = {};
   let totalCompulsorias = 0;
   let totalAusentesHoje = 0;
   let totalProtocolosPendentes = 0;
@@ -29,6 +30,7 @@ function obterResumoDashboard() {
     const colAtivoIdx = indiceCabecalho_(cabecalho, ["ATIVO"]);
     const colMatriculaIdx = indiceCabecalho_(cabecalho, ["MATRICULA"]);
     const colAdmissaoIdx = indiceCabecalho_(cabecalho, ["DATA DE ADMISSAO", "ADMISSAO"]);
+    const colSituacaoIdx = indiceCabecalho_(cabecalho, ["SITUACAO"]);
     const colSaldoFeriasIdx = indiceCabecalho_(cabecalho, ["FERIAS SALDO HOJE", "SALDO HOJE", "SALDO FERIAS"]);
     const colPenalidadeFeriasIdx = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
     
@@ -47,6 +49,9 @@ function obterResumoDashboard() {
       let ativo = colAtivoIdx !== -1 ? String(dadosServ[i][colAtivoIdx]).trim() : "Sim";
       if (ativo === "Sim") {
         totalAtivos++;
+        let situacao = colSituacaoIdx !== -1 ? String(dadosServ[i][colSituacaoIdx]).trim().toUpperCase() : "OUTROS";
+        if (!situacao) situacao = "OUTROS";
+        ativosPorSituacao[situacao] = (ativosPorSituacao[situacao] || 0) + 1;
       }
       
       // Risco compulsório: 60 dias disponíveis e 3º período em até 6 meses.
@@ -138,6 +143,7 @@ function obterResumoDashboard() {
   
   return {
     ativos: totalAtivos,
+    ativosPorSituacao: ativosPorSituacao,
     compulsorias: totalCompulsorias,
     ausentesHoje: totalAusentesHoje,
     protocolosPendentes: totalProtocolosPendentes,

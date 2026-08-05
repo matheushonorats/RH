@@ -147,7 +147,112 @@
             </div>
 
             <div class="dashboard-grid">
-              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('ativos')"><div class="metric-icon metric-green"><span data-lucide="users"></span></div><div><div class="card-title">Servidores ativos</div><div class="card-value" id="dash-servidores-ativos">0</div><span class="metric-caption">Equipe cadastrada</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
+              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('ativos')"><div class="metric-icon metric-green"><span data-lucide="users"></span></div><div><div class="card-title">Servidores ativos</div><div class="card-value" id="dash-servidores-ativos">0</div><div class="metric-caption" id="dash-servidores-breakdown">Equipe cadastrada</div></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
+              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('compulsorias')"><div class="metric-icon metric-red"><span data-lucide="triangle-alert"></span></div><div><div class="card-title">Férias compulsórias</div><div class="card-value status-danger" id="dash-ferias-compulsorias">0</div><span class="metric-caption">Exigem atenção</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
+              <div class="card metric-card"><div class="metric-icon metric-blue"><span data-lucide="calendar-off"></span></div><div><div class="card-title">Ausentes hoje</div><div class="card-value" id="dash-ausentes-hoje">0</div><span class="metric-caption">Afastamentos ativos</span></div></div>
+              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('pendentes')"><div class="metric-icon metric-amber"><span data-lucide="file-warning"></span></div><div><div class="card-title">Sem 1DOC</div><div class="card-value status-warning" id="dash-protocolos-pendentes">0</div><span class="metric-caption">Lançamentos pendentes</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
+            </div>
+
+            <div class="dashboard-content-grid">
+              <div class="table-container dashboard-table-card">
+              <div class="table-header">
+                  <div><div class="table-title">Ausências hoje</div><span class="table-subtitle">Servidores com afastamento vigente na data atual</span></div>
+                  <button class="text-button" onclick="navegarPara('lancamentos')">Ver lançamentos <span data-lucide="arrow-right"></span></button>
+              </div>
+                <div class="table-scroll"><table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Ações</th>
+                    <th>1Doc / Protocolo</th>
+                    <th>Servidor</th>
+                    <th>Matrícula</th>
+                    <th>Tipo</th>
+                    <th>Período</th>
+                    <th>Dias</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-tabela-ausencias">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td>
+                  </tr>
+                </tbody>
+                </table></div>
+              </div>
+
+              <aside class="dashboard-side-column">
+                <div class="smart-dashboard-card" id="smart-dashboard-card">
+                  <div class="smart-card-header">
+                    <div>
+                      <span class="page-eyebrow" id="smart-card-eyebrow">DISTRIBUIÇÃO DA EQUIPE</span>
+                      <h3 id="smart-card-title">Servidores por lotação</h3>
+                    </div>
+                    <div class="smart-card-header-actions">
+                      <span class="smart-card-icon" id="smart-card-icon"><span data-lucide="map-pinned"></span></span>
+                      <button id="dismiss-smart-card-message" class="smart-card-dismiss" type="button" onclick="fecharMensagemEntidadeNoCard()" title="Fechar mensagem e ver gráfico de lotações" aria-label="Fechar mensagem e ver gráfico de lotações" style="display: none;"><span data-lucide="x"></span></button>
+                    </div>
+                  </div>
+
+                  <div id="dashboard-ai-alert-state" class="dashboard-ai-alert-state" style="display: none;">
+                    <div class="ai-alert-summary" id="dashboard-ai-alert-content"></div>
+                    <div class="smart-card-footer"><span id="dashboard-ai-alert-date"></span></div>
+                  </div>
+
+                  <div id="dashboard-location-state" class="dashboard-location-state">
+                    <div class="location-chart-summary"><strong id="location-chart-total">0</strong><span>servidores distribuídos por local</span></div>
+                    <div class="location-pie-layout">
+                      <div id="dashboard-location-pie" class="location-pie" role="img" aria-label="Distribuição dos servidores por lotação"></div>
+                      <div id="dashboard-location-legend" class="location-pie-legend"></div>
+                    </div>
+                    <div class="smart-card-footer"><span>Dados da aba Servidores</span><span id="location-chart-count">0 lotações</span></div>
+                  </div>
+                </div>
+
+                <div class="quick-actions-card" style="margin-top: 24px;">
+                  <div class="insight-header"><div><span class="page-eyebrow">ATALHOS</span><h3>Ações rápidas</h3></div></div>
+                  <div class="quick-actions-grid">
+                    <button onclick="abrirModalServidor()"><span data-lucide="user-plus"></span><span>Novo servidor</span></button>
+                    <button onclick="abrirModalLancamento()"><span data-lucide="file-plus-2"></span><span>Novo lançamento</span></button>
+                    <button onclick="abrirModalCriarProtocolo()"><span data-lucide="clipboard-plus"></span><span>Criar protocolo</span></button>
+                    <button onclick="navegarPara('relatorios')"><span data-lucide="chart-no-axes-combined"></span><span>Emitir relatório</span></button>
+                  </div>
+                  <div class="insight-actions" style="display: flex; gap: 8px; margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px;" onclick="enviarMensagemEntidade('Quero ver a distribuição dos servidores por lotação e os números de cada uma.')"><span data-lucide="map-pin" style="width: 12px; height: 12px; margin-right: 4px;"></span> Lotação</button>
+                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px; color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.05);" onclick="enviarMensagemEntidade('Quais são os seus principais insights sobre a nossa equipe no momento?')"><span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 4px;"></span> Insights IA</button>
+                  </div>
+                  <button id="btn-conversar-entidade-convite" class="entidade-convite-button" type="button" onclick="toggleChatEntidade()" style="display: none;"><span data-lucide="ghost"></span> Conversar com a Entidade <span data-lucide="arrow-right"></span></button>
+                </div>
+              </aside>
+            </div>
+          </section>
+          
+          <!-- View 2: Servidores -->
+          <section id="view-servidores" class="view-section">
+            <!-- Barra de Pesquisa e Filtros -->
+            <div class="filter-bar">
+              <div class="search-input-wrapper">
+                <span class="search-icon-inside" data-lucide="search"></span>
+        </header>
+        
+        <!-- Container das Telas (Views) -->
+        <div class="view-container">
+          <!-- Spinner de Carregamento Geral -->
+          <div class="loader-overlay" id="global-loader">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+              <div class="loader"></div>
+              <div id="loader-percentage" style="color: var(--brand-primary); font-weight: 600; font-size: 16px;">0%</div>
+              <div id="loader-text" style="color: var(--text-secondary); font-size: 13px;">Sincronizando base de dados...</div>
+            </div>
+          </div>
+          
+          <!-- View 1: Dashboard -->
+          <section id="view-dashboard" class="view-section active">
+            <div class="dashboard-welcome">
+              <div><span class="page-eyebrow">PAINEL EXECUTIVO</span><h2 id="dashboard-greeting">Olá, seja bem-vindo.</h2><p>Acompanhe os principais indicadores e movimentações da equipe.</p></div>
+              <button class="btn btn-primary" onclick="abrirModalLancamento()"><span data-lucide="plus"></span>Novo lançamento</button>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('ativos')"><div class="metric-icon metric-green"><span data-lucide="users"></span></div><div><div class="card-title">Servidores ativos</div><div class="card-value" id="dash-servidores-ativos">0</div><div class="metric-caption" id="dash-servidores-breakdown">Equipe cadastrada</div></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
               <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('compulsorias')"><div class="metric-icon metric-red"><span data-lucide="triangle-alert"></span></div><div><div class="card-title">Férias compulsórias</div><div class="card-value status-danger" id="dash-ferias-compulsorias">0</div><span class="metric-caption">Exigem atenção</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
               <div class="card metric-card"><div class="metric-icon metric-blue"><span data-lucide="calendar-off"></span></div><div><div class="card-title">Ausentes hoje</div><div class="card-value" id="dash-ausentes-hoje">0</div><span class="metric-caption">Afastamentos ativos</span></div></div>
               <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('pendentes')"><div class="metric-icon metric-amber"><span data-lucide="file-warning"></span></div><div><div class="card-title">Sem 1DOC</div><div class="card-value status-warning" id="dash-protocolos-pendentes">0</div><span class="metric-caption">Lançamentos pendentes</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
@@ -241,6 +346,7 @@
                 <option value="ESTATUTÁRIO">Estatutário</option>
                 <option value="COMISSIONADO">Comissionado</option>
                 <option value="ESTAGIÁRIO">Estagiário</option>
+                <option value="PEAD">PEAD</option>
               </select>
               <select id="filtro-status-servidor" class="form-control filter-select" onchange="filtrarTabelaServidores()">
                 <option value="">Todos Status</option>
@@ -506,11 +612,14 @@
 
             <div id="rep-results-container" style="display: none;">
               <div id="rep-auditoria-arquivos" class="rep-auditoria-arquivos" aria-live="polite"></div>
-              <div class="rep-resumo-processamento">
-                <span>Servidores <b id="rep-total-servidores">0</b></span>
-                <span>Marcações <b id="rep-total-marcacoes">0</b></span>
-                <span>Alertas <b id="rep-total-pendencias">0</b></span>
-                <span>Não conciliados <b id="rep-total-nao-conciliados">0</b></span>
+              <div class="rep-resumo-processamento" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                  <span>Servidores <b id="rep-total-servidores">0</b></span>
+                  <span>Marcações <b id="rep-total-marcacoes">0</b></span>
+                  <span>Alertas <b id="rep-total-pendencias">0</b></span>
+                  <span>Não conciliados <b id="rep-total-nao-conciliados">0</b></span>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="repSalvarTudoPendendente()" id="btn-rep-salvar-manual" style="display: none; padding: 4px 12px; height: auto;">Salvar Alterações</button>
               </div>
 
               <div class="filters-bar" style="display: flex; gap: 12px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
@@ -834,12 +943,6 @@
                 <input type="text" id="serv-pis" class="form-control" inputmode="numeric" maxlength="12" placeholder="Somente números">
               </div>
               <div class="form-group">
-                <label class="form-label">Situação *</label>
-                <select id="serv-situacao" class="form-control" required>
-                  <option value="ESTATUTÁRIO">Estatutário</option>
-                  <option value="COMISSIONADO">Comissionado</option>
-                  <option value="ESTAGIÁRIO">Estagiário</option>
-                </select>
               </div>
             </div>
             
