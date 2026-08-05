@@ -31,7 +31,7 @@ const REP_ONLINE_CABECALHO_COMPENSACOES_ = [
 const REP_ONLINE_CABECALHO_VALIDACOES_ = [
   'PIS', 'Data', 'Validado', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
 ];
-const REP_ONLINE_CABECALHO_DESCARTES_HE_ = ['PIS', 'Data', 'Descartado', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
+const REP_ONLINE_CABECALHO_DESCARTES_HE_ = ['PIS', 'Data', 'Descartado', 'Atualizado_Em', 'Atualizado_Por', 'Ativo', 'Saldo_Minutos', 'Saldo_Ajustado'];
 const REP_ONLINE_CABECALHO_FERIADOS_ = ['Data', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
 const REP_ONLINE_CABECALHO_AJUSTES_ = ['PIS', 'Competencia', 'Ajustes_JSON', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
 const REP_ONLINE_CABECALHO_CONFERENCIAS_ = ['PIS', 'Competencia', 'Conferido', 'Conferido_Em', 'Conferido_Por', 'Ativo'];
@@ -340,7 +340,12 @@ function obterAbaValidacoesRep_() {
 }
 
 function obterAbaDescartesHoraExtraRep_() {
-  return obterAbaRepOnline_(REP_ONLINE_ABA_DESCARTES_HE_, REP_ONLINE_CABECALHO_DESCARTES_HE_);
+  const aba = obterAbaRepOnline_(REP_ONLINE_ABA_DESCARTES_HE_, REP_ONLINE_CABECALHO_DESCARTES_HE_);
+  if (String(aba.getRange(1, 7).getValue() || '') !== 'Saldo_Minutos') {
+    aba.getRange(1, 7, 1, 2).setValues([['Saldo_Minutos', 'Saldo_Ajustado']])
+      .setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+  }
+  return aba;
 }
 
 function obterAbaFeriadosRep_() {
@@ -604,7 +609,9 @@ function listarDescartesHoraExtraRep() {
     .map(function(linha) {
       return {
         pis: normalizarIdentificadorRep_(linha[0]), data: dataIsoRep_(linha[1]), descartado: String(linha[2] || '').toLowerCase() === 'sim',
-        atualizadoEm: linha[3] instanceof Date ? linha[3].toISOString() : String(linha[3] || ''), atualizadoPor: String(linha[4] || '')
+        atualizadoEm: linha[3] instanceof Date ? linha[3].toISOString() : String(linha[3] || ''), atualizadoPor: String(linha[4] || ''),
+        saldoMinutos: String(linha[7] || '').toLowerCase() === 'sim' && Number.isFinite(Number(linha[6])) ? Number(linha[6]) : null,
+        saldoAjustado: String(linha[7] || '').toLowerCase() === 'sim'
       };
     });
 }
@@ -615,7 +622,10 @@ function salvarDescarteHoraExtraRep(dados) {
   const pis = normalizarIdentificadorRep_(dados.pis);
   const data = String(dados.data || '');
   const descartado = dados.descartado === true;
+  const saldoAjustado = dados.saldoAjustado === true;
+  const saldoMinutos = Number(dados.saldoMinutos);
   if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para desconsiderar a hora extra.');
+  if (saldoAjustado && (!Number.isInteger(saldoMinutos) || saldoMinutos < -1440 || saldoMinutos > 1440)) throw new Error('Informe um saldo válido entre -24:00 e 24:00.');
   const lock = LockService.getDocumentLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao atualizar a hora extra. Tente novamente.');
   try {
@@ -627,12 +637,13 @@ function salvarDescarteHoraExtraRep(dados) {
       return false;
     });
     const por = usuario.nome || usuario.email || '';
-    const valores = [[pis, data, descartado ? 'Sim' : 'Não', new Date(), por, descartado ? 'Sim' : 'Não']];
+    const ativo = descartado || saldoAjustado;
+    const valores = [[pis, data, descartado ? 'Sim' : 'Não', new Date(), por, ativo ? 'Sim' : 'Não', saldoAjustado ? saldoMinutos : '', saldoAjustado ? 'Sim' : 'Não']];
     const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
     aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_DESCARTES_HE_.length).setValues(valores);
     aba.getRange(destino, 1, 1, 2).setNumberFormat('@');
-    try { lancarLog('REP_DESCARTE_HE', 'REP_Descartes_HE', (descartado ? 'Desconsiderou' : 'Restaurou') + ' a hora extra de ' + data + '.', '', '', por, pis); } catch (e) {}
-    return { sucesso: true, descartado: descartado, atualizadoPor: por };
+    try { lancarLog('REP_AJUSTE_SALDO', 'REP_Descartes_HE', (saldoAjustado ? 'Ajustou o saldo para ' + saldoMinutos + ' minuto(s)' : (descartado ? 'Desconsiderou a hora extra' : 'Restaurou o saldo')) + ' em ' + data + '.', '', '', por, pis); } catch (e) {}
+    return { sucesso: true, descartado: descartado, saldoAjustado: saldoAjustado, saldoMinutos: saldoAjustado ? saldoMinutos : null, atualizadoPor: por };
   } finally { lock.releaseLock(); }
 }
 

@@ -5951,25 +5951,45 @@ function aplicarAusenciasLancamentosRep_(emp, dias) {
   });
 }
 
-function aplicarDescartesHoraExtraRep_(emp, dias) {
-  const registros = (descartesHoraExtraRep || []).filter(item => item.descartado && normalizarPisRep(item.pis) === normalizarPisRep(emp.pis));
+function aplicarDescartesHoraExtraRep_(emp, dias, modo) {
+  const ajustesFinais = modo === 'AJUSTES_FINAIS';
+  const registros = (descartesHoraExtraRep || []).filter(item => {
+    if (normalizarPisRep(item.pis) !== normalizarPisRep(emp.pis)) return false;
+    return ajustesFinais ? Boolean(item.saldoAjustado) : Boolean(item.descartado && !item.saldoAjustado);
+  });
   let totalDesconsiderado = 0;
   registros.forEach(registro => {
     const dia = (dias || []).find(item => item.dataOriginal === registro.data);
-    if (!dia || dia.pendencia || dia.ausencia || !Number.isFinite(dia.extraDia) || dia.extraDia <= 0) return;
-    const horas = dia.extraDia;
-    totalDesconsiderado += horas;
-    dia.saldoOriginalAntesDescarteHe = horas;
+    if (!dia || dia.pendencia || dia.ausencia || !Number.isFinite(dia.extraDia)) return;
+    const saldoOriginal = Number(dia.extraDia);
+    if (!registro.saldoAjustado && saldoOriginal <= 0) return;
+    const saldoNovo = registro.saldoAjustado ? Number(registro.saldoMinutos || 0) / 60 : 0;
+    const reducaoPositiva = Math.max(0, Math.max(0, saldoOriginal) - Math.max(0, saldoNovo));
+    totalDesconsiderado += reducaoPositiva;
+    dia.saldoOriginalAntesDescarteHe = saldoOriginal;
     dia.statusAntesDescarteHe = dia.status;
-    dia.horaExtraDesconsiderada = { horas, atualizadoPor: String(registro.atualizadoPor || ''), atualizadoEm: String(registro.atualizadoEm || '') };
-    dia.extraDia = 0;
-    dia.temHoraExtra = false;
-    dia.status = 'hora_extra_desconsiderada';
+    dia.ajusteSaldoManual = { saldoOriginal, saldoNovo, atualizadoPor: String(registro.atualizadoPor || ''), atualizadoEm: String(registro.atualizadoEm || '') };
+    if (saldoNovo === 0 && saldoOriginal > 0) {
+      dia.horaExtraDesconsiderada = { horas: saldoOriginal, atualizadoPor: String(registro.atualizadoPor || ''), atualizadoEm: String(registro.atualizadoEm || '') };
+    }
+    dia.extraDia = saldoNovo;
+    dia.temHoraExtra = saldoNovo > 0;
+    dia.jornadaIncompleta = !dia.diaExtra && saldoNovo < 0;
+    dia.temValeRefeicao = Boolean(dia.diaExtra && saldoNovo >= 6);
+    dia.status = saldoNovo === 0 && saldoOriginal > 0 ? 'hora_extra_desconsiderada' : 'saldo_ajustado_manual';
+    emp.resumo.extras = Number(emp.resumo.extras || 0) + (saldoNovo - saldoOriginal);
+    emp.resumo.saldo = Number(emp.resumo.saldo || 0) + (saldoNovo - saldoOriginal);
+    emp.resumo.horasExtras = Math.max(0, Number(emp.resumo.horasExtras || 0) - Math.max(0, saldoOriginal) + Math.max(0, saldoNovo));
+    if (ajustesFinais && Number.isFinite(Number(emp.resumo.saldoDisponivelCompensacao))) {
+      emp.resumo.saldoDisponivelCompensacao = Math.max(0, Number(emp.resumo.saldoDisponivelCompensacao) - Math.max(0, saldoOriginal) + Math.max(0, saldoNovo));
+      const origens = new Map((emp.resumo.origensSaldoCompensacao || []).map(item => [item.data, { ...item }]));
+      if (saldoNovo > 0) origens.set(dia.dataOriginal, { data: dia.dataOriginal, minutos: Math.round(saldoNovo * 60), minutosBrutos: Math.round(saldoNovo * 60) });
+      else origens.delete(dia.dataOriginal);
+      emp.resumo.origensSaldoCompensacao = Array.from(origens.values()).sort((a, b) => a.data.localeCompare(b.data));
+    }
   });
-  emp.resumo.horasExtras = Math.max(0, Number(emp.resumo.horasExtras || 0) - totalDesconsiderado);
-  emp.resumo.extras = Number(emp.resumo.extras || 0) - totalDesconsiderado;
-  emp.resumo.saldo = Number(emp.resumo.saldo || 0) - totalDesconsiderado;
-  emp.resumo.horasExtrasDesconsideradas = totalDesconsiderado;
+  emp.resumo.horasExtrasDesconsideradas = Number(emp.resumo.horasExtrasDesconsideradas || 0) + totalDesconsiderado;
+  emp.resumo.valeRefeicao = (dias || []).filter(dia => Boolean(dia.temValeRefeicao)).length;
 }
 
 function minutosParaHoraRep_(minutos) {
@@ -5982,6 +6002,15 @@ function horaParaMinutosRep_(valor) {
   const partes = texto.match(/^(\d{1,2}):([0-5]\d)$/);
   if (!partes) return null;
   return Number(partes[1]) * 60 + Number(partes[2]);
+}
+
+function saldoParaMinutosRep_(valor) {
+  const texto = String(valor == null ? '' : valor).trim();
+  if (/^-?0+$/.test(texto)) return 0;
+  const partes = texto.match(/^(-)?(\d{1,2}):([0-5]\d)$/);
+  if (!partes) return null;
+  const minutos = Number(partes[2]) * 60 + Number(partes[3]);
+  return partes[1] ? -minutos : minutos;
 }
 
 function obterJornadaReferenciaRep_() {
@@ -6038,11 +6067,11 @@ function aplicarCompensacoesRep_(emp, dias) {
     const dia = (dias || []).find(item => item.dataOriginal === registro.data);
     if (!dia || dia.ausencia || dia.diaExtra || dia.pendencia) return;
     const diaSemRegistroCompensavel = Boolean(dia.semRegistro);
-    const jornadaIncompletaCompensavel = Boolean(dia.jornadaIncompleta && Number.isFinite(dia.saldoDia) && dia.saldoDia < 0);
+    const jornadaIncompletaCompensavel = Boolean(dia.jornadaIncompleta && Number.isFinite(dia.extraDia) && dia.extraDia < 0);
     if (!diaSemRegistroCompensavel && !jornadaIncompletaCompensavel) return;
     const deficit = diaSemRegistroCompensavel
       ? jornadaReferenciaMinutos
-      : Math.max(0, Math.round(Math.abs(dia.saldoDia) * 60));
+      : Math.max(0, Math.round(Math.abs(dia.extraDia) * 60));
     const contavaComoPendencia = Boolean(dia.jornadaIncompleta || dia.pendencia);
     const solicitado = Math.max(0, Math.round(Number(registro.minutos) || 0));
     let restante = Math.min(deficit, solicitado);
@@ -6072,6 +6101,12 @@ function aplicarCompensacoesRep_(emp, dias) {
     if (!aplicado) return;
     retiradoTotal += retirado;
     aplicadoTotal += aplicado;
+    // O saldo exibido no destino também precisa refletir a compensação.
+    // Dias sem registro partem do débito integral da jornada; nos demais,
+    // parte-se do saldo negativo já apurado ou ajustado manualmente.
+    const saldoAntesCompensacao = diaSemRegistroCompensavel ? -(deficit / 60) : Number(dia.extraDia || 0);
+    dia.saldoAntesCompensacao = saldoAntesCompensacao;
+    dia.extraDia = Math.min(0, saldoAntesCompensacao + (aplicado / 60));
     if (aplicado >= deficit) {
       dia.statusAnteriorCompensacao = dia.status;
       dia.status = 'jornada_compensada';
@@ -6138,7 +6173,7 @@ function obterDeficitDiaRep_(dia) {
   if (!dia || dia.diaExtra || dia.ausencia || dia.validacaoManual || dia.pendencia) return 0;
   let deficitMinutos = 0;
   if (dia.semRegistro) deficitMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
-  else if (Number.isFinite(dia.saldoDia) && dia.saldoDia < 0) deficitMinutos = Math.round(Math.abs(dia.saldoDia) * 60);
+  else if (Number.isFinite(dia.extraDia) && dia.extraDia < 0) deficitMinutos = Math.round(Math.abs(dia.extraDia) * 60) + Math.max(0, Math.round(Number(dia.compensacao?.minutosAplicados || 0)));
   const compensado = Math.max(0, Math.round(Number(dia.compensacao?.minutosAplicados || 0)));
   return Math.max(0, deficitMinutos - compensado) / 60;
 }
@@ -6291,8 +6326,9 @@ function processDataRep(employees, punches, lotacoes) {
     }
     completarDiasSemRegistroRep_(dias, feriados);
     aplicarAusenciasLancamentosRep_(empSeguro, dias);
-    aplicarDescartesHoraExtraRep_(empSeguro, dias);
+    aplicarDescartesHoraExtraRep_(empSeguro, dias, 'LEGADOS');
     aplicarCompensacoesRep_(empSeguro, dias);
+    aplicarDescartesHoraExtraRep_(empSeguro, dias, 'AJUSTES_FINAIS');
     aplicarValidacoesAlertasRep_(empSeguro, dias);
     atualizarHorasDevidasRep_(empSeguro, dias);
     resultadoSeguro.push({ pis: empSeguro.pis, nome: empSeguro.nome, lotacao: empSeguro.lotacao, naoConciliado: empSeguro.naoConciliado, dias, resumo: empSeguro.resumo });
@@ -7212,7 +7248,9 @@ function abrirAjusteDiaRep(pis, data) {
   const diaSemRegistroCompensavel = Boolean(dia.semRegistro && !dia.diaExtra && !dia.ausencia);
   const deficitMinutos = diaSemRegistroCompensavel
     ? Math.round(obterJornadaReferenciaRep_() * 60)
-    : (Number.isFinite(dia.saldoDia) && dia.saldoDia < 0 ? Math.round(Math.abs(dia.saldoDia) * 60) : 0);
+    : (Number.isFinite(dia.extraDia) && dia.extraDia < 0
+      ? Math.round(Math.abs(dia.extraDia) * 60) + Math.max(0, Math.round(Number(dia.compensacao?.minutosAplicados || 0)))
+      : 0);
   const saldosOrigem = new Map((emp.resumo.origensSaldoCompensacao || []).map(item => [item.data, {
     liquido: Number(item.minutos || 0),
     bruto: Number(item.minutosBrutos != null ? item.minutosBrutos : item.minutos || 0)
@@ -7719,6 +7757,7 @@ function textoSituacaoRep(status) {
     descanso_semanal_remunerado: 'Descanso Semanal Remunerado',
     feriado_sem_registro: 'Feriado / Ponto Facultativo',
     hora_extra_desconsiderada: 'Hora extra desconsiderada manualmente neste dia',
+    saldo_ajustado_manual: 'Saldo definido manualmente na conferência',
     intervalo_presumido: 'Almoço descontado (não registrado)',
     extra_intervalo_presumido: 'Extra com almoço descontado',
     impar: 'Batida ímpar', intervalo_nao_identificado: 'Intervalo não identificado',
@@ -7739,6 +7778,7 @@ function categoriaSituacaoRep(status) {
     descanso_semanal_remunerado: 'DSR',
     feriado_sem_registro: 'Feriado',
     hora_extra_desconsiderada: 'HE desconsiderada',
+    saldo_ajustado_manual: 'Saldo ajustado',
     ok: 'Conferido',
     saldo_positivo: 'Saldo',
     jornada_incompleta: 'Jornada incompleta',
@@ -8078,19 +8118,45 @@ async function alternarConferenciaServidorRep(pis) {
   } finally { exibirLoader(false); }
 }
 
-async function alternarDescarteHoraExtraRep(pis, data) {
-  const existente = (descartesHoraExtraRep || []).find(item => item.descartado && normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data);
-  const descartar = !existente;
-  try {
-    exibirLoader(true, descartar ? 'Desconsiderando a hora extra deste dia...' : 'Restaurando a hora extra deste dia...');
-    const resultado = enfileirarAlteracaoRep_('DESCARTE_HE', { pis, data, descartado: descartar }, `DESCARTE_HE|${normalizarPisRep(pis)}|${data}`);
-    descartesHoraExtraRep = (descartesHoraExtraRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data));
-    if (descartar) descartesHoraExtraRep.push({ pis, data, descartado: true, atualizadoPor: resultado?.atualizadoPor || AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || '' });
-    atualizarProcessamentoRep({ notificarEntidade: false });
-    mostrarToast(descartar ? 'Hora extra desconsiderada somente neste dia.' : 'Hora extra restaurada neste dia.', 'success');
-  } catch (erro) {
-    mostrarToast('Não foi possível atualizar a hora extra: ' + mensagemErro(erro), 'error');
-  } finally { exibirLoader(false); }
+function salvarSaldoDiretoRep_(pis, data, campo) {
+  if (!campo || campo.dataset.salvando === 'true') return;
+  const minutos = saldoParaMinutosRep_(campo.value);
+  const minutosAnteriores = Number(campo.dataset.minutosOriginais || 0);
+  if (minutos === null || minutos < -1440 || minutos > 1440) {
+    campo.value = campo.dataset.valorOriginal || '00:00';
+    return mostrarToast('Use o formato HH:MM ou -HH:MM, entre -24:00 e 24:00.', 'warning');
+  }
+  campo.value = formatHoursRep(minutos / 60);
+  if (minutos === minutosAnteriores) return;
+  campo.dataset.salvando = 'true';
+  enfileirarAlteracaoRep_('DESCARTE_HE', { pis, data, descartado: false, saldoAjustado: true, saldoMinutos: minutos }, `DESCARTE_HE|${normalizarPisRep(pis)}|${data}`);
+  descartesHoraExtraRep = (descartesHoraExtraRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data));
+  descartesHoraExtraRep.push({
+    pis, data, descartado: false, saldoAjustado: true, saldoMinutos: minutos,
+    atualizadoPor: AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || ''
+  });
+  atualizarProcessamentoRep({ notificarEntidade: false });
+  mostrarToast(`Saldo de ${data.split('-').reverse().join('/')} ajustado para ${formatHoursRep(minutos / 60)}h.`, 'success');
+}
+
+function restaurarSaldoDiretoRep_(pis, data) {
+  enfileirarAlteracaoRep_('DESCARTE_HE', { pis, data, descartado: false, saldoAjustado: false }, `DESCARTE_HE|${normalizarPisRep(pis)}|${data}`);
+  descartesHoraExtraRep = (descartesHoraExtraRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data));
+  atualizarProcessamentoRep({ notificarEntidade: false });
+  mostrarToast('Saldo calculado pelo ponto restaurado.', 'success');
+}
+
+function alternarValidacaoRapidaRep_(pis, data) {
+  const existente = (validacoesRep || []).find(item => item.validado && normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data);
+  const validar = !existente;
+  enfileirarAlteracaoRep_('VALIDACAO', { pis, data, validado: validar, observacao: '' }, `VALIDACAO|${normalizarPisRep(pis)}|${data}`);
+  validacoesRep = (validacoesRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data));
+  if (validar) validacoesRep.push({
+    pis, data, validado: true, observacao: '',
+    atualizadoPor: AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || ''
+  });
+  atualizarProcessamentoRep({ notificarEntidade: false });
+  mostrarToast(validar ? 'Alerta validado.' : 'Alerta reaberto.', 'success');
 }
 
 function renderizarPainelRep(servidores, container) {
@@ -8138,22 +8204,25 @@ function renderizarPainelRep(servidores, container) {
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
       ${evento.dataReal && evento.dataReal !== dia.dataOriginal ? `<small class="rep-evento-virada">Batida real em ${escapeHtml(evento.dataReal.split('-').reverse().join('/'))} · vinculada a esta jornada</small>` : ''}
       <small>${evento.manual ? 'AJUSTE MANUAL' : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
-      <button type="button" class="rep-apontar-registro" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','REGISTRO','${escapeHtml(evento.eventKey || evento.eventId || '')}','')">Apontar</button>
     </div>`).join('');
-    const sinalizadores = `${dia.temHoraExtra ? '<span class="rep-sinalizador he">HE</span>' : ''}${dia.temValeRefeicao ? '<span class="rep-sinalizador vr">VR</span>' : ''}${dia.compensacao?.minutosAplicados ? '<span class="rep-sinalizador comp">COMP</span>' : ''}`;
+    const sinalizadoresSaldo = `${dia.temHoraExtra ? '<span class="rep-sinalizador he">HE</span>' : ''}${dia.temValeRefeicao ? '<span class="rep-sinalizador vr">VR</span>' : ''}`;
+    const sinalizadorCompensacao = dia.compensacao?.minutosAplicados ? '<span class="rep-sinalizador comp">COMP</span>' : '';
     const acaoValidacao = dia.validacaoManual
-      ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Reabrir alerta</button>`
-      : (dia.pendencia || dia.jornadaIncompleta ? `<button type="button" class="rep-ajustar-dia validar" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Validar alerta</button>` : '');
-    const acaoDescarteHe = dia.horaExtraDesconsiderada
-      ? `<button type="button" class="rep-ajustar-dia descarte-he ativo" onclick="alternarDescarteHoraExtraRep('${selecionado.pis}','${dia.dataOriginal}')">Restaurar HE</button>`
-      : (dia.temHoraExtra ? `<button type="button" class="rep-ajustar-dia descarte-he" onclick="alternarDescarteHoraExtraRep('${selecionado.pis}','${dia.dataOriginal}')">Desconsiderar HE</button>` : '');
+      ? `<button type="button" class="rep-ajustar-dia validar ativo" onclick="alternarValidacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}')">Reabrir alerta</button>`
+      : (dia.pendencia || dia.jornadaIncompleta ? `<button type="button" class="rep-ajustar-dia validar" onclick="alternarValidacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}')">Validar alerta</button>` : '');
+    const saldoEditavel = Number.isFinite(dia.extraDia) && !dia.pendencia && !dia.ausencia;
+    const saldoValor = Number.isFinite(dia.extraDia) ? formatHoursRep(dia.extraDia) : '';
+    const restaurarSaldo = dia.ajusteSaldoManual ? `<button type="button" class="rep-restaurar-saldo" onclick="restaurarSaldoDiretoRep_('${selecionado.pis}','${dia.dataOriginal}')" title="Voltar ao saldo calculado pelas batidas">Original</button>` : '';
+    const campoSaldo = saldoEditavel
+      ? `<div class="rep-saldo-celula"><input type="text" class="rep-saldo-editor" value="${saldoValor}" data-valor-original="${saldoValor}" data-minutos-originais="${Math.round(dia.extraDia * 60)}" maxlength="6" inputmode="text" aria-label="Editar saldo de ${dia.dataFormatada}" title="Edite e pressione Enter ou saia do campo" onfocus="this.select()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.valorOriginal;this.blur()}" onblur="salvarSaldoDiretoRep_('${selecionado.pis}','${dia.dataOriginal}',this)"><span class="rep-sinalizadores rep-sinalizadores-saldo">${sinalizadoresSaldo}</span>${restaurarSaldo}</div>`
+      : `<div class="rep-saldo-celula"><span>${!Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : saldoValor + 'h')}</span><span class="rep-sinalizadores rep-sinalizadores-saldo">${sinalizadoresSaldo}</span></div>`;
     const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
     return `<tr class="${classesDia}" data-rep-data="${dia.dataOriginal}" ondragover="permitirSoltarMarcacaoRep_(event)" ondragleave="sairDestinoMarcacaoRep_(event)" ondrop="soltarMarcacaoRep_(event,'${dia.dataOriginal}')">
-      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button>${acaoValidacao}${acaoDescarteHe}</div></td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button>${acaoValidacao}</div></td>
       <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoOrigemCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
-      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro || !Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
-      <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadores}</span></td>
+      <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${campoSaldo}</td>
+      <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadorCompensacao}</span></td>
     </tr>`;
   }).join('') || `<tr><td colspan="5" class="rep-filtro-vazio">Nenhum dia encontrado neste filtro.</td></tr>`;
 
@@ -8163,7 +8232,7 @@ function renderizarPainelRep(servidores, container) {
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button><button type="button" class="rep-ajuda-entidade" onclick="pedirAjudaEntidadeRep()"><span data-lucide="ghost"></span> Ajuda da Entidade</button></div></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button></div></div>
         <div class="rep-grupo-resumo">
           <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Saldo de horas positivas</small><b>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h</b><em>${formatHoursRep(selecionado.resumo.horasExtras)}h válidas · ${formatHoursRep(selecionado.resumo.horasExtrasDesconsideradas || 0)}h desconsideradas · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h retiradas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada arredondada ≥ 6h em dia não útil</em></button>
