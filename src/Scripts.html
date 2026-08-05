@@ -5988,6 +5988,7 @@ function obterJornadaReferenciaRep_() {
 
 function aplicarCompensacoesRep_(emp, dias) {
   const saldoPorDia = new Map();
+  const saldoInicialPorDia = new Map();
   (dias || []).forEach(dia => {
     if (!dia.pendencia && Number.isFinite(dia.extraDia) && dia.extraDia > 0) {
       const liquido = Math.max(0, Math.round(dia.extraDia * 60));
@@ -5996,6 +5997,7 @@ function aplicarCompensacoesRep_(emp, dias) {
       // mantendo a aplicacao liquida ja calculada (ex.: 8h).
       const intervaloBruto = dia.diaExtra ? Math.max(0, Math.round(Number(dia.descontoIntervalo || 0) * 60)) : 0;
       saldoPorDia.set(dia.dataOriginal, { liquido, bruto: liquido + intervaloBruto });
+      saldoInicialPorDia.set(dia.dataOriginal, liquido);
     }
   });
   let disponivel = Array.from(saldoPorDia.values()).reduce((total, saldo) => total + saldo.liquido, 0);
@@ -6080,6 +6082,26 @@ function aplicarCompensacoesRep_(emp, dias) {
     }
   });
   disponivel = Array.from(saldoPorDia.values()).reduce((total, saldo) => total + saldo.liquido, 0);
+
+  // A compensação retira a HE da origem, e não apenas do total disponível.
+  // Assim a linha do dia, os filtros e os totais passam a representar o saldo
+  // que ainda existe depois da compensação, sem alterar o AFD original.
+  (dias || []).forEach(dia => {
+    if (!saldoInicialPorDia.has(dia.dataOriginal)) return;
+    const saldoInicial = saldoInicialPorDia.get(dia.dataOriginal);
+    const saldoRestante = (saldoPorDia.get(dia.dataOriginal) || {}).liquido || 0;
+    const minutosUsados = Math.max(0, saldoInicial - saldoRestante);
+    if (!minutosUsados) return;
+    dia.horaExtraAntesCompensacao = saldoInicial / 60;
+    dia.minutosCompensadosComoOrigem = minutosUsados;
+    dia.extraDia = saldoRestante / 60;
+    dia.temHoraExtra = dia.extraDia > 0;
+  });
+
+  // "horasExtras" é a HE ainda válida para novo uso. Já a quantidade de VR
+  // continua baseada na jornada realmente trabalhada no dia não útil (>= 6h),
+  // pois a compensação não apaga o trabalho que deu origem ao benefício.
+  emp.resumo.horasExtras = Math.max(0, Number(emp.resumo.horasExtras || 0) - (aplicadoTotal / 60));
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
   emp.resumo.horasRetiradasCompensacao = retiradoTotal / 60;
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
@@ -8102,6 +8124,7 @@ function renderizarPainelRep(servidores, container) {
       return `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(bruto)}h retiradas${bruto !== liquido ? ` → ${minutosParaHoraRep_(liquido)}h aplicadas` : ''})`;
     }).join(' + ');
     const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h aplicadas de ${minutosParaHoraRep_(dia.compensacao.deficit)}h devidas</strong><small>Origem: ${escapeHtml(origensCompensacaoTexto || 'registro antigo sem detalhamento')}${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
+    const infoOrigemCompensacao = dia.minutosCompensadosComoOrigem ? `<div class="rep-compensacao-origem"><span>HE usada em compensação</span><strong>${minutosParaHoraRep_(dia.minutosCompensadosComoOrigem)}h retiradas deste dia</strong><small>Saldo de HE antes da retirada: ${formatHoursRep(dia.horaExtraAntesCompensacao)}h</small></div>` : '';
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
     const infoDescarteHe = dia.horaExtraDesconsiderada ? `<div class="rep-descarte-he-dia"><span>Hora extra desconsiderada neste dia</span><strong>${formatHoursRep(dia.horaExtraDesconsiderada.horas)}h não contabilizadas</strong><small>${dia.horaExtraDesconsiderada.atualizadoPor ? `Por ${escapeHtml(primeiroNomeRep_(dia.horaExtraDesconsiderada.atualizadoPor))}` : 'Decisão manual da conferência'}</small></div>` : '';
     const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento" draggable="true" data-event-id="${escapeHtml(evento.eventId || '')}" title="Arraste esta marcação para o dia correto" ondragstart="iniciarArrasteMarcacaoRep_(event,this.dataset.eventId,'${dia.dataOriginal}')" ondragend="finalizarArrasteMarcacaoRep_(event)">
@@ -8121,7 +8144,7 @@ function renderizarPainelRep(servidores, container) {
     const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
     return `<tr class="${classesDia}" data-rep-data="${dia.dataOriginal}" ondragover="permitirSoltarMarcacaoRep_(event)" ondragleave="sairDestinoMarcacaoRep_(event)" ondrop="soltarMarcacaoRep_(event,'${dia.dataOriginal}')">
       <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia apontar" onclick="abrirApontamentoRep('${selecionado.pis}','${dia.dataOriginal}','DIA','','')">Apontar</button>${acaoValidacao}${acaoDescarteHe}</div></td>
-      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
+      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoOrigemCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${dia.semRegistro || !Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.extraDia) + 'h')}</td>
       <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadores}</span></td>
