@@ -1723,12 +1723,14 @@ function obterLotacaoFormularioServidor_() {
  */
 function abrirModalServidor(matricula = null) {
   const form = document.getElementById('form-servidor');
-  form.reset();
-  document.getElementById('serv-matricula-error').innerText = '';
-  document.getElementById('serv-matricula').classList.remove('input-error');
+  if (form) form.reset();
+  
+  const errMatricula = document.getElementById('serv-matricula-error');
+  if (errMatricula) errMatricula.innerText = '';
   
   const titulo = document.getElementById('modal-servidor-titulo');
   const inputMatricula = document.getElementById('serv-matricula');
+  if (inputMatricula) inputMatricula.classList.remove('input-error');
   const wrapperAtivo = document.getElementById('serv-ativo-wrapper');
   const campoNovaLotacao = document.getElementById('serv-lotacao-nova');
   if (campoNovaLotacao) campoNovaLotacao.value = '';
