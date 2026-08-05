@@ -708,6 +708,61 @@ function abrirConfirm(mensagem, titulo = 'Atenção') {
     btnOk.addEventListener('click', clkOk);
     
     abrirModal('modal-confirm');
+  
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${tipo}`;
+  
+  let icone = 'info';
+  if (tipo === 'success') icone = 'check-circle';
+  if (tipo === 'error') icone = 'alert-circle';
+  if (tipo === 'warning') icone = 'alert-triangle';
+  
+  toast.innerHTML = `
+    <div class="toast-icon">
+      <span data-lucide="${icone}"></span>
+    </div>
+    <div class="toast-content">${escapeHtml(mensagem)}</div>
+  `;
+  
+  container.appendChild(toast);
+  renderizarIcones();
+  
+  setTimeout(() => {
+    toast.classList.add('toast-leaving');
+    toast.addEventListener('animationend', () => toast.remove());
+  }, 4000);
+}
+
+/**
+ * Exibe um Modal de Confirmação customizado (Retorna Promise<boolean>)
+ */
+function abrirConfirm(mensagem, titulo = 'Atenção') {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-confirm');
+    if (!modal) {
+      resolve(confirm(mensagem));
+      return;
+    }
+    document.getElementById('confirm-title').innerText = titulo;
+    document.getElementById('confirm-message').innerText = mensagem;
+    
+    const btnCancel = document.getElementById('confirm-btn-cancel');
+    const btnOk = document.getElementById('confirm-btn-ok');
+    
+    const fechar = (resultado) => {
+      fecharModal('modal-confirm');
+      btnCancel.removeEventListener('click', clkCancel);
+      btnOk.removeEventListener('click', clkOk);
+      resolve(resultado);
+    };
+    
+    const clkCancel = () => fechar(false);
+    const clkOk = () => fechar(true);
+    
+    btnCancel.addEventListener('click', clkCancel);
+    btnOk.addEventListener('click', clkOk);
+    
+    abrirModal('modal-confirm');
   });
 }
 
@@ -720,11 +775,6 @@ window.addEventListener('DOMContentLoaded', () => {
   inicializarInterface();
   renderizarIcones();
   inicializarDropzonesAnexos();
-
-  // 1. Restaurar cache local (renderiza dados antigos imediatamente)
-  const temCache = restaurarCacheLocal();
-  if (temCache) {
-    popularFiltroLotacoes();
 
   // 1. Restaurar cache local (renderiza dados antigos imediatamente)
   const temCache = restaurarCacheLocal();
