@@ -145,7 +145,7 @@ function obterFuncoesApiPermitidas_() {
     atualizarFeriadosRep: atualizarFeriadosRep,
     listarAjustesRep: listarAjustesRep,
     salvarAjustesRep: salvarAjustesRep,
-    salvarEmLoteRep: salvarEmLoteRep,
+    salvarAlteracoesLoteRep: salvarAlteracoesLoteRep,
     listarConferenciasRep: listarConferenciasRep,
     salvarConferenciaRep: salvarConferenciaRep,
     salvarApontamentoRep: salvarApontamentoRep,

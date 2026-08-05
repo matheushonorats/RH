@@ -734,22 +734,20 @@ window.addEventListener('DOMContentLoaded', () => {
   iniciarPolling();
 });
 
-window.addEventListener('beforeunload', function (e) {
-  if (typeof repLotesPendentes !== 'undefined' && Object.keys(repLotesPendentes).length > 0) {
-    e.preventDefault();
-    e.returnValue = ''; // Exibe o prompt padrão do navegador
-    repSalvarTudoPendendente();
-  }
+window.addEventListener('beforeunload', function(event) {
+  if (!repTemAlteracoesPendentes_()) return;
+  event.preventDefault();
+  event.returnValue = '';
 });
 
 /**
  * Controla a navegação SPA entre as abas do menu
  */
-function navegarPara(idView) {
+async function navegarPara(idView) {
   if (currentView === 'pre-leitura-rep' && idView !== 'pre-leitura-rep') {
-    if (typeof repSalvarTudoPendendente === 'function') repSalvarTudoPendendente();
+    const salvou = await garantirSalvamentoAntesDeSairRep_();
+    if (!salvou) return false;
   }
-  
   currentView = idView;
   // 1. Ocultar todas as views e desativar todos os links
   document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
@@ -783,6 +781,7 @@ function navegarPara(idView) {
   
   // 6. Carrega os dados específicos da view
   carregarDadosDaView(idView);
+  return true;
 }
 
 /** LÓGICA DE LOGIN CUSTOMIZADO */
@@ -1311,17 +1310,15 @@ function carregarDashboard() {
   }
 
   const resumo = AppState.dashboard || {};
-  
+
   document.getElementById('dash-servidores-ativos').innerText = resumo.ativos || 0;
-  
-  if (resumo.ativosPorSituacao) {
-    let breakdown = [];
-    if (resumo.ativosPorSituacao["ESTATUTÁRIO"]) breakdown.push(resumo.ativosPorSituacao["ESTATUTÁRIO"] + " estat.");
-    if (resumo.ativosPorSituacao["COMISSIONADO"]) breakdown.push(resumo.ativosPorSituacao["COMISSIONADO"] + " comiss.");
-    if (resumo.ativosPorSituacao["ESTAGIÁRIO"]) breakdown.push(resumo.ativosPorSituacao["ESTAGIÁRIO"] + " estag.");
-    if (resumo.ativosPorSituacao["PEAD"]) breakdown.push(resumo.ativosPorSituacao["PEAD"] + " PEAD");
-    document.getElementById('dash-servidores-breakdown').innerText = breakdown.join(' · ') || 'Equipe cadastrada';
-  }
+  const distribuicao = resumo.ativosPorSituacao || {};
+  const ordemSituacoes = ['Estatutários', 'Comissionados', 'Estagiários', 'PEAD', 'Outros'];
+  const detalhamentoEquipe = ordemSituacoes
+    .filter(rotulo => Number(distribuicao[rotulo] || 0) > 0)
+    .map(rotulo => `${Number(distribuicao[rotulo])} ${rotulo}`);
+  const campoDistribuicao = document.getElementById('dash-servidores-breakdown');
+  if (campoDistribuicao) campoDistribuicao.innerText = detalhamentoEquipe.join(' · ') || 'Equipe cadastrada';
   document.getElementById('dash-ferias-compulsorias').innerText = resumo.compulsorias || 0;
   document.getElementById('dash-ausentes-hoje').innerText = resumo.ausentesHoje || 0;
   document.getElementById('dash-protocolos-pendentes').innerText = resumo.protocolosPendentes || 0;
@@ -1721,16 +1718,12 @@ function obterLotacaoFormularioServidor_() {
 /**
  * Abre o modal de cadastro/edição de servidor
  */
-function abrirModalServidor(matricula = null) {
+function abrirModalServidor(matricula) {
   const form = document.getElementById('form-servidor');
-  if (form) form.reset();
-  
-  const errMatricula = document.getElementById('serv-matricula-error');
-  if (errMatricula) errMatricula.innerText = '';
+  form.reset();
   
   const titulo = document.getElementById('modal-servidor-titulo');
   const inputMatricula = document.getElementById('serv-matricula');
-  if (inputMatricula) inputMatricula.classList.remove('input-error');
   const wrapperAtivo = document.getElementById('serv-ativo-wrapper');
   const campoNovaLotacao = document.getElementById('serv-lotacao-nova');
   if (campoNovaLotacao) campoNovaLotacao.value = '';
@@ -1777,28 +1770,30 @@ function abrirModalServidor(matricula = null) {
   toggleCamposObrigatoriosServidor();
 }
 
+/**
+ * Alterna a obrigatoriedade dos campos com base no status "Inativo"
+ */
 function toggleCamposObrigatoriosServidor() {
   const isAtivo = document.getElementById('serv-ativo').value !== 'Não';
   const situacao = document.getElementById('serv-situacao').value;
-  const isEstagiarioOuPead = (situacao === 'ESTAGIÁRIO' || situacao === 'PEAD');
-  
-  const camposRequired = ['serv-nome', 'serv-situacao'];
-  if (!isEstagiarioOuPead) {
-    camposRequired.push('serv-matricula', 'serv-email');
+  const identificacaoOpcional = situacao === 'ESTAGIÁRIO' || situacao === 'PEAD';
+  const obrigatorios = new Set(['serv-situacao', 'serv-nome']);
+  if (!identificacaoOpcional) {
+    obrigatorios.add('serv-matricula');
+    obrigatorios.add('serv-email');
   }
-  
   ['serv-matricula', 'serv-situacao', 'serv-nome', 'serv-email'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.required = false;
+    const campo = document.getElementById(id);
+    if (campo) campo.required = isAtivo && obrigatorios.has(id);
   });
-
-  if (isAtivo) {
-    camposRequired.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.required = true;
-    });
-  }
+  const marcaMatricula = document.getElementById('serv-matricula-obrigatoria');
+  const marcaEmail = document.getElementById('serv-email-obrigatorio');
+  const ajuda = document.getElementById('serv-identificacao-ajuda');
+  if (marcaMatricula) marcaMatricula.style.display = identificacaoOpcional ? 'none' : '';
+  if (marcaEmail) marcaEmail.style.display = identificacaoOpcional ? 'none' : '';
+  if (ajuda) ajuda.style.display = identificacaoOpcional ? 'block' : 'none';
 }
+
 
 /**
  * Envia os dados do formulário de servidor ao backend do Apps Script
@@ -2630,6 +2625,14 @@ async function salvarDadosLancamento(event) {
   const idocInput = document.getElementById('lanc-idoc').value.trim();
   const linhaAtual = parseInt(document.getElementById('lanc-linha').value) || -1;
   const tipoDoc = document.getElementById('lanc-tipo').value;
+  const servidorLancamento = (AppState.servidores || []).find(item => String(item.matricula) === String(matricula));
+  const situacaoLancamento = normalizarTextoRep_(servidorLancamento?.situacao || '');
+  const tipoLancamentoNormalizado = normalizarTextoRep_(tipoDoc);
+  if ((situacaoLancamento === 'ESTAGIARIO' || situacaoLancamento === 'PEAD') && (tipoLancamentoNormalizado.includes('ABONADA') || tipoLancamentoNormalizado.includes('ABONO'))) {
+    exibirLoader(false);
+    mostrarToast(`${servidorLancamento.situacao} não possui direito a abonos. Férias permanecem disponíveis.`, 'warning');
+    return;
+  }
   
   if (idocInput && idocInput !== "-" && AppState.lancamentos) {
     const lExistente = AppState.lancamentos.find(l => l.idoc === idocInput && l.linhaPlanilha !== linhaAtual);
@@ -6778,49 +6781,103 @@ function montarAjustesCompetenciaRep_(pis, competencia, adicionais) {
   return acoes;
 }
 
-let repLotesPendentes = {};
-let isRepSalvando = false;
+const repAlteracoesPendentes_ = new Map();
+let repTemporizadorSalvamento_ = null;
+let repSalvamentoEmAndamento_ = null;
+let repSequenciaAlteracao_ = 0;
+
+function atualizarEstadoSalvamentoRep_() {
+  const botao = document.getElementById('btn-rep-salvar-manual');
+  if (!botao) return;
+  const quantidade = repAlteracoesPendentes_.size;
+  botao.disabled = quantidade === 0 && !repSalvamentoEmAndamento_;
+  botao.textContent = repSalvamentoEmAndamento_
+    ? 'Salvando...'
+    : (quantidade ? `Salvar ${quantidade} alteração${quantidade === 1 ? '' : 'ões'}` : 'Tudo salvo');
+}
+
+function repTemAlteracoesPendentes_() {
+  return repAlteracoesPendentes_.size > 0 || Boolean(repSalvamentoEmAndamento_);
+}
+
+function enfileirarAlteracaoRep_(tipo, dados, chave) {
+  const identificador = String(chave || `${tipo}|${++repSequenciaAlteracao_}`);
+  const anterior = repAlteracoesPendentes_.get(identificador);
+  if (String(tipo).toUpperCase() === 'AJUSTES' && anterior?.dados) {
+    dados = {
+      ...dados,
+      origensSubstituidas: Array.from(new Set([
+        ...(anterior.dados.origensSubstituidas || []),
+        ...((dados && dados.origensSubstituidas) || [])
+      ]))
+    };
+  }
+  repAlteracoesPendentes_.set(identificador, {
+    chave: identificador,
+    tipo: String(tipo || '').toUpperCase(),
+    dados: dados || {},
+    sequencia: ++repSequenciaAlteracao_
+  });
+  clearTimeout(repTemporizadorSalvamento_);
+  repTemporizadorSalvamento_ = setTimeout(function() {
+    salvarAlteracoesPendentesRep_({ automatico: true });
+  }, 1400);
+  atualizarEstadoSalvamentoRep_();
+  return { pendente: true };
+}
+
+async function salvarAlteracoesPendentesRep_(opcoes) {
+  opcoes = opcoes || {};
+  clearTimeout(repTemporizadorSalvamento_);
+  repTemporizadorSalvamento_ = null;
+  if (repSalvamentoEmAndamento_) {
+    const sucessoAtual = await repSalvamentoEmAndamento_;
+    if (!sucessoAtual || !repAlteracoesPendentes_.size) return sucessoAtual;
+  }
+  if (!repAlteracoesPendentes_.size) {
+    atualizarEstadoSalvamentoRep_();
+    return true;
+  }
+
+  const lote = Array.from(repAlteracoesPendentes_.values());
+  repSalvamentoEmAndamento_ = (async function() {
+    atualizarEstadoSalvamentoRep_();
+    try {
+      const resultados = await chamarBackendPromessa_('salvarAlteracoesLoteRep', [lote]);
+      lote.forEach(item => {
+        const atual = repAlteracoesPendentes_.get(item.chave);
+        if (atual && atual.sequencia === item.sequencia) repAlteracoesPendentes_.delete(item.chave);
+      });
+      if (opcoes.manual) mostrarToast(`${resultados.length} alteração(ões) do REP salvas.`, 'success');
+      return true;
+    } catch (erro) {
+      mostrarToast('As alterações continuam pendentes: ' + mensagemErro(erro), 'error');
+      return false;
+    } finally {
+      repSalvamentoEmAndamento_ = null;
+      atualizarEstadoSalvamentoRep_();
+    }
+  })();
+  return repSalvamentoEmAndamento_;
+}
+
+async function garantirSalvamentoAntesDeSairRep_() {
+  if (!repTemAlteracoesPendentes_()) return true;
+  exibirLoader(true, 'Salvando alterações do REP antes de continuar...');
+  try {
+    return await salvarAlteracoesPendentesRep_({ manual: false });
+  } finally {
+    exibirLoader(false);
+  }
+}
 
 async function salvarAjustesCompetenciaRep_(pis, competencia, adicionais, origensSubstituidas) {
   const ajustes = montarAjustesCompetenciaRep_(pis, competencia, adicionais);
-  
-  const chave = `${pis}|${competencia}`;
-  repLotesPendentes[chave] = { pis, competencia, ajustes, origensSubstituidas: origensSubstituidas || [] };
-  
-  const ajustesFinais = ajustes;
+  const dados = { pis, competencia, ajustes, origensSubstituidas: origensSubstituidas || [] };
+  enfileirarAlteracaoRep_('AJUSTES', dados, `AJUSTES|${normalizarPisRep(pis)}|${competencia}`);
   ajustesCompartilhadosRep = (ajustesCompartilhadosRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.competencia === competencia));
-  if (ajustesFinais.length) ajustesCompartilhadosRep.push({ pis, competencia, ajustes: ajustesFinais, atualizadoPor: 'Você (Pendente)' });
-  
-  const btnSalvar = document.getElementById('btn-rep-salvar-manual');
-  if (btnSalvar) btnSalvar.style.display = 'inline-block';
-  
-  return ajustesFinais;
-}
-
-async function repSalvarTudoPendendente() {
-  const chaves = Object.keys(repLotesPendentes);
-  if (chaves.length === 0) return;
-  
-  if (isRepSalvando) return;
-  isRepSalvando = true;
-  
-  const btnSalvar = document.getElementById('btn-rep-salvar-manual');
-  if (btnSalvar) btnSalvar.disabled = true;
-  
-  const lotes = chaves.map(k => repLotesPendentes[k]);
-  try {
-    exibirLoader(true);
-    const resultados = await chamarBackendPromessa_('salvarEmLoteRep', [lotes]);
-    repLotesPendentes = {};
-    if (btnSalvar) btnSalvar.style.display = 'none';
-    mostrarToast(`Salvo ${resultados.length} competências no servidor.`, 'success');
-  } catch (e) {
-    mostrarToast("Erro ao salvar ajustes: " + e.message, 'error');
-  } finally {
-    isRepSalvando = false;
-    if (btnSalvar) btnSalvar.disabled = false;
-    exibirLoader(false);
-  }
+  if (ajustes.length) ajustesCompartilhadosRep.push({ pis, competencia, ajustes, atualizadoPor: 'Salvamento pendente' });
+  return ajustes;
 }
 
 function adicionarArquivosRep() {
@@ -7342,7 +7399,8 @@ async function salvarAjustesDiaRep() {
   if (alterouCompensacao) {
     try {
       exibirLoader(true, 'Salvando compensação de jornada...');
-      await chamarBackendPromessa_('salvarCompensacaoRep', [{ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao, origens: origensCompensacao }]);
+      const dadosCompensacao = { pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao, origens: origensCompensacao };
+      enfileirarAlteracaoRep_('COMPENSACAO', dadosCompensacao, `COMPENSACAO|${normalizarPisRep(ajusteRepAtual.pis)}|${ajusteRepAtual.data}`);
       compensacoesRep = (compensacoesRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === ajusteRepAtual.data));
       if (minutosCompensacao) compensacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao, origens: origensCompensacao });
     } catch (erro) {
@@ -7357,7 +7415,8 @@ async function salvarAjustesDiaRep() {
   if (alterouValidacao) {
     try {
       exibirLoader(true, validado ? 'Validando conferência do dia...' : 'Reabrindo alerta do dia...');
-      await chamarBackendPromessa_('salvarValidacaoRep', [{ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado, observacao: observacaoValidacao }]);
+      const dadosValidacao = { pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado, observacao: observacaoValidacao };
+      enfileirarAlteracaoRep_('VALIDACAO', dadosValidacao, `VALIDACAO|${normalizarPisRep(ajusteRepAtual.pis)}|${ajusteRepAtual.data}`);
       validacoesRep = (validacoesRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === ajusteRepAtual.data));
       if (validado) validacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, validado: true, observacao: observacaoValidacao, atualizadoPor: AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || '' });
     } catch (erro) {
@@ -7675,12 +7734,18 @@ function categoriaSituacaoRep(status) {
   return categorias[status] || 'Informação';
 }
 
-function selecionarServidorRep(pis) {
+async function selecionarServidorRep(pis) {
+  const proximoPis = String(pis || '');
+  if (proximoPis !== pisSelecionadoRep) {
+    const salvou = await garantirSalvamentoAntesDeSairRep_();
+    if (!salvou) return false;
+  }
   const listaPessoas = document.querySelector('#rep-servidores-list .rep-pessoas');
   if (listaPessoas) rolagemPessoasRep = listaPessoas.scrollTop;
-  pisSelecionadoRep = String(pis || '');
+  pisSelecionadoRep = proximoPis;
   filtroDiasRepAtual = 'todos';
   renderizarListaRep();
+  return true;
 }
 
 function obterCompetenciaSelecionadaRep_() {
@@ -7990,7 +8055,7 @@ async function alternarDescarteHoraExtraRep(pis, data) {
   const descartar = !existente;
   try {
     exibirLoader(true, descartar ? 'Desconsiderando a hora extra deste dia...' : 'Restaurando a hora extra deste dia...');
-    const resultado = await chamarBackendPromessa_('salvarDescarteHoraExtraRep', [{ pis, data, descartado: descartar }]);
+    const resultado = enfileirarAlteracaoRep_('DESCARTE_HE', { pis, data, descartado: descartar }, `DESCARTE_HE|${normalizarPisRep(pis)}|${data}`);
     descartesHoraExtraRep = (descartesHoraExtraRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data));
     if (descartar) descartesHoraExtraRep.push({ pis, data, descartado: true, atualizadoPor: resultado?.atualizadoPor || AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || '' });
     atualizarProcessamentoRep({ notificarEntidade: false });

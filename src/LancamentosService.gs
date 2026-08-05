@@ -426,11 +426,11 @@ function salvarLancamento(dadosLanc) {
     if (conflitosPeriodo.length) {
       throw new Error(mensagemConflitoCandidatoLancamento_(dadosLanc, conflitosPeriodo[0]));
     }
-    
-    // Bloqueia Falta Abonada / Abono para Estagiários e PEAD
-    const isEstagPead = servidor.situacao === "ESTAGIÁRIO" || servidor.situacao === "PEAD";
-    if (isEstagPead && (tipoNormalizado.includes("ABONADA") || tipoNormalizado.includes("ABONO"))) {
-      throw new Error(`A situação funcional (${servidor.situacao}) não possui direito a faltas abonadas ou abonos.`);
+
+    const situacaoSemAbono = ["ESTAGIARIO", "PEAD"].indexOf(normalizarCabecalho_(servidor.situacao)) !== -1;
+    const ehQualquerAbono = tipoNormalizado.includes("ABONADA") || tipoNormalizado.includes("ABONO");
+    if (situacaoSemAbono && ehQualquerAbono) {
+      throw new Error("A situação funcional " + servidor.situacao + " não possui direito a abonos. Férias continuam permitidas normalmente.");
     }
 
     if (tipoNormalizado.includes("FERIAS")) {
@@ -658,12 +658,14 @@ function obterInfoServidorBasico_(ss, matricula) {
   const cabecalho = dados[0];
   const idxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
   const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
+  const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
   
   for (let i = 1; i < dados.length; i++) {
     if (normalizarChaveMatricula_(dados[i][idxMat]) === normalizarChaveMatricula_(matricula)) {
       return {
         nome: String(dados[i][idxNome]).trim(),
-        matricula: matricula
+        matricula: matricula,
+        situacao: idxSituacao !== -1 ? String(dados[i][idxSituacao] || "").trim() : ""
       };
     }
   }

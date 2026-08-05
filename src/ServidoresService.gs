@@ -203,6 +203,14 @@ function salvarServidor(dadosServidor) {
     throw new Error("Situação funcional inválida. Selecione Estatutário, Comissionado, Estagiário ou PEAD.");
   }
   dadosServidor.situacao = situacoesPermitidas[chaveSituacao];
+  dadosServidor.nome = String(dadosServidor.nome || "").trim();
+  dadosServidor.email = String(dadosServidor.email || "").trim();
+  dadosServidor.matricula = String(dadosServidor.matricula || "").trim();
+  const identificacaoOpcional = dadosServidor.situacao === "ESTAGIÁRIO" || dadosServidor.situacao === "PEAD";
+  if (!dadosServidor.nome) throw new Error("Informe o nome do servidor.");
+  if (!identificacaoOpcional && !dadosServidor.matricula) throw new Error("A matrícula é obrigatória para esta situação funcional.");
+  if (!identificacaoOpcional && !dadosServidor.email) throw new Error("O e-mail é obrigatório para esta situação funcional.");
+  if (dadosServidor.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dadosServidor.email)) throw new Error("Informe um e-mail válido ou deixe o campo vazio quando permitido.");
   dadosServidor.pis = normalizarPisCpfServidor_(dadosServidor.pis);
 
   const lock = LockService.getScriptLock();
@@ -253,7 +261,11 @@ function salvarServidor(dadosServidor) {
     cabecalho.push("PIS");
   }
 
-  const matriculaBusca = normalizarChaveMatricula_(dadosServidor.matricula);
+  let matriculaBusca = normalizarChaveMatricula_(dadosServidor.matricula);
+  if (!matriculaBusca && identificacaoOpcional) {
+    matriculaBusca = "CAD-" + Utilities.getUuid().replace(/-/g, "").slice(0, 10).toUpperCase();
+    dadosServidor.matricula = matriculaBusca;
+  }
   let linhaEdit = -1;
   let valorAntes = "";
 

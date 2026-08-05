@@ -49,9 +49,13 @@ function obterResumoDashboard() {
       let ativo = colAtivoIdx !== -1 ? String(dadosServ[i][colAtivoIdx]).trim() : "Sim";
       if (ativo === "Sim") {
         totalAtivos++;
-        let situacao = colSituacaoIdx !== -1 ? String(dadosServ[i][colSituacaoIdx]).trim().toUpperCase() : "OUTROS";
-        if (!situacao) situacao = "OUTROS";
-        ativosPorSituacao[situacao] = (ativosPorSituacao[situacao] || 0) + 1;
+        const situacaoBruta = colSituacaoIdx !== -1 ? String(dadosServ[i][colSituacaoIdx] || "").trim() : "";
+        const situacaoNormalizada = normalizarCabecalho_(situacaoBruta);
+        const rotuloSituacao = situacaoNormalizada === "ESTATUTARIO" ? "Estatutários"
+          : (situacaoNormalizada === "COMISSIONADO" ? "Comissionados"
+          : (situacaoNormalizada === "ESTAGIARIO" ? "Estagiários"
+          : (situacaoNormalizada === "PEAD" ? "PEAD" : "Outros")));
+        ativosPorSituacao[rotuloSituacao] = (ativosPorSituacao[rotuloSituacao] || 0) + 1;
       }
       
       // Risco compulsório: 60 dias disponíveis e 3º período em até 6 meses.

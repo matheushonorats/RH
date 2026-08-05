@@ -28,7 +28,9 @@ if (simulacao) {
   process.exit(0);
 }
 
-const novoConteudo = conteudoOriginal.replace(encontrado[0], `const APP_VERSION = "${proximaVersao}";`);
+const novoConteudo = conteudoOriginal
+  .replace(encontrado[0], `const APP_VERSION = "${proximaVersao}";`)
+  .replace(/const APP_VERSION_DISPLAY = "[^"]+";/, `const APP_VERSION_DISPLAY = "${proximaVersao}";`);
 fs.writeFileSync(arquivoVersao, novoConteudo, 'utf8');
 
 let pacoteOriginal = null;
