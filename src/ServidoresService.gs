@@ -14,6 +14,8 @@ function normalizarPisCpfServidor_(valor) {
   while (digitos.length > 11 && digitos.charAt(0) === "0") {
     digitos = digitos.slice(1);
   }
+  // Compatibiliza cadastros antigos salvos sem o zero inicial do PIS.
+  if (digitos.length === 10) digitos = "0" + digitos;
   return digitos;
 }
 

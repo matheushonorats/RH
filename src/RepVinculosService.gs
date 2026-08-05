@@ -5,6 +5,10 @@ const REP_VINCULOS_CABECALHO_ = ['Identificador_REP', 'PIS_Oficial', 'Matricula'
 function normalizarIdentificadorRep_(valor) {
   let digitos = String(valor || '').replace(/\D/g, '');
   while (digitos.length > 11 && digitos.charAt(0) === '0') digitos = digitos.slice(1);
+  // Alguns AFDs gravam o PIS sem seu zero inicial. O PIS/CPF utilizado no
+  // cadastro possui 11 dígitos, portanto esta forma é apenas uma variação de
+  // leitura do mesmo identificador e deve alcançar o vínculo persistido.
+  if (digitos.length === 10) digitos = '0' + digitos;
   return digitos;
 }
 

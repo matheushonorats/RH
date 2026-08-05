@@ -5494,8 +5494,11 @@ async function carregarModuloRepOnline(forcar) {
 function normalizarPisRep(valor) {
   let digitos = String(valor || '').replace(/\D/g, '');
   // O AFD legado reserva 12 posições para um PIS de 11 dígitos e pode
-  // preenchê-lo com zero à esquerda. Mantém zeros legítimos de PIS/CPF.
+  // preenchê-lo com zero à esquerda. Alguns relógios omitem esse primeiro
+  // zero: para a conciliação, 10 dígitos representam o mesmo PIS de 11
+  // dígitos com zero inicial. Mantém zeros legítimos de PIS/CPF.
   while (digitos.length > 11 && digitos.charAt(0) === '0') digitos = digitos.slice(1);
+  if (digitos.length === 10) digitos = `0${digitos}`;
   return digitos;
 }
 
