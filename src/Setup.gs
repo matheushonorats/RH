@@ -75,10 +75,14 @@ const CONFIG_SETUP = {
   },
   abasExistentesModificadas: {
     "Servidores": {
-      "colunasNovas": ["Ativo", "PIS"],
+      "colunasNovas": ["Ativo", "PIS", "ANIVERSARIO_DIA_MES"],
       "valoresPadrao": {
         "Ativo": "Sim"
       }
+    },
+    "Creditos_Ferias": {
+      "colunasNovas": ["PENALIDADE_DIAS"],
+      "valoresPadrao": { "PENALIDADE_DIAS": 0 }
     },
     "Lançamentos": {
       "colunasNovas": ["ID_Protocolo", "Criado_Por", "Criado_Em", "Editado_Por", "Editado_Em", "Dias_Pecunia", "ID_Operacao"],
@@ -235,6 +239,15 @@ function criarGatilhosDiarios_() {
     count++;
   }
 
+  if (!funcoesExistentes.has("enviarAniversariantesProximoMes")) {
+    ScriptApp.newTrigger("enviarAniversariantesProximoMes")
+      .timeBased()
+      .everyDays(1)
+      .atHour(7)
+      .create();
+    count++;
+  }
+
   // 3. Vigia da Entidade (a cada hora; a IA só é chamada quando há mudança relevante)
   if (!funcoesExistentes.has("executarVigiaEntidadeAgendado")) {
     ScriptApp.newTrigger("executarVigiaEntidadeAgendado")
@@ -269,7 +282,12 @@ function popularDadosPadrao(ss) {
       ["DIAS_INTERVALO_FERIAS", "15", "Antecedência em dias para avisar sobre início de Férias"],
       ["DIAS_INTERVALO_ABONO", "5", "Antecedência em dias para avisar sobre início de Abono/Abonada Natalícia"],
       ["LIMITE_ABONADAS_ANO", "5", "Quantidade máxima permitida de faltas abonadas no ano corrente por servidor"],
-      ["LIMITE_ABONADAS_MES", "1", "Quantidade máxima de faltas abonadas permitida em um único mês por servidor"]
+      ["LIMITE_ABONADAS_MES", "1", "Quantidade máxima de faltas abonadas permitida em um único mês por servidor"],
+      ["SETOR_HORAS_EXTRAS", "TURISMO", "Setor exibido na autorização de horas extras"],
+      ["SECRETARIA_HORAS_EXTRAS", "SETUR", "Sigla da secretaria na autorização de horas extras"],
+      ["SECRETARIO_NOME", "LEANDRO PEREIRA DA SILVA", "Nome da autoridade que assina a autorização de horas extras"],
+      ["SECRETARIO_CARGO", "Secretário de Turismo", "Cargo da autoridade que assina a autorização de horas extras"],
+      ["DESCRICAO_PADRAO_HORAS_EXTRAS", "Serviços extraordinários conforme registros de ponto.", "Descrição padrão usada nas linhas da autorização"]
     ];
     dadosConfig.forEach(linha => abaConfig.appendRow(linha));
     Logger.log("Configurações padrão inicializadas.");

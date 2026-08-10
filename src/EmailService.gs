@@ -515,6 +515,41 @@ function obterMapaConfiguracoes_(abaConfig) {
   return mapa;
 }
 
+function enviarAniversariantesProximoMes() {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const amanha = new Date(hoje.getTime());
+  amanha.setDate(amanha.getDate() + 1);
+  if (amanha.getMonth() === hoje.getMonth()) return { enviado: false, motivo: 'Ainda não é o último dia do mês.' };
+
+  const competencia = Utilities.formatDate(amanha, Session.getScriptTimeZone(), 'yyyy-MM');
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('ANIVERSARIANTES_ENVIADOS_' + competencia)) return { enviado: false, motivo: 'E-mail já enviado.' };
+
+  const ss = obterPlanilha_();
+  const abaConfig = ss.getSheetByName('Configuracoes');
+  const config = abaConfig ? obterMapaConfiguracoes_(abaConfig) : {};
+  const emails = String(config.EMAIL_DESTINO || 'turismo.setur@saosebastiao.sp.gov.br, turismo.eventos@saosebastiao.sp.gov.br')
+    .split(/[;,]/).map(function(email) { return email.trim(); })
+    .filter(function(email, indice, lista) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && lista.indexOf(email) === indice; });
+  if (!emails.length) return { enviado: false, motivo: 'Nenhum destinatário configurado.' };
+
+  const mes = amanha.getMonth() + 1;
+  const nomesMeses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const servidores = obterListaServidoresInterno_().filter(function(servidor) {
+    const partes = String(servidor.aniversario || '').split('/');
+    return servidor.status !== 'Inativo' && Number(partes[1]) === mes;
+  }).sort(function(a, b) { return Number(a.aniversario.slice(0, 2)) - Number(b.aniversario.slice(0, 2)) || a.nome.localeCompare(b.nome); });
+
+  const linhas = servidores.length ? servidores.map(function(servidor) {
+    return '<tr><td style="padding:9px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:700">' + escaparHtmlEmail_(servidor.aniversario) + '</td><td style="padding:9px;border-bottom:1px solid #e2e8f0">' + escaparHtmlEmail_(servidor.nome) + '</td><td style="padding:9px;border-bottom:1px solid #e2e8f0">' + escaparHtmlEmail_(servidor.lotacao || '-') + '</td></tr>';
+  }).join('') : '<tr><td colspan="3" style="padding:18px;text-align:center;color:#64748b">Nenhum aniversariante cadastrado para o próximo mês.</td></tr>';
+  const html = '<div style="font-family:Arial,sans-serif;max-width:700px;margin:auto"><h2 style="color:#0f766e">Aniversariantes de ' + nomesMeses[mes - 1] + '</h2><p>Relação preparada no último dia do mês para planejamento das abonadas natalícias.</p><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#0f766e;color:#fff"><th style="padding:9px">Dia</th><th style="padding:9px;text-align:left">Servidor</th><th style="padding:9px;text-align:left">Lotação</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+  MailApp.sendEmail({ to: emails.join(', '), subject: 'Aniversariantes de ' + nomesMeses[mes - 1] + ' - RH SETUR', htmlBody: html });
+  props.setProperty('ANIVERSARIANTES_ENVIADOS_' + competencia, new Date().toISOString());
+  return { enviado: true, quantidade: servidores.length };
+}
+
 function formatarDataEmail_(data) {
   return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy");
 }

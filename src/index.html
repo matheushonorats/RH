@@ -132,9 +132,11 @@
         <div class="view-container">
           <!-- Spinner de Carregamento Geral -->
           <div class="loader-overlay" id="global-loader">
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
-              <div class="loader"></div>
+            <div class="loader-card">
+              <div id="loader-entidade" class="loader-entidade" aria-hidden="true"><span data-lucide="ghost"></span></div>
+              <div id="loader-frase" class="loader-frase" aria-live="polite"></div>
               <div id="loader-percentage" style="color: var(--brand-primary); font-weight: 600; font-size: 16px;">0%</div>
+              <div class="loader-progress-track"><div id="loader-progress-fill" class="loader-progress-fill"></div></div>
               <div id="loader-text" style="color: var(--text-secondary); font-size: 13px;">Sincronizando base de dados...</div>
             </div>
           </div>
@@ -465,13 +467,13 @@
           
           <!-- View: Pré-Leitura REP -->
           <section id="view-pre-leitura-rep" class="view-section">
-            <div class="dashboard-welcome" style="margin-bottom: 20px;">
+            <div class="dashboard-welcome rep-page-header" style="margin-bottom: 20px;">
               <div>
                 <span class="page-eyebrow">PRÉ-PROCESSAMENTO COMPARTILHADO · DRIVE</span>
                 <h2>Pré-Leitura de Arquivos de Ponto (REP / AFD)</h2>
                 <p>Os AFDs são lidos diretamente da pasta compartilhada. Arquivos de coletas e períodos diferentes permanecem auditados separadamente, mesmo quando pertencem ao mesmo REP.</p>
               </div>
-              <div style="display:flex; gap:8px;">
+              <div class="rep-page-actions">
                 <button class="btn btn-primary" onclick="abrirPastaEntradaRep()" title="Abrir a pasta compartilhada onde os AFDs devem ser colocados">
                   <span data-lucide="folder-open"></span> Abrir pasta dos AFDs
                 </button>
@@ -481,12 +483,26 @@
                 <button id="rep-btn-add" class="btn btn-secondary" style="display: none;" onclick="adicionarArquivosRep()">
                   <span data-lucide="file-plus-2"></span> Adicionar AFDs
                 </button>
-                <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="exportarRepPdf()">
-                  <span data-lucide="file-down"></span> PDF do servidor
-                </button>
-                <button id="rep-btn-export" class="btn btn-primary" style="display: none;" onclick="exportarRepExcel()">
-                  <span data-lucide="file-spreadsheet"></span> Exportar auditoria (.xlsx)
-                </button>
+                <details class="rep-actions-menu" id="rep-actions-menu">
+                  <summary class="btn btn-secondary"><span data-lucide="ellipsis"></span> Mais ações</summary>
+                  <div class="rep-actions-menu-panel">
+                    <button id="rep-btn-lancamento-lote" class="btn btn-secondary" style="display: none;" onclick="abrirLancamentosLoteRep_()">
+                      <span data-lucide="list-plus"></span> Ajustes de ponto em lote
+                    </button>
+                    <button id="rep-btn-lancamento" class="btn btn-secondary" style="display: none;" onclick="abrirLancamentoDiretoRep_()">
+                      <span data-lucide="plus-circle"></span> Novo lançamento
+                    </button>
+                    <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="exportarRepPdf()">
+                      <span data-lucide="file-down"></span> PDF do servidor
+                    </button>
+                    <button id="rep-btn-autorizacao-he" class="btn btn-secondary" style="display: none;" onclick="exportarAutorizacaoHorasExtrasRep_()">
+                      <span data-lucide="file-signature"></span> Autorização de HE
+                    </button>
+                    <button id="rep-btn-export" class="btn btn-secondary" style="display: none;" onclick="exportarRepExcel()">
+                      <span data-lucide="file-spreadsheet"></span> Exportar auditoria (.xlsx)
+                    </button>
+                  </div>
+                </details>
               </div>
             </div>
 
@@ -515,7 +531,7 @@
                 <button type="button" class="btn btn-secondary rep-salvar-alteracoes" onclick="salvarAlteracoesPendentesRep_({ manual: true })" id="btn-rep-salvar-manual" disabled>Tudo salvo</button>
               </div>
 
-              <div class="filters-bar" style="display: flex; gap: 12px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
+              <div class="filters-bar rep-filters-bar">
                 <div style="flex: 2; min-width: 200px;">
                   <label class="rep-filter-label" for="rep-search-input">Servidor</label>
                   <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar por nome ou PIS/CPF..." oninput="renderizarListaRep()">
@@ -544,6 +560,9 @@
                     <option value="12">Dezembro</option>
                   </select>
                 </div>
+                <details class="rep-filtros-avancados">
+                  <summary><span data-lucide="sliders-horizontal"></span> Mais filtros e regras</summary>
+                  <div class="rep-filtros-avancados-grid">
                 <div style="min-width: 190px;">
                   <label class="rep-filter-label" for="rep-filter-lotacao">Lotação</label>
                   <select id="rep-filter-lotacao" class="form-control" onchange="renderizarListaRep()">
@@ -594,6 +613,8 @@
                   </div>
                 </div>
                 <button class="btn btn-secondary" onclick="resetarLeituraRep()"><span data-lucide="rotate-ccw"></span> Limpar & Recarregar</button>
+                  </div>
+                </details>
               </div>
 
               <div id="rep-servidores-list" style="display: flex; flex-direction: column; gap: 16px;">
@@ -874,6 +895,11 @@
                 <input type="date" id="serv-admissao" class="form-control">
               </div>
               <div class="form-group">
+                <label class="form-label">Aniversário (dia e mês)</label>
+                <input type="text" id="serv-aniversario" class="form-control" inputmode="numeric" maxlength="5" placeholder="DD/MM" pattern="\d{2}/\d{2}">
+                <p class="form-help">Se ficar vazio, o sistema usa a abonada natalícia mais recente quando existir.</p>
+              </div>
+              <div class="form-group">
                 <label class="form-label">E-mail <span id="serv-email-obrigatorio">*</span></label>
                 <input type="email" id="serv-email" class="form-control" required placeholder="Ex: servidor@saosebastiao.sp.gov.br">
                 <p class="form-help" id="serv-identificacao-ajuda" style="display:none;">Matrícula e e-mail são opcionais para Estagiário e PEAD. Se a matrícula ficar vazia, o sistema criará um identificador interno.</p>
@@ -890,7 +916,7 @@
               </div>
             </div>
 
-            <div class="form-row">
+            <div class="form-row" style="display:none" aria-hidden="true">
               <div class="form-group">
                 <label class="form-label">Penalidade Férias (Dias)</label>
                 <input type="number" id="serv-penalidade-ferias" class="form-control" placeholder="0" min="0">
@@ -981,6 +1007,10 @@
                   </td>
                 </tr>
                 <tr>
+                  <td style="font-weight: 600; color: var(--text-secondary);">Aniversário:</td>
+                  <td id="ficha-dados-aniversario">-</td>
+                </tr>
+                <tr>
                   <td style="font-weight: 600; color: var(--text-secondary);">Status de Cadastro:</td>
                   <td><span id="ficha-dados-status" class="badge badge-ativo">ATIVO</span></td>
                 </tr>
@@ -1001,7 +1031,12 @@
               </div>
               <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--warning-color);">
                 <div class="card-title">Abonada Natalícia (Ano Atual)</div>
-                <div class="card-value" id="ficha-abonadas-natalicias" style="font-size: 20px;">0 / 1</div>
+                <div class="card-value" id="ficha-abonadas-natalicias" style="font-size: 20px;">○</div>
+              </div>
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--danger-color);">
+                <div class="card-title">Penalidade de Abonos</div>
+                <div class="card-value" id="ficha-penalidade-abonos" style="font-size: 20px;">0 dias</div>
+                <button type="button" class="btn btn-secondary btn-small" id="ficha-btn-penalidade-abonos">Ajustar</button>
               </div>
             </div>
             
@@ -1627,5 +1662,7 @@
 
     <!-- Scripts da Interface -->
     <?!= incluir("Scripts"); ?>
+    <?!= incluir("HeModelAssets"); ?>
+    <?!= incluir("RepEnhancements"); ?>
   </body>
 </html>

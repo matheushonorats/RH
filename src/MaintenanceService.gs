@@ -36,6 +36,7 @@ function executarManutencaoAutomaticaSistema() {
     const ss = obterPlanilha_();
     const memoria = manterMemoriaEntidade_(ss);
     const insights = manterInsightsEntidade_(ss);
+    const capacidade = monitorarCapacidadePlanilha_(ss);
 
     lancarLogSemLock_(
       'MANUTENCAO_AUTOMATICA',
@@ -43,7 +44,7 @@ function executarManutencaoAutomaticaSistema() {
       'Manutenção das tabelas auxiliares concluída.',
       'Linhas arquivadas',
       '',
-      'IA_Memoria: ' + memoria.arquivadas + '; IA_Insights: ' + insights.arquivadas,
+      'IA_Memoria: ' + memoria.arquivadas + '; IA_Insights: ' + insights.arquivadas + '; células alocadas: ' + capacidade.percentualAlocado + '%.',
       'ROTINA_AUTOMATICA'
     );
   } catch (e) {
@@ -52,6 +53,39 @@ function executarManutencaoAutomaticaSistema() {
     _usuarioSessaoAtual = usuarioAnterior;
     lock.releaseLock();
   }
+}
+
+function obterDiagnosticoCapacidadePlanilha_(ss) {
+  const limite = 10000000;
+  const abas = ss.getSheets().map(function(aba) {
+    const alocadas = aba.getMaxRows() * aba.getMaxColumns();
+    const usadas = Math.max(1, aba.getLastRow()) * Math.max(1, aba.getLastColumn());
+    return { nome: aba.getName(), linhas: aba.getMaxRows(), colunas: aba.getMaxColumns(), alocadas: alocadas, usadasEstimadas: usadas, vazia: aba.getLastRow() <= 1 };
+  });
+  const total = abas.reduce(function(soma, aba) { return soma + aba.alocadas; }, 0);
+  return { limite: limite, totalAlocado: total, percentualAlocado: Math.round((total / limite) * 1000) / 10, abas: abas.sort(function(a, b) { return b.alocadas - a.alocadas; }) };
+}
+
+function monitorarCapacidadePlanilha_(ss) {
+  const diagnostico = obterDiagnosticoCapacidadePlanilha_(ss);
+  const faixa = diagnostico.percentualAlocado >= 95 ? 'CRITICO' : diagnostico.percentualAlocado >= 85 ? 'ALTO' : diagnostico.percentualAlocado >= 70 ? 'ATENCAO' : 'NORMAL';
+  const props = PropertiesService.getScriptProperties();
+  const faixaAnterior = props.getProperty('CAPACIDADE_PLANILHA_FAIXA') || 'NORMAL';
+  props.setProperty('CAPACIDADE_PLANILHA_FAIXA', faixa);
+  props.setProperty('CAPACIDADE_PLANILHA_ULTIMO_DIAGNOSTICO', JSON.stringify({ data: new Date().toISOString(), percentual: diagnostico.percentualAlocado, total: diagnostico.totalAlocado }));
+  if (faixa === 'NORMAL' || faixa === faixaAnterior) return diagnostico;
+
+  const abaConfig = ss.getSheetByName('Configuracoes');
+  const config = abaConfig ? obterMapaConfiguracoes_(abaConfig) : {};
+  const destino = String(config.EMAIL_DESTINO || '').split(/[;,]/).map(function(item) { return item.trim(); }).filter(Boolean).join(', ');
+  if (!destino) return diagnostico;
+  const maiores = diagnostico.abas.slice(0, 8).map(function(aba) { return '<li><b>' + escaparHtmlEmail_(aba.nome) + '</b>: ' + aba.alocadas.toLocaleString('pt-BR') + ' células alocadas</li>'; }).join('');
+  MailApp.sendEmail({
+    to: destino,
+    subject: 'Alerta de capacidade da planilha RH - ' + diagnostico.percentualAlocado + '%',
+    htmlBody: '<div style="font-family:Arial,sans-serif"><h2>Capacidade da planilha de RH</h2><p>A planilha atingiu <b>' + diagnostico.percentualAlocado + '%</b> do limite de 10 milhões de células. O aviso é antecipado para permitir limpeza ou migração planejada.</p><h3>Abas com maior alocação</h3><ul>' + maiores + '</ul><p>Nenhuma aba foi apagada automaticamente.</p></div>'
+  });
+  return diagnostico;
 }
 
 function manterMemoriaEntidade_(ss) {

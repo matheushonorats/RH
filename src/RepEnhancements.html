@@ -1,0 +1,365 @@
+<script>
+/** Melhorias isoladas da conferência REP para evitar ampliar ainda mais o arquivo principal. */
+function obterServidorSelecionadoRep_() {
+  return (dadosRepProcessados || []).find(function(item) { return item.pis === pisSelecionadoRep; }) || null;
+}
+
+async function editarMarcacaoRapidaRep_(pis, data, eventId, campo) {
+  if (!campo || campo.dataset.salvando === 'true') return;
+  const hora = String(campo.value || '');
+  if (!/^\d{2}:\d{2}$/.test(hora)) { campo.value = campo.dataset.original || ''; return; }
+  if (hora === campo.dataset.original) return;
+  const existente = (dadosRepCache.punches || []).find(function(item) { return String(item.eventId || '') === String(eventId || ''); });
+  if (!existente || existente.desconsiderada) return mostrarToast('A marcação já foi alterada por outra ação.', 'warning');
+  campo.dataset.salvando = 'true';
+  const anterior = { desconsiderada: existente.desconsiderada, justificativa: existente.ajusteJustificativa };
+  const partes = hora.split(':').map(Number);
+  const novaData = new Date(existente.datetime.getTime());
+  novaData.setHours(partes[0], partes[1], 0, 0);
+  existente.desconsiderada = true;
+  existente.ajusteJustificativa = 'Horário corrigido diretamente no espelho de conferência.';
+  const id = 'MANUAL|' + gerarUuidSeguroCliente_();
+  const novo = {
+    pis: String(pis), datetime: novaData, clock: existente.clock || 'Local informado manualmente',
+    deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '', eventId: id, eventKey: 'AJUSTE|' + id,
+    nomeNoMomento: dadosRepCache.employees.get(String(pis)) || '', sourceFile: 'Ajuste compartilhado',
+    rawTimestamp: novaData.getTime(), manual: true, ajusteCompartilhado: true,
+    dataReferencia: existente.dataReferencia || data, ajusteOrigemData: existente.ajusteOrigemData || data,
+    justificativa: 'Horário corrigido diretamente no espelho de conferência.'
+  };
+  dadosRepCache.punches.push(novo);
+  try {
+    await salvarAjustesCompetenciaRep_(pis, String(data).slice(0, 7), [], [data]);
+    aplicarAjustesCompartilhadosRep_();
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast('Marcação corrigida. O horário original do AFD foi preservado.', 'success');
+  } catch (erro) {
+    existente.desconsiderada = anterior.desconsiderada;
+    existente.ajusteJustificativa = anterior.justificativa;
+    dadosRepCache.punches = dadosRepCache.punches.filter(function(item) { return item !== novo; });
+    campo.value = campo.dataset.original || '';
+    mostrarToast('Não foi possível corrigir a marcação: ' + mensagemErro(erro), 'error');
+  } finally { campo.dataset.salvando = 'false'; }
+}
+
+async function desconsiderarMarcacaoRapidaRep_(pis, data, eventId) {
+  const existente = (dadosRepCache.punches || []).find(function(item) { return String(item.eventId || '') === String(eventId || ''); });
+  if (!existente || existente.desconsiderada) return mostrarToast('Essa marcação já foi desconsiderada.', 'info');
+  existente.desconsiderada = true;
+  existente.ajusteJustificativa = 'Marcação desconsiderada diretamente no espelho de conferência.';
+  try {
+    await salvarAjustesCompetenciaRep_(pis, String(data).slice(0, 7), [], [data]);
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast('Marcação desconsiderada. O registro original continua na auditoria.', 'success');
+  } catch (erro) {
+    existente.desconsiderada = false;
+    delete existente.ajusteJustificativa;
+    mostrarToast('Não foi possível desconsiderar a marcação: ' + mensagemErro(erro), 'error');
+  }
+}
+
+function abrirLancamentoDiretoRep_(tipo, data, pis) {
+  const emp = (dadosRepProcessados || []).find(function(item) { return item.pis === String(pis || pisSelecionadoRep || ''); }) || obterServidorSelecionadoRep_();
+  if (!emp) return mostrarToast('Selecione um servidor antes de criar o lançamento.', 'warning');
+  const servidor = (AppState.servidores || []).find(function(item) { return normalizarPisRep(item.pis) === normalizarPisRep(emp.pis); });
+  if (!servidor) return mostrarToast('Vincule este PIS/CPF a um cadastro antes de lançar a ausência.', 'warning');
+  abrirModalLancamento();
+  selecionarServidorAutocomplete(servidor.matricula, servidor.nome, servidor.cargo, servidor.lotacao, servidor.saldoHoje, servidor.abonosUsados);
+  if (tipo && document.getElementById('lanc-tipo')) document.getElementById('lanc-tipo').value = tipo;
+  ajustarCamposFormularioLancamento();
+  if (data) {
+    const campoInicio = document.getElementById('lanc-data-inicio');
+    const campoFalta = document.getElementById('lanc-data-falta');
+    if (campoInicio) campoInicio.value = data;
+    if (campoFalta) campoFalta.value = data;
+  }
+  sugerirDespacho();
+}
+
+function garantirModalLancamentosLoteRep_() {
+  let modal = document.getElementById('modal-lancamentos-lote-rep');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-lancamentos-lote-rep';
+  modal.innerHTML = `<div class="modal-content rep-lote-modal"><div class="modal-header"><div><h3 class="modal-title">Ajustes de ponto em lote</h3><small id="rep-lote-servidor"></small></div><button class="modal-close" onclick="fecharModal('modal-lancamentos-lote-rep')"><span data-lucide="x"></span></button></div><div class="modal-body"><p class="rep-lote-intro">Registre marcações esquecidas e compense déficits de vários dias em uma única conferência. O AFD original permanece preservado.</p><section class="rep-lote-secao"><header><div><strong>Marcações não registradas</strong><small>Informe duas ou quatro batidas para cada dia trabalhado.</small></div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaMarcacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia</button></header><div class="rep-lote-table-wrap"><table class="rep-lote-table rep-lote-marcacoes"><thead><tr><th>Data</th><th>Entrada</th><th>Saída intervalo</th><th>Retorno</th><th>Saída</th><th>Local</th><th>Justificativa</th><th></th></tr></thead><tbody id="rep-lote-marcacoes"></tbody></table></div></section><section class="rep-lote-secao"><header><div><strong>Compensação de déficits</strong><small>Escolha quanto será retirado de cada dia com saldo positivo. As origens ficam registradas e afetam HE e VR.</small></div><div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaCompensacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia</button><button type="button" class="btn btn-secondary" onclick="adicionarDeficitsCompensacaoLoteRep_()"><span data-lucide="wand-sparkles"></span> Preencher déficits</button></div></header><div class="rep-lote-table-wrap"><table class="rep-lote-table rep-lote-compensacoes"><thead><tr><th>Data do déficit</th><th>Dias de origem e horas a retirar</th><th>Total aplicado</th><th>Observação</th><th></th></tr></thead><tbody id="rep-lote-compensacoes"></tbody></table></div></section><div class="rep-lote-status" id="rep-lote-status"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal('modal-lancamentos-lote-rep')">Cancelar</button><button type="button" class="btn btn-primary" id="rep-lote-salvar" onclick="salvarLancamentosLoteRep_()"><span data-lucide="save"></span> Salvar todos os ajustes</button></div></div>`;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function adicionarLinhaMarcacaoLoteRep_(data) {
+  const corpo = document.getElementById('rep-lote-marcacoes');
+  if (!corpo) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="text" class="form-control rep-lote-local" value="Local informado manualmente"></td><td><input type="text" class="form-control rep-lote-justificativa" placeholder="Ex.: esquecimento da marcação"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
+  corpo.appendChild(tr);
+  renderizarIcones();
+}
+
+function adicionarLinhaCompensacaoLoteRep_(data, horas) {
+  const corpo = document.getElementById('rep-lote-compensacoes');
+  if (!corpo) return;
+  const tr = document.createElement('tr');
+  tr.dataset.deficitSugerido = horas || '';
+  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}" onchange="renderizarOrigensCompensacaoLoteRep_(this.closest('tr'))"></td><td class="rep-lote-origens"></td><td><input type="text" class="form-control rep-lote-horas" value="" placeholder="00:00" readonly></td><td><input type="text" class="form-control rep-lote-observacao" placeholder="Opcional"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
+  corpo.appendChild(tr);
+  renderizarOrigensCompensacaoLoteRep_(tr);
+  renderizarIcones();
+}
+
+function renderizarOrigensCompensacaoLoteRep_(linha) {
+  const emp = obterServidorSelecionadoRep_();
+  const dataDestino = linha && linha.querySelector('.rep-lote-data')?.value;
+  const container = linha && linha.querySelector('.rep-lote-origens');
+  if (!emp || !container) return;
+  const origens = (emp.resumo.origensSaldoCompensacao || [])
+    .filter(function(item) { return dataDestino && item.data !== dataDestino && item.data.slice(0, 7) === dataDestino.slice(0, 7) && Number(item.minutos || 0) > 0; })
+    .sort(function(a, b) { return a.data.localeCompare(b.data); });
+  container.innerHTML = origens.map(function(item) {
+    const minutos = Math.max(0, Math.round(Number(item.minutos || 0)));
+    return `<label class="rep-lote-origem"><span><strong>${escapeHtml(item.data.split('-').reverse().join('/'))}</strong><small>Disponível: ${minutosParaHoraRep_(minutos)}h</small></span><input type="text" class="form-control rep-lote-origem-valor" data-data="${escapeHtml(item.data)}" data-maximo="${minutos}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalCompensacaoLoteRep_(this.closest('tr'))"></label>`;
+  }).join('') || '<small class="rep-lote-sem-origem">Selecione uma data com saldo positivo disponível na mesma competência.</small>';
+  atualizarTotalCompensacaoLoteRep_(linha);
+}
+
+function atualizarTotalCompensacaoLoteRep_(linha) {
+  let total = 0;
+  let invalida = false;
+  (linha ? linha.querySelectorAll('.rep-lote-origem-valor') : []).forEach(function(input) {
+    if (!input.value.trim()) return;
+    const minutos = horaParaMinutosRep_(input.value.trim());
+    const maximo = Math.max(0, Number(input.dataset.maximo || 0));
+    if (minutos === null || minutos <= 0 || minutos > maximo) invalida = true;
+    else total += minutos;
+    input.classList.toggle('input-error', minutos === null || minutos <= 0 || minutos > maximo);
+  });
+  const campo = linha && linha.querySelector('.rep-lote-horas');
+  if (campo) { campo.value = total ? minutosParaHoraRep_(total) : ''; campo.classList.toggle('input-error', invalida); }
+  return { total: total, invalida: invalida };
+}
+
+function abrirLancamentosLoteRep_() {
+  const emp = obterServidorSelecionadoRep_();
+  if (!emp) return mostrarToast('Selecione um servidor antes de abrir os ajustes em lote.', 'warning');
+  const modal = garantirModalLancamentosLoteRep_();
+  modal.dataset.pis = emp.pis;
+  document.getElementById('rep-lote-servidor').textContent = emp.nome + ' · ' + emp.pis;
+  document.getElementById('rep-lote-marcacoes').innerHTML = '';
+  document.getElementById('rep-lote-compensacoes').innerHTML = '';
+  document.getElementById('rep-lote-status').textContent = '';
+  adicionarLinhaMarcacaoLoteRep_('');
+  abrirModal('modal-lancamentos-lote-rep');
+  renderizarIcones();
+}
+
+function adicionarDeficitsCompensacaoLoteRep_() {
+  const emp = obterServidorSelecionadoRep_();
+  if (!emp) return;
+  const existentes = new Set(Array.from(document.querySelectorAll('#rep-lote-compensacoes .rep-lote-data')).map(function(campo) { return campo.value; }).filter(Boolean));
+  const dias = (emp.dias || []).filter(function(dia) { return !dia.ausencia && !dia.pendencia && ((Number.isFinite(dia.extraDia) && dia.extraDia < 0) || (dia.semRegistro && !dia.diaExtra)); });
+  let adicionados = 0;
+  dias.forEach(function(dia) { if (!existentes.has(dia.dataOriginal)) { const minutos = dia.semRegistro ? Math.round(obterJornadaReferenciaRep_() * 60) : Math.round(Math.abs(dia.extraDia) * 60); adicionarLinhaCompensacaoLoteRep_(dia.dataOriginal, minutosParaHoraRep_(minutos)); adicionados++; } });
+  if (!adicionados) mostrarToast('Não há outros déficits disponíveis para preencher.', 'info');
+}
+
+async function salvarLancamentosLoteRep_() {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const emp = obterServidorSelecionadoRep_();
+  const pis = modal && modal.dataset.pis;
+  if (!emp || normalizarPisRep(emp.pis) !== normalizarPisRep(pis)) return mostrarToast('O servidor selecionado mudou. Abra o formulário novamente.', 'warning');
+  const linhasMarcacao = Array.from(document.querySelectorAll('#rep-lote-marcacoes tr')).filter(function(linha) { return linha.querySelector('.rep-lote-data').value || Array.from(linha.querySelectorAll('.rep-lote-hora')).some(function(campo) { return campo.value; }); });
+  const linhasCompensacao = Array.from(document.querySelectorAll('#rep-lote-compensacoes tr')).filter(function(linha) { return linha.querySelector('.rep-lote-data').value || linha.querySelector('.rep-lote-horas').value; });
+  if (!linhasMarcacao.length && !linhasCompensacao.length) return mostrarToast('Inclua ao menos um ajuste.', 'warning');
+  const novos = [];
+  const origensAjuste = new Set();
+  let compensacoes = [];
+  try {
+  linhasMarcacao.forEach(function(linha, linhaIndice) {
+    const data = linha.querySelector('.rep-lote-data').value;
+    const horarios = Array.from(linha.querySelectorAll('.rep-lote-hora')).map(function(campo) { return campo.value; }).filter(Boolean);
+    const justificativa = linha.querySelector('.rep-lote-justificativa').value.trim();
+    if (!data || (horarios.length !== 2 && horarios.length !== 4) || !justificativa) throw new Error('Nas marcações esquecidas, informe a data, duas ou quatro batidas e a justificativa.');
+    if (new Set(horarios).size !== horarios.length) throw new Error('Há horários repetidos nas marcações de ' + data.split('-').reverse().join('/') + '.');
+    horarios.forEach(function(hora, indice) {
+      const datetime = criarDataAjusteRep(data, hora);
+      if (!datetime) throw new Error('Horário inválido em ' + data.split('-').reverse().join('/') + '.');
+      const id = 'MANUAL|' + gerarUuidSeguroCliente_() + '|LOTE|' + linhaIndice + '|' + indice;
+      novos.push({ pis: pis, datetime: datetime, clock: linha.querySelector('.rep-lote-local').value.trim() || 'Local informado manualmente', deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '', eventId: id, eventKey: 'AJUSTE|' + id, nomeNoMomento: dadosRepCache.employees.get(String(pis)) || '', sourceFile: 'Ajuste compartilhado', rawTimestamp: datetime.getTime(), manual: true, ajusteCompartilhado: true, dataReferencia: data, ajusteOrigemData: data, justificativa: justificativa });
+    });
+    origensAjuste.add(data);
+  });
+  const capacidades = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, Math.max(0, Math.round(Number(item.minutos || 0)))]; }));
+  compensacoes = linhasCompensacao.map(function(linha) {
+    const data = linha.querySelector('.rep-lote-data').value;
+    const resultadoOrigens = atualizarTotalCompensacaoLoteRep_(linha);
+    const minutos = resultadoOrigens.total;
+    const dia = (emp.dias || []).find(function(item) { return item.dataOriginal === data; });
+    const deficit = dia && dia.semRegistro ? Math.round(obterJornadaReferenciaRep_() * 60) : (dia && Number.isFinite(dia.extraDia) && dia.extraDia < 0 ? Math.round(Math.abs(dia.extraDia) * 60) : 0);
+    if (!data || resultadoOrigens.invalida || minutos <= 0 || !dia || !deficit) throw new Error('Informe uma data com déficit e escolha uma quantidade válida em ao menos um dia de origem.');
+    if (minutos > deficit) throw new Error('A compensação de ' + data.split('-').reverse().join('/') + ' ultrapassa o déficit de ' + minutosParaHoraRep_(deficit) + 'h.');
+    const origens = Array.from(linha.querySelectorAll('.rep-lote-origem-valor')).map(function(input) {
+      const retirar = horaParaMinutosRep_(input.value.trim());
+      return retirar > 0 ? { data: input.dataset.data, minutos: retirar } : null;
+    }).filter(Boolean);
+    origens.forEach(function(origem) {
+      const disponivel = capacidades.get(origem.data) || 0;
+      if (origem.minutos > disponivel) throw new Error('As compensações em lote ultrapassam o saldo disponível de ' + origem.data.split('-').reverse().join('/') + ' em ' + minutosParaHoraRep_(origem.minutos - disponivel) + 'h.');
+      capacidades.set(origem.data, disponivel - origem.minutos);
+    });
+    return { pis: pis, data: data, minutos: minutos, observacao: linha.querySelector('.rep-lote-observacao').value.trim(), origens: origens };
+  });
+  } catch (erroValidacao) {
+    return mostrarToast(mensagemErro(erroValidacao), 'warning');
+  }
+  const botao = document.getElementById('rep-lote-salvar');
+  botao.disabled = true;
+  try {
+    const competencias = Array.from(new Set(Array.from(origensAjuste).map(function(data) { return data.slice(0,7); })));
+    for (let i = 0; i < competencias.length; i++) {
+      const competencia = competencias[i];
+      document.getElementById('rep-lote-status').textContent = 'Preparando marcações da competência ' + competencia + '...';
+      await salvarAjustesCompetenciaRep_(pis, competencia, novos.filter(function(item) { return item.dataReferencia.slice(0,7) === competencia; }), Array.from(origensAjuste).filter(function(data) { return data.slice(0,7) === competencia; }));
+    }
+    compensacoes.forEach(function(dados, indice) {
+      document.getElementById('rep-lote-status').textContent = 'Preparando compensação ' + (indice + 1) + ' de ' + compensacoes.length + '...';
+      enfileirarAlteracaoRep_('COMPENSACAO', dados, 'COMPENSACAO|' + normalizarPisRep(pis) + '|' + dados.data);
+      compensacoesRep = (compensacoesRep || []).filter(function(item) { return !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === dados.data); });
+      compensacoesRep.push(dados);
+    });
+    if (novos.length) { dadosRepCache.punches.push.apply(dadosRepCache.punches, novos); aplicarAjustesCompartilhadosRep_(); }
+    if (competencias.length || compensacoes.length) {
+      await salvarAlteracoesPendentesRep_({ manual: true });
+    }
+    fecharModal('modal-lancamentos-lote-rep');
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast((linhasMarcacao.length + compensacoes.length) + ' ajuste(s) de ponto salvo(s) em lote.', 'success');
+  } catch (erro) {
+    document.getElementById('rep-lote-status').textContent = 'A gravação foi interrompida: ' + mensagemErro(erro);
+    mostrarToast('Não foi possível concluir todos os ajustes: ' + mensagemErro(erro), 'error');
+  } finally { botao.disabled = false; }
+}
+
+function minutosParaRelogioHe_(minutos) {
+  minutos = ((Math.round(minutos) % 1440) + 1440) % 1440;
+  return String(Math.floor(minutos / 60)).padStart(2, '0') + ':' + String(minutos % 60).padStart(2, '0');
+}
+
+async function salvarDescricaoHoraExtraRep_(descricao) {
+  return chamarBackendPromessa_('salvarDescricaoAutorizacaoHorasExtras', [descricao]);
+}
+
+async function gerenciarDescricaoHoraExtraRep_(acao, descricao, novoTexto) {
+  return chamarBackendPromessa_('gerenciarDescricaoAutorizacaoHorasExtras', [acao, descricao, novoTexto || '']);
+}
+
+const janelasAutorizacaoHeRep_ = new Set();
+window.addEventListener('message', async function(event) {
+  const dados = event && event.data;
+  if (!dados || !janelasAutorizacaoHeRep_.has(event.source)) return;
+  try {
+    if (dados.tipo === 'SALVAR_DESCRICAO_HE') {
+      const descricoes = await salvarDescricaoHoraExtraRep_(dados.descricao);
+      event.source.postMessage({ tipo: 'DESCRICAO_HE_SALVA', descricao: dados.descricao, descricoes: descricoes }, '*');
+    } else if (dados.tipo === 'GERENCIAR_DESCRICAO_HE') {
+      const descricoes = await gerenciarDescricaoHoraExtraRep_(dados.acao, dados.descricao, dados.novoTexto);
+      event.source.postMessage({ tipo: 'DESCRICAO_HE_GERENCIADA', acao: dados.acao, descricao: dados.descricao, novoTexto: dados.novoTexto, descricoes: descricoes }, '*');
+    } else return;
+  } catch (erro) {
+    event.source.postMessage({ tipo: 'DESCRICAO_HE_ERRO', mensagem: mensagemErro(erro) }, '*');
+  }
+});
+
+async function exportarAutorizacaoHorasExtrasRep_() {
+  const emp = obterServidorSelecionadoRep_();
+  const competencia = obterCompetenciaSelecionadaRep_();
+  if (!emp || !competencia) return mostrarToast('Selecione um servidor, um ano e um mês específicos.', 'warning');
+  const janela = window.open('', '_blank');
+  if (!janela) return mostrarToast('Permita a abertura da janela para gerar a autorização.', 'warning');
+  janelasAutorizacaoHeRep_.add(janela);
+  try {
+    const config = await chamarBackendPromessa_('obterConfiguracaoAutorizacaoHorasExtras', []);
+    const servidor = (AppState.servidores || []).find(function(item) { return normalizarPisRep(item.pis) === normalizarPisRep(emp.pis); }) || {};
+    const dias = (emp.dias || []).filter(function(dia) { return Number(dia.extraDia || 0) > 0 && !dia.pendencia && !dia.ausencia; });
+    const meses = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+    const partesCompetencia = competencia.split('-').map(Number);
+    const ultimoDia = new Date(partesCompetencia[0], partesCompetencia[1], 0).getDate();
+    let totalMinutos = 0;
+    const valores = dias.map(function(dia) {
+      const extraMinutos = Math.max(0, Math.round(Number(dia.extraDia || 0) * 60));
+      totalMinutos += extraMinutos;
+      const batidas = dia.batidas || [];
+      const fim = batidas.length ? horaParaMinutosRep_(batidas[batidas.length - 1]) : null;
+      const inicioExtra = fim == null ? '' : minutosParaRelogioHe_(fim - extraMinutos);
+      return { data: dia.dataFormatada || '', inicio: inicioExtra, fim: fim == null ? '' : minutosParaRelogioHe_(fim), total: minutosParaHoraRep_(extraMinutos) };
+    });
+    const quantidadeLinhas = Math.max(21, valores.length);
+    while (valores.length < quantidadeLinhas) valores.push({ data: '', inicio: '', fim: '', total: '' });
+    const alturaLinha = quantidadeLinhas > 28 ? 3.8 : (quantidadeLinhas > 24 ? 4.2 : (quantidadeLinhas > 21 ? 4.7 : 5.3));
+    const campo = function(valor, classe) {
+      const tamanho = String(valor || '').length;
+      const ajuste = tamanho > 32 ? ' texto-muito-longo' : (tamanho > 20 ? ' texto-longo' : '');
+      return '<input class="campo ' + (classe || '') + ajuste + '" value="' + escapeHtml(valor || '') + '" autocomplete="off">';
+    };
+    const opcoesDescricao = (config.descricoes || [config.descricaoPadrao]).map(function(item) { return '<option value="' + escapeHtml(item) + '">' + escapeHtml(item) + '</option>'; }).join('');
+    const linhas = valores.map(function(item, indice) {
+      return '<tr><td>' + campo(item.data, 'data') + '</td><td>' + campo('', 'normal') + '</td><td>' + campo('', 'normal') + '</td><td>' + campo(item.inicio, 'hora') + '</td><td>' + campo(item.fim, 'hora') + '</td><td>' + campo(item.total, 'total-dia') + '</td>' + (indice === 0 ? '<td class="descricao" rowspan="' + (quantidadeLinhas + 1) + '"><div class="descricao-controles"><select id="descricao-modelo" onchange="usarDescricao(this.value)"><option value="">Descrição pronta...</option>' + opcoesDescricao + '</select><button type="button" onclick="novaDescricao()">+ Nova</button><button type="button" onclick="editarDescricao()">Editar</button><button type="button" onclick="excluirDescricao()">Excluir</button></div><div id="descricao-servicos" class="descricao-texto" contenteditable="true" spellcheck="true">' + escapeHtml(config.descricaoPadrao || '') + '</div></td>' : '') + '</tr>';
+    }).join('');
+    const periodo = '01/' + String(partesCompetencia[1]).padStart(2,'0') + '/' + partesCompetencia[0] + ' A ' + String(ultimoDia).padStart(2,'0') + '/' + String(partesCompetencia[1]).padStart(2,'0') + '/' + partesCompetencia[0];
+    const assets = window.HE_MODELO_ASSETS || {};
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Autorização de Horas Extras</title><style>
+      @page{size:A4 portrait;margin:12.7mm}*{box-sizing:border-box}html{background:#e5e7eb}body{position:relative;width:210mm;min-height:297mm;margin:16px auto;padding:12.7mm;background:#fff;color:#000;font-family:Arial,sans-serif;font-size:10pt;box-shadow:0 8px 34px rgba(0,0,0,.22)}
+      .acoes{position:fixed;right:18px;top:16px;z-index:5;display:flex;align-items:center;gap:8px;max-width:calc(100vw - 36px)}.acoes button{height:36px;padding:7px 10px;border:1px solid #0f766e;border-radius:2px;background:#0f766e;color:#fff;font-weight:700;cursor:pointer}.acoes .sec{background:#fff;color:#0f766e}.cabecalho{height:20mm;position:relative;display:flex;align-items:center;justify-content:center;text-align:center}.cabecalho img{position:absolute;object-fit:contain}.cabecalho .brasao{left:0;width:19mm;height:20mm}.cabecalho .selo{right:0;width:16mm;height:19mm}.cabecalho .prefeitura{font-family:"Times New Roman",serif;font-size:16pt;line-height:1.05}.cabecalho .sub{font-family:"Times New Roman",serif;font-size:9pt;font-style:italic;margin-top:1px}.titulo{margin:3.5mm 0 4mm;text-align:center;font-size:13pt;font-weight:800}
+      table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #000;padding:0;overflow:hidden}input.campo{display:block;width:100%;height:100%;min-height:0;padding:.7mm 1.3mm;border:0;border-radius:0;background:transparent;color:#000;font:inherit;outline:0;min-width:0}input.campo:focus,[contenteditable]:focus{box-shadow:inset 0 0 0 2px #0f766e}.dados{margin-bottom:4mm}.dados td{height:5.8mm}.dados input.campo{font-size:10pt}.dados input.texto-longo{font-size:9pt}.dados input.texto-muito-longo{font-size:8pt}.dados .rotulo{padding:.7mm 1mm;font-size:9pt;font-weight:800;white-space:nowrap;text-overflow:clip}.dados col.c1{width:16%}.dados col.c2{width:21%}.dados col.c3{width:11%}.dados col.c4{width:18%}.dados col.c5{width:14%}.dados col.c6{width:20%}
+      .horas col.data{width:16%}.horas col.normal{width:6.2%}.horas col.he{width:9.2%}.horas col.total{width:10.7%}.horas col.desc{width:42.5%}.horas thead th{height:16mm;padding:1mm .5mm;text-align:center;font-size:9pt;font-weight:800;line-height:1.18;word-break:normal}.horas tbody td{height:${alturaLinha}mm;text-align:center}.horas tbody input.campo{font-size:${quantidadeLinhas > 24 ? '8pt' : '9pt'}}.horas tbody tr:not(.total-linha) td:nth-child(6) input.campo{font-weight:800}.horas .descricao{vertical-align:top;text-align:left}.descricao-controles{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1mm;min-height:0!important;padding:1.2mm!important;border-bottom:1px solid #000}.descricao-controles select,.descricao-controles button{min-width:0;height:6mm;border:1px solid #666;border-radius:0;background:#fff;color:#111;font-size:8.5pt}.descricao-controles button{padding:0 1.2mm;font-weight:700;cursor:pointer}.descricao-texto{min-height:0!important;height:calc(100% - 8.4mm);padding:1.5mm;outline:0;font-size:9pt}.horas .total-linha td{height:6mm;font-size:10pt;font-weight:800;text-align:right}.horas .total-linha .total-geral{padding-right:1mm;text-align:center}
+      .assinatura{position:absolute;left:12.7mm;right:12.7mm;bottom:19mm;width:auto;margin:0;text-align:center}.assinatura input{display:block;width:55%;margin:0 auto;border:0;border-radius:0;background:transparent;text-align:center;outline:0}.assinatura .nome{font-size:11pt;font-weight:800}.assinatura .cargo{font-size:10pt;margin-top:.8mm}.rodape{position:absolute;left:12.7mm;right:12.7mm;bottom:7mm;margin:0;text-align:center;font-size:7.5pt;line-height:1.25}
+      @media print{html{background:#fff}body{position:relative;width:auto;min-height:271.6mm;margin:0;padding:0 0 34mm;box-shadow:none}.acoes,.descricao-controles{display:none}.descricao-texto{height:100%;padding-top:1.5mm}input.campo:focus,[contenteditable]:focus{box-shadow:none}}
+      @media screen and (max-width:900px){body{transform-origin:top left;margin:0;box-shadow:none}.acoes{position:sticky;justify-content:flex-end;padding:8px;background:#fff}}
+    </style></head><body><div class="acoes"><button class="sec" onclick="recalcular()">Recalcular total</button><button onclick="recalcular();window.print()">Imprimir / salvar PDF</button></div>
+      <header class="cabecalho"><img class="brasao" src="${assets.brasao || ''}" alt="Brasão"><div><div class="prefeitura">Prefeitura Municipal de São Sebastião</div><div class="sub">ESTÂNCIA BALNEÁRIA – ESTADO DE SÃO PAULO</div></div><img class="selo" src="${assets.selo || ''}" alt="São Sebastião - SP - Brasil"></header>
+      <div class="titulo">AUTORIZAÇÃO DE HORAS EXTRAS</div>
+      <table class="dados"><colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"></colgroup><tr><td class="rotulo">NOME:</td><td colspan="5">${campo(emp.nome)}</td></tr><tr><td class="rotulo">MAT.:</td><td>${campo(servidor.matricula || '')}</td><td class="rotulo">FUNÇÃO:</td><td colspan="3">${campo(servidor.cargo || '')}</td></tr><tr><td class="rotulo">SETOR</td><td>${campo(config.setor || servidor.lotacao || '')}</td><td class="rotulo">LOCAL:</td><td>${campo(servidor.lotacao || '')}</td><td class="rotulo">SECRETARIA:</td><td>${campo(config.secretaria || 'SETUR')}</td></tr><tr><td class="rotulo">PERÍODO:</td><td colspan="3">${campo(periodo)}</td><td class="rotulo">MÊS:</td><td>${campo(meses[partesCompetencia[1]-1] + '/' + partesCompetencia[0])}</td></tr></table>
+      <table class="horas"><colgroup><col class="data"><col class="normal"><col class="normal"><col class="he"><col class="he"><col class="total"><col class="desc"></colgroup><thead><tr><th>DATA</th><th colspan="2">PERÍODO DE<br>TRABALHO<br>(NORMAL)</th><th colspan="2">HORAS EXTRAS</th><th>TOTAL DE<br>HORAS<br>EXTRAS</th><th>DESCRIÇÃO DOS SERVIÇOS</th></tr></thead><tbody>${linhas}<tr class="total-linha"><td colspan="5">TOTAL:</td><td class="total-geral"><input class="campo" id="total-geral" value="${minutosParaHoraRep_(totalMinutos)}"></td></tr></tbody></table>
+      <div class="assinatura"><input class="nome" value="${escapeHtml(config.secretarioNome || 'LEANDRO PEREIRA DA SILVA')}"><input class="cargo" value="${escapeHtml(config.secretarioCargo || 'Secretário de Turismo')}"></div>
+      <footer class="rodape">Rua Prefeito João Cupertino dos Santos, 218 - Centro - CEP 11.608.611 - São Sebastião/SP<br>Tel.: (12) 3891-2160&nbsp;&nbsp;&nbsp; www.saosebastiao.sp.gov.br</footer>
+      <script>function minutos(v){var m=String(v||'').match(/^(\\d{1,3}):(\\d{2})$/);return m?Number(m[1])*60+Number(m[2]):0}function relogio(m){return Math.floor(m/60)+':'+String(m%60).padStart(2,'0')}function recalcular(){var t=0;document.querySelectorAll('.total-dia').forEach(function(c){t+=minutos(c.value)});document.getElementById('total-geral').value=relogio(t)}function usarDescricao(v){if(v)document.getElementById('descricao-servicos').textContent=v}function descricaoSelecionada(){return document.getElementById('descricao-modelo').value}function novaDescricao(){var v=prompt('Digite a nova descrição de serviços:');if(!v)return;window.opener.postMessage({tipo:'SALVAR_DESCRICAO_HE',descricao:v},'*')}function editarDescricao(){var atual=descricaoSelecionada();if(!atual)return alert('Selecione uma descrição salva para editar.');var novo=prompt('Corrija a descrição:',atual);if(!novo||novo===atual)return;window.opener.postMessage({tipo:'GERENCIAR_DESCRICAO_HE',acao:'EDITAR',descricao:atual,novoTexto:novo},'*')}function excluirDescricao(){var atual=descricaoSelecionada();if(!atual)return alert('Selecione uma descrição salva para excluir.');if(!confirm('Excluir a descrição das próximas autorizações?'))return;window.opener.postMessage({tipo:'GERENCIAR_DESCRICAO_HE',acao:'EXCLUIR',descricao:atual},'*')}function substituirOpcoes(lista,selecionada){var s=document.getElementById('descricao-modelo');s.innerHTML='<option value="">Descrição pronta...</option>';(lista||[]).forEach(function(item){var o=document.createElement('option');o.value=item;o.textContent=item;s.appendChild(o)});s.value=selecionada||''}window.addEventListener('message',function(e){var d=e.data||{};if(d.tipo==='DESCRICAO_HE_SALVA'){substituirOpcoes(d.descricoes,d.descricao);usarDescricao(d.descricao);alert('Descrição salva para as próximas autorizações.')}else if(d.tipo==='DESCRICAO_HE_GERENCIADA'){var selecionada=d.acao==='EDITAR'?d.novoTexto:'';substituirOpcoes(d.descricoes,selecionada);if(selecionada)usarDescricao(selecionada);alert(d.acao==='EDITAR'?'Descrição corrigida.':'Descrição excluída.')}else if(d.tipo==='DESCRICAO_HE_ERRO'){alert('Não foi possível salvar a descrição: '+d.mensagem)}});document.querySelectorAll('.total-dia').forEach(function(c){c.addEventListener('change',recalcular)})<\/script></body></html>`;
+    janela.document.open(); janela.document.write(html); janela.document.close(); janela.focus();
+  } catch (erro) {
+    janela.close();
+    mostrarToast('Não foi possível gerar a autorização: ' + mensagemErro(erro), 'error');
+  }
+}
+
+async function ajustarPenalidadePeriodoFeriasFicha_(matricula, referencia, atual) {
+  const informado = window.prompt('Dias de penalidade para este período aquisitivo (0 a 30):', String(atual || 0));
+  if (informado === null) return;
+  const dias = Number(informado);
+  if (!Number.isInteger(dias) || dias < 0 || dias > 30) return mostrarToast('Informe um número inteiro entre 0 e 30.', 'warning');
+  try {
+    exibirLoader(true, 'Atualizando o período aquisitivo...');
+    await chamarBackendPromessa_('salvarPenalidadePeriodoFerias', [{ matricula: matricula, referencia: referencia, dias: dias }]);
+    const servidores = await chamarBackendPromessa_('obterListaServidores', []);
+    AppState.servidores = Array.isArray(servidores) ? servidores : AppState.servidores;
+    fecharModal('modal-ficha-servidor');
+    abrirFichaServidor(matricula);
+    mostrarToast('Penalidade aplicada diretamente ao período aquisitivo.', 'success');
+  } catch (erro) { mostrarToast('Não foi possível salvar a penalidade: ' + mensagemErro(erro), 'error'); }
+  finally { exibirLoader(false); }
+}
+
+async function ajustarPenalidadeAbonosFicha_(matricula, atual) {
+  const informado = window.prompt('Quantidade de abonadas perdidas no ano (0 a 5):', String(atual || 0));
+  if (informado === null) return;
+  const dias = Number(informado);
+  if (!Number.isInteger(dias) || dias < 0 || dias > 5) return mostrarToast('Informe um número inteiro entre 0 e 5.', 'warning');
+  try {
+    exibirLoader(true, 'Atualizando a penalidade de abonos...');
+    await chamarBackendPromessa_('salvarPenalidadeAbonosServidor', [{ matricula: matricula, dias: dias }]);
+    const servidores = await chamarBackendPromessa_('obterListaServidores', []);
+    AppState.servidores = Array.isArray(servidores) ? servidores : AppState.servidores;
+    fecharModal('modal-ficha-servidor');
+    abrirFichaServidor(matricula);
+    mostrarToast('Penalidade de abonos atualizada na ficha individual.', 'success');
+  } catch (erro) { mostrarToast('Não foi possível salvar a penalidade: ' + mensagemErro(erro), 'error'); }
+  finally { exibirLoader(false); }
+}
+</script>

@@ -71,19 +71,51 @@ function limparFalhasLogin_(email) {
   CacheService.getScriptCache().remove(chaveTentativasLogin_(email));
 }
 
+const SESSAO_TTL_SEGUNDOS_ = 7 * 24 * 60 * 60;
+const SESSAO_CACHE_SEGUNDOS_ = 6 * 60 * 60;
+
+function chaveSessaoPersistente_(token) {
+  return "rh_sessao_persistente_" + gerarHashSenha(String(token || "")).slice(0, 48);
+}
+
+function salvarSessaoPersistente_(token, usuario) {
+  const agora = Date.now();
+  const registro = { usuario: usuario, criadoEm: agora, ultimoAcessoEm: agora, expiraEm: agora + (SESSAO_TTL_SEGUNDOS_ * 1000) };
+  const json = JSON.stringify(registro);
+  CacheService.getScriptCache().put("rh_sessao_" + token, json, SESSAO_CACHE_SEGUNDOS_);
+  PropertiesService.getScriptProperties().setProperty(chaveSessaoPersistente_(token), json);
+  return registro;
+}
+
 function verificarSessao(token) {
   if (!token) throw new Error("Acesso negado: Token de sessão não fornecido.");
   const cache = CacheService.getScriptCache();
-  const dadosString = cache.get("rh_sessao_" + token);
-  if (!dadosString) {
-    throw new Error("Sua sessão expirou ou é inválida. Faça login novamente.");
+  const props = PropertiesService.getScriptProperties();
+  const chavePersistente = chaveSessaoPersistente_(token);
+  let dadosString = cache.get("rh_sessao_" + token) || props.getProperty(chavePersistente);
+  if (!dadosString) throw new Error("Sua sessão expirou ou é inválida. Faça login novamente.");
+
+  let registro = JSON.parse(dadosString);
+  if (registro && registro.email) registro = { usuario: registro, expiraEm: Date.now() + (SESSAO_TTL_SEGUNDOS_ * 1000) };
+  if (!registro || !registro.usuario || Number(registro.expiraEm || 0) <= Date.now()) {
+    cache.remove("rh_sessao_" + token);
+    props.deleteProperty(chavePersistente);
+    throw new Error("Sua sessão expirou por inatividade. Faça login novamente.");
   }
-  
-  const usuario = JSON.parse(dadosString);
-  if (!usuario || !usuario.email || !usuario.ativo) {
-    throw new Error("Sua conta de usuário está inativa no sistema.");
+
+  const usuario = registro.usuario;
+  if (!usuario || !usuario.email || !usuario.ativo) throw new Error("Sua conta de usuário está inativa no sistema.");
+
+  const agora = Date.now();
+  const renovarPersistencia = agora - Number(registro.ultimoAcessoEm || 0) >= 15 * 60 * 1000;
+  if (renovarPersistencia) {
+    registro.ultimoAcessoEm = agora;
+    registro.expiraEm = agora + (SESSAO_TTL_SEGUNDOS_ * 1000);
   }
-  
+  const renovada = JSON.stringify(registro);
+  cache.put("rh_sessao_" + token, renovada, SESSAO_CACHE_SEGUNDOS_);
+  if (renovarPersistencia) props.setProperty(chavePersistente, renovada);
+
   _usuarioSessaoAtual = usuario;
   return usuario;
 }
@@ -118,8 +150,14 @@ function verificarSeEhOperador() {
 function obterFuncoesApiPermitidas_() {
   return {
     verificarSessao: verificarSessao,
+    obterVersaoDados: obterVersaoDados,
     obterDadosCompletos: obterDadosCompletos,
+    obterConfiguracaoAutorizacaoHorasExtras: obterConfiguracaoAutorizacaoHorasExtras,
+    salvarDescricaoAutorizacaoHorasExtras: salvarDescricaoAutorizacaoHorasExtras,
+    gerenciarDescricaoAutorizacaoHorasExtras: gerenciarDescricaoAutorizacaoHorasExtras,
     obterListaServidores: obterListaServidores,
+    salvarPenalidadePeriodoFerias: salvarPenalidadePeriodoFerias,
+    salvarPenalidadeAbonosServidor: salvarPenalidadeAbonosServidor,
     listarVinculosRep: listarVinculosRep,
     salvarVinculosRep: salvarVinculosRep,
     iniciarUploadRepOnline: iniciarUploadRepOnline,
@@ -200,7 +238,21 @@ function executarApiBackend(token, funcName, args) {
   if (typeof func !== "function") throw new Error("Operacao nao permitida pela API do sistema.");
   const argumentos = Array.isArray(args) ? args : [];
   if (argumentos.length > 20) throw new Error("Quantidade de argumentos invalida.");
-  return func.apply(this, argumentos);
+  const resultado = func.apply(this, argumentos);
+  if (/^(salvar|atualizar|desativar|cancelar|remover|excluir|definir|marcar|registrar|resetar|criar|gerar)/i.test(String(funcName || ""))) registrarAlteracaoDados_();
+  return resultado;
+}
+
+function registrarAlteracaoDados_() {
+  const versao = String(Date.now()) + "-" + Utilities.getUuid().slice(0, 8);
+  PropertiesService.getScriptProperties().setProperty("RH_VERSAO_DADOS", versao);
+  return versao;
+}
+
+function obterVersaoDados() {
+  obterDadosUsuarioLogado();
+  const props = PropertiesService.getScriptProperties();
+  return props.getProperty("RH_VERSAO_DADOS") || registrarAlteracaoDados_();
 }
 
 /**
@@ -302,9 +354,9 @@ function fazerLogin(email, senha) {
     abaUsuarios.getRange(linhaEdit, 5).setValue(gerarHashSenhaArmazenado_(senha));
   }
   
-  // Sucesso no login, gerar token válido por 24h
+  // Sessão renovável por atividade, sem depender apenas do cache volátil.
   const token = gerarTokenAleatorio();
-  CacheService.getScriptCache().put("rh_sessao_" + token, JSON.stringify(usuarioValido), 86400);
+  salvarSessaoPersistente_(token, usuarioValido);
   
   return {
     token: token,
@@ -350,7 +402,7 @@ function definirSenhaPrimeiroAcesso(email, novaSenha) {
     abaUsuarios.getRange(linhaEdit, 5).setValue(hashGerado);
     
     const token = gerarTokenAleatorio();
-    CacheService.getScriptCache().put("rh_sessao_" + token, JSON.stringify(usuarioValido), 86400);
+    salvarSessaoPersistente_(token, usuarioValido);
     
     lancarLogSemLock_("PRIMEIRO_ACESSO", "Usuarios", "Usuário definiu a senha de primeiro acesso.", "", "", "", emailBusca);
     

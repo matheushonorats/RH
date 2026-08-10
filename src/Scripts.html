@@ -17,6 +17,7 @@ const AppState = {
   conviteEntidadePendente: false,
   dadosCompletosCarregados: false,
   cacheRestaurado: false,
+  versaoDados: '',
   paginacao: {
     servidores: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
     lancamentos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
@@ -25,6 +26,47 @@ const AppState = {
 };
 
 let currentView = 'dashboard';
+
+// Impede que uma leitura iniciada antes de uma gravação substitua na tela o
+// dado que o usuário acabou de salvar. Cada mutação invalida respostas de
+// sincronização mais antigas, mesmo que elas terminem alguns segundos depois.
+let revisaoMutacoesCliente_ = 0;
+let gravacoesBackendEmAndamento_ = 0;
+let temporizadorSincronizacaoSegura_ = null;
+
+function ehFuncaoMutacaoBackend_(nome) {
+  return /^(salvar|atualizar|desativar|cancelar|remover|excluir|definir|marcar|registrar|resetar|criar|gerar)/i.test(String(nome || ''));
+}
+
+function registrarInicioMutacaoBackend_() {
+  revisaoMutacoesCliente_++;
+  gravacoesBackendEmAndamento_++;
+  return revisaoMutacoesCliente_;
+}
+
+function registrarFimMutacaoBackend_() {
+  gravacoesBackendEmAndamento_ = Math.max(0, gravacoesBackendEmAndamento_ - 1);
+}
+
+function existemGravacoesPendentes_() {
+  const filaGeralPendente = typeof SyncQueue !== 'undefined' && (SyncQueue.processando || SyncQueue.fila.length > 0);
+  const filaRepPendente = typeof repTemAlteracoesPendentes_ === 'function' && repTemAlteracoesPendentes_();
+  return gravacoesBackendEmAndamento_ > 0 || filaGeralPendente || filaRepPendente;
+}
+
+function agendarSincronizacaoSegura_(viewAlvo) {
+  if (viewAlvo) sincronizacaoViewPendente = viewAlvo;
+  clearTimeout(temporizadorSincronizacaoSegura_);
+  temporizadorSincronizacaoSegura_ = setTimeout(function tentarSincronizarSemGravacao() {
+    if (existemGravacoesPendentes_() || sincronizacaoServidorEmAndamento) {
+      temporizadorSincronizacaoSegura_ = setTimeout(tentarSincronizarSemGravacao, 500);
+      return;
+    }
+    const destino = sincronizacaoViewPendente || currentView;
+    sincronizacaoViewPendente = null;
+    sincronizarEmSegundoPlano(destino);
+  }, 350);
+}
 
 function gerarUuidSeguroCliente_() {
   if (!window.crypto) throw new Error('Este navegador nao oferece geracao segura de identificadores.');
@@ -110,6 +152,7 @@ const SyncQueue = {
         if (currBtn && self.fila.length === 0) currBtn.classList.remove('spinning');
         
         atualizarTextoSync("Operação salva!", true, 'check');
+        mostrarToast(`${item.descricao || 'Alteração'} confirmada no servidor.`, 'success');
 
         // Cadastros de servidor são auditados no backend durante a gravação.
         // Consulta imediatamente o novo parecer, sem aguardar o polling de 10 minutos.
@@ -576,15 +619,25 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 
-// Polling silencioso a cada 5 minutos (somente se aba ativa)
+// Consulta apenas uma versão leve. A base completa só é recarregada quando
+// outro usuário realmente grava uma alteração.
 let pollingInterval;
 function iniciarPolling() {
   if (pollingInterval) clearInterval(pollingInterval);
   pollingInterval = setInterval(() => {
-    if (document.visibilityState === 'visible' && navigator.onLine && SyncQueue.fila.length === 0) {
-      sincronizarEmSegundoPlano();
-    }
-  }, 5 * 60 * 1000);
+    if (document.visibilityState !== 'visible' || !navigator.onLine || existemGravacoesPendentes_()) return;
+    backendApi()
+      .withSuccessHandler(function(versao) {
+        versao = String(versao || '');
+        if (!AppState.versaoDados) {
+          AppState.versaoDados = versao;
+          return;
+        }
+        if (versao && versao !== AppState.versaoDados) sincronizarEmSegundoPlano(currentView);
+      })
+      .withFailureHandler(function(erro) { console.warn('Não foi possível consultar mudanças compartilhadas:', mensagemErro(erro)); })
+      .obterVersaoDados();
+  }, 30 * 1000);
 }
 
 /**
@@ -906,16 +959,24 @@ function backendApi() {
           mostrarLogin();
           return;
         }
+        const ehMutacao = ehFuncaoMutacaoBackend_(prop);
+        if (ehMutacao) registrarInicioMutacaoBackend_();
+        const sucessoDaChamada = sHandler;
+        const falhaDaChamada = fHandler;
         google.script.run
-          .withSuccessHandler(sHandler)
+          .withSuccessHandler(function(resultado) {
+            if (ehMutacao) registrarFimMutacaoBackend_();
+            sucessoDaChamada(resultado);
+          })
           .withFailureHandler(function(e) {
+            if (ehMutacao) registrarFimMutacaoBackend_();
             if (e.message && (e.message.includes("Sua sessão expirou") || e.message.includes("Token de sessão não fornecido"))) {
               limparCacheLocal_();
               localStorage.removeItem('rh_token');
               localStorage.removeItem('rh_user');
               mostrarLogin();
             }
-            fHandler(e);
+            falhaDaChamada(e);
           })
           .executarApiBackend(token, prop, args);
       };
@@ -987,6 +1048,10 @@ let sincronizacaoServidorEmAndamento = false;
 let sincronizacaoViewPendente = null;
 
 function reservarSincronizacaoServidor_(viewAlvo) {
+  if (existemGravacoesPendentes_()) {
+    agendarSincronizacaoSegura_(viewAlvo || currentView);
+    return false;
+  }
   if (sincronizacaoServidorEmAndamento) {
     if (viewAlvo) sincronizacaoViewPendente = viewAlvo;
     return false;
@@ -1010,7 +1075,11 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     return;
   }
   
-  if (!reservarSincronizacaoServidor_(viewAlvo)) return;
+  if (!reservarSincronizacaoServidor_(viewAlvo)) {
+    exibirLoader(false);
+    return;
+  }
+  const revisaoAoIniciar = revisaoMutacoesCliente_;
   const syncBtn = document.getElementById('btn-sync-icon');
   if (syncBtn) syncBtn.classList.add('spinning');
   exibirLoader(true);
@@ -1021,6 +1090,13 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     .withSuccessHandler(function(dados) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
+      if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesPendentes_()) {
+        exibirLoader(false);
+        const viewFinalPendente = concluirSincronizacaoServidor_(viewAlvo);
+        atualizarTextoSync('Aguardando a gravação terminar...', true, 'warning');
+        agendarSincronizacaoSegura_(viewFinalPendente || viewAlvo || currentView);
+        return;
+      }
       atualizarTextoSync("Sincronizado!", true, 'check');
       setTimeout(() => {
         if (SyncQueue.fila.length === 0 && !SyncQueue.processando) {
@@ -1031,6 +1107,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.servidores = Array.isArray(dados.servidores) ? dados.servidores : [];
       AppState.lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
       AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
+      AppState.versaoDados = String(dados.versaoDados || AppState.versaoDados || '');
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
       salvarCacheLocal();
@@ -1073,6 +1150,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
 function sincronizarEmSegundoPlano(viewAlvo = null) {
   if (typeof google === "undefined" || !google.script) return;
   if (!reservarSincronizacaoServidor_(viewAlvo)) return;
+  const revisaoAoIniciar = revisaoMutacoesCliente_;
   const syncBtn = document.getElementById('btn-sync-icon');
   if (syncBtn) syncBtn.classList.add('spinning');
   
@@ -1082,6 +1160,12 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
     .withSuccessHandler(function(dados) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
+      if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesPendentes_()) {
+        const viewFinalPendente = concluirSincronizacaoServidor_(viewAlvo);
+        atualizarTextoSync('Aguardando a gravação terminar...', true, 'warning');
+        agendarSincronizacaoSegura_(viewFinalPendente || viewAlvo || currentView);
+        return;
+      }
       atualizarTextoSync("Sincronizado!", true, 'check');
       setTimeout(() => {
         if (SyncQueue.fila.length === 0 && !SyncQueue.processando) {
@@ -1092,6 +1176,7 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
       AppState.servidores = Array.isArray(dados.servidores) ? dados.servidores : [];
       AppState.lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
       AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
+      AppState.versaoDados = String(dados.versaoDados || AppState.versaoDados || '');
       AppState.dadosCompletosCarregados = true;
       popularFiltroLotacoes();
       salvarCacheLocal();
@@ -1235,6 +1320,44 @@ function obterSaudacao() {
 let loaderInterval;
 let loaderSafetyTimeout;
 let loaderHideTimeout;
+let loaderFraseTimer_;
+let loaderFrasesExibidas_ = 0;
+const LOADER_FRASES_REP_ = [
+  'Contando batidas sem perder nenhuma no caminho.', 'Conversando com os relógios de ponto.',
+  'Separando hora extra de hora misteriosa.', 'O AFD é grande, mas a paciência é maior.',
+  'Conferindo se o almoço voltou do almoço.', 'Caçando marcações fora do lugar.',
+  'Prometo não arredondar a sua paciência.', 'Organizando o mês, uma batida por vez.',
+  'O fantasma do ponto está fazendo auditoria.', 'Juntando os pedaços do expediente.',
+  'Verificando hashes com cara de quem entende.', 'Nenhum REP foi ferido nesta leitura.',
+  'Transformando TXT em algo que humanos entendem.', 'Quase lá: até a burocracia tem fim.',
+  'Procurando horas extras debaixo do tapete.', 'Ajustando a lupa da conferência.',
+  'Se aparecer uma batida fantasma, eu aviso.', 'Mantendo o AFD original bem protegido.',
+  'Fazendo contas que o Excel não precisará refazer.', 'Preparando tudo para o fechamento mensal.'
+];
+
+function atualizarProgressoLoader_(percentual, texto) {
+  const valor = Math.max(0, Math.min(100, Math.round(Number(percentual) || 0)));
+  const percText = document.getElementById('loader-percentage');
+  const fill = document.getElementById('loader-progress-fill');
+  const msgText = document.getElementById('loader-text');
+  if (percText) percText.innerText = valor + '%';
+  if (fill) fill.style.width = valor + '%';
+  if (texto && msgText) msgText.innerText = texto;
+}
+
+function iniciarFrasesLoaderRep_() {
+  clearTimeout(loaderFraseTimer_);
+  loaderFrasesExibidas_ = 0;
+  const frase = document.getElementById('loader-frase');
+  const disponiveis = LOADER_FRASES_REP_.slice().sort(() => Math.random() - .5).slice(0, 3);
+  function proxima() {
+    if (!frase || loaderFrasesExibidas_ >= disponiveis.length) return;
+    frase.textContent = disponiveis[loaderFrasesExibidas_++];
+    if (loaderFrasesExibidas_ < disponiveis.length) loaderFraseTimer_ = setTimeout(proxima, 30000);
+  }
+  proxima();
+}
+
 function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
   const loader = document.getElementById('global-loader');
   const percText = document.getElementById('loader-percentage');
@@ -1242,30 +1365,41 @@ function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
 
   if (loader) {
     if (mostrar) {
+      const jaVisivel = loader.style.display === 'flex';
       if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
       loader.style.display = 'flex';
       if (msgText) msgText.innerText = texto;
-      if (percText) {
+      if (percText && !jaVisivel) {
+        atualizarProgressoLoader_(0, texto);
+        if (currentView === 'pre-leitura-rep') iniciarFrasesLoaderRep_();
+        else {
+          clearTimeout(loaderFraseTimer_);
+          const frase = document.getElementById('loader-frase');
+          if (frase) frase.textContent = '';
+        }
         percText.innerText = "0%";
         let perc = 0;
         if (loaderInterval) clearInterval(loaderInterval);
-        loaderInterval = setInterval(() => {
-          if (perc < 92) {
-            let inc = Math.max(1, Math.floor(Math.random() * (95 - perc) / 5));
-            perc += inc;
-            percText.innerText = perc + "%";
-          }
-        }, 300);
+        if (currentView !== 'pre-leitura-rep') {
+          loaderInterval = setInterval(() => {
+            if (perc < 92) {
+              let inc = Math.max(1, Math.floor(Math.random() * (95 - perc) / 5));
+              perc += inc;
+              atualizarProgressoLoader_(perc);
+            }
+          }, 300);
+        }
       }
       // Safety net: desliga loader após 30 segundos automaticamente
       if (loaderSafetyTimeout) clearTimeout(loaderSafetyTimeout);
       loaderSafetyTimeout = setTimeout(() => {
         exibirLoader(false);
-        console.warn('Loader desligado por safety net (30s)');
-      }, 30000);
+        console.warn('Loader desligado pelo limite de segurança.');
+      }, currentView === 'pre-leitura-rep' ? 5 * 60 * 1000 : 30000);
     } else {
       if (loaderSafetyTimeout) clearTimeout(loaderSafetyTimeout);
-      if (percText) percText.innerText = "100%";
+      clearTimeout(loaderFraseTimer_);
+      atualizarProgressoLoader_(100);
       if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
       loaderHideTimeout = setTimeout(() => {
         loader.style.display = 'none';
@@ -1743,6 +1877,7 @@ function abrirModalServidor(matricula) {
       selecionarLotacaoServidor_(s.lotacao);
       document.getElementById('serv-situacao').value = s.situacao;
       document.getElementById('serv-email').value = s.email;
+      document.getElementById('serv-aniversario').value = s.aniversario || '';
       document.getElementById('serv-ativo').value = s.status === 'Inativo' ? 'Não' : 'Sim';
       document.getElementById('serv-penalidade-ferias').value = s.penalidadeFerias || 0;
       document.getElementById('serv-penalidade-abonos').value = s.penalidadeAbono || 0;
@@ -1763,6 +1898,7 @@ function abrirModalServidor(matricula) {
     document.getElementById('serv-ativo').value = "Sim";
     document.getElementById('serv-penalidade-ferias').value = 0;
     document.getElementById('serv-penalidade-abonos').value = 0;
+    document.getElementById('serv-aniversario').value = '';
     selecionarLotacaoServidor_(document.getElementById('serv-lotacao').value);
   }
 
@@ -1813,12 +1949,21 @@ function salvarDadosServidor(event) {
     return;
   }
   
+  const aniversarioInformado = document.getElementById('serv-aniversario').value.trim();
+  if (aniversarioInformado && !/^\d{2}\/\d{2}$/.test(aniversarioInformado)) {
+    exibirLoader(false);
+    mostrarToast('Informe o aniversário no formato DD/MM.', 'warning');
+    return;
+  }
+
   const dados = {
     matricula: document.getElementById('serv-matricula').value.trim(),
     pis: normalizarPisRep(document.getElementById('serv-pis').value),
     nome: document.getElementById('serv-nome').value.trim().toUpperCase(),
     cargo: document.getElementById('serv-cargo').value.trim().toUpperCase(),
     lotacao: lotacao,
+    aniversario: aniversarioInformado,
+    aniversarioInformado: Boolean(aniversarioInformado),
     admissao: document.getElementById('serv-admissao').value,
     situacao: document.getElementById('serv-situacao').value,
     email: document.getElementById('serv-email').value.trim(),
@@ -1837,7 +1982,7 @@ function salvarDadosServidor(event) {
   // Otimista: fecha modal e atualiza UI imediatamente
   exibirLoader(false);
   fecharModal('modal-servidor');
-  mostrarToast("Servidor salvo! Sincronizando...", 'success');
+  mostrarToast("Alteração protegida. Aguardando confirmação do servidor...", 'info');
 
   // Enfileira operação para o servidor
   SyncQueue.enfileirar('salvar_servidor', 'salvarServidor', [dados], 'Salvar servidor ' + dados.nome);
@@ -1913,6 +2058,11 @@ function abrirFichaServidor(matricula) {
   document.getElementById('ficha-dados-situacao').innerText = s.situacao;
   document.getElementById('ficha-dados-admissao').innerText = s.admissao || 'Não informada';
   document.getElementById('ficha-dados-email').innerText = s.email || 'Não informado';
+  document.getElementById('ficha-dados-aniversario').innerText = s.aniversario || 'Não informado';
+  const penalidadeAbonos = document.getElementById('ficha-penalidade-abonos');
+  const btnPenalidadeAbonos = document.getElementById('ficha-btn-penalidade-abonos');
+  if (penalidadeAbonos) penalidadeAbonos.innerText = Number(s.penalidadeAbono || 0) + ' dias';
+  if (btnPenalidadeAbonos) btnPenalidadeAbonos.onclick = function() { ajustarPenalidadeAbonosFicha_(s.matricula, Number(s.penalidadeAbono || 0)); };
   
   const statusBadge = document.getElementById('ficha-dados-status');
   statusBadge.className = "badge";
@@ -1955,12 +2105,14 @@ function abrirFichaServidor(matricula) {
           </div>
           <div class="period-dates">Liberação: ${escapeHtml(periodo.dataLiberacao)}</div>
           <div class="period-dates">Usados: ${periodo.diasUsados} d | Saldo: ${periodo.saldo} d</div>
+          <div class="period-dates">Penalidade: ${Number(periodo.penalidade || 0)} d (30 - penalidade)</div>
           <div class="period-status-bar">
             <div class="period-status-fill ${fillClass}" style="width:${Math.min(100, percentualUso)}% !important"></div>
           </div>
           <div class="period-legend">
             <span>0%</span><span>${percentualUso}% utilizado</span><span>100%</span>
           </div>
+          <button type="button" class="btn btn-secondary btn-small" onclick="ajustarPenalidadePeriodoFeriasFicha_('${escapeHtml(s.matricula)}','${escapeHtml(periodo.referencia)}',${Number(periodo.penalidade || 0)})">Ajustar penalidade deste período</button>
         </div>`;
     });
   } else if (s.infoFerias) {
@@ -2062,7 +2214,9 @@ function abrirFichaServidor(matricula) {
         let elNormais = document.getElementById('ficha-abonadas-normais');
         let elNatalicias = document.getElementById('ficha-abonadas-natalicias');
         if(elNormais) elNormais.innerText = contAbonadasNormais + " / 5";
-        if(elNatalicias) elNatalicias.innerText = contAbonadasNatalicias + " / 1";
+        if(elNatalicias) elNatalicias.innerHTML = contAbonadasNatalicias > 0
+          ? '<span title="Solicitada neste ano" style="color:var(--status-active-text)">✓ Solicitada</span>'
+          : '<span title="Ainda não solicitada neste ano" style="color:var(--text-muted)">○ Não solicitada</span>';
 
         renderizarIcones();
       })
@@ -2796,7 +2950,7 @@ async function salvarDadosLancamento(event) {
   // Otimista: fecha o modal imediatamente
   exibirLoader(false);
   fecharModal('modal-lancamento');
-  mostrarToast("Documento protegido na fila. Sincronizando...", 'success');
+  mostrarToast("Documento protegido. Aguardando confirmação do servidor...", 'info');
 
   // Enfileira a gravação do lançamento no servidor
   SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
@@ -3125,7 +3279,7 @@ function alterarStatusProtocoloTramite(idProtocolo, statusAtual) {
   const p = AppState.protocolos.find(item => item.idProtocolo === idProtocolo);
   if (p) p.statusAssinatura = novoStatus;
   carregarListaProtocolos();
-  mostrarToast(`Status do protocolo ${idProtocolo} alterado para "${novoStatus}"!`, 'success');
+  mostrarToast(`Alteração do protocolo ${idProtocolo} preparada. Aguardando confirmação...`, 'info');
 
   // Enfileira operação
   SyncQueue.enfileirar('status_protocolo', 'atualizarStatusProtocolo', [idProtocolo, novoStatus], `Status do protocolo ${idProtocolo}`);
@@ -5424,8 +5578,22 @@ async function abrirPastaEntradaRep() {
 
 async function carregarModuloRepOnline(forcar) {
   if (repOnlineCarregando || (repOnlineCarregado && !forcar)) return;
+  if (repTemAlteracoesPendentes_()) {
+    const salvo = await salvarAlteracoesPendentesRep_({ manual: false });
+    if (!salvo) return mostrarToast('A atualização foi adiada porque ainda há alterações do REP sem confirmação.', 'warning');
+  }
   repOnlineCarregando = true;
   try {
+    if (!forcar) {
+      infoPastaEntradaRep = await chamarBackendPromessa_('obterInfoPastaEntradaRep', []);
+      const statusPastaInicial = document.getElementById('rep-pasta-status');
+      const detalhePastaInicial = document.getElementById('rep-pasta-detalhe');
+      if (statusPastaInicial) statusPastaInicial.textContent = infoPastaEntradaRep?.nome || 'Pasta compartilhada do Drive';
+      if (detalhePastaInicial) detalhePastaInicial.innerHTML = 'Pasta pronta. Clique em <b>Sincronizar pasta</b> somente quando quiser carregar e interpretar os AFDs.';
+      return;
+    }
+    exibirLoader(true, 'Preparando a leitura compartilhada dos AFDs...');
+    atualizarProgressoLoader_(3, 'Consultando arquivos e ajustes compartilhados...');
     const resultados = await Promise.all([
       chamarBackendPromessa_('obterInfoPastaEntradaRep', []),
       chamarBackendPromessa_('listarArquivosPastaEntradaRep', []),
@@ -5459,12 +5627,16 @@ async function carregarModuloRepOnline(forcar) {
       limparEstadoLeituraRep_();
       const arquivos = [];
       for (let i = 0; i < arquivosEntrada.length; i++) {
+        atualizarProgressoLoader_(8 + ((i / Math.max(1, arquivosEntrada.length)) * 52), `Verificando ${i + 1}/${arquivosEntrada.length}: ${arquivosEntrada[i].nome}`);
         try { arquivos.push(await baixarArquivoPastaEntradaRep_(arquivosEntrada[i], i + 1, arquivosEntrada.length)); }
         catch (erro) {
           falhasIntegridadeRep.push({ nome: arquivosEntrada[i].nome, arquivoId: arquivosEntrada[i].id, motivo: mensagemErro(erro), tamanho: arquivosEntrada[i].tamanho });
         }
       }
-      if (arquivos.length) await processarArquivosRep(arquivos, { origemOnline: true, silencioso: true, origemPastaDrive: true });
+      if (arquivos.length) {
+        atualizarProgressoLoader_(62, 'Integridade confirmada. Interpretando os registros...');
+        await processarArquivosRep(arquivos, { origemOnline: true, silencioso: true, origemPastaDrive: true, progressoBase: 62, progressoFaixa: 34 });
+      }
       else {
         const resultadosContainer = document.getElementById('rep-results-container');
         if (resultadosContainer) resultadosContainer.style.display = 'block';
@@ -6588,7 +6760,11 @@ async function processarArquivosRep(files, opcoes) {
   let indiceArquivo = 0;
   for (const file of novosArquivos) {
     indiceArquivo++;
+    const progressoBase = Number(opcoes.progressoBase || 10);
+    const progressoFaixa = Number(opcoes.progressoFaixa || 80);
+    const progressoArquivo = progressoBase + (((indiceArquivo - 1) / Math.max(1, novosArquivos.length)) * progressoFaixa);
     exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
+    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
     const text = await file.text();
     const leitura = parseAFDRep(text, file.name);
     const { employees, punches, clocks, audit, metadata } = leitura;
@@ -6737,6 +6913,7 @@ async function processarArquivosRep(files, opcoes) {
   }
 
   renderizarAuditoriaArquivosRep();
+  atualizarProgressoLoader_(97, 'Montando a conferência e os indicadores...');
   atualizarProcessamentoRep({ notificarEntidade: true });
 
   const zone = document.getElementById('rep-upload-zone');
@@ -6744,10 +6921,16 @@ async function processarArquivosRep(files, opcoes) {
   const btn = document.getElementById('rep-btn-export');
   const btnPdf = document.getElementById('rep-btn-pdf');
   const btnAdicionar = document.getElementById('rep-btn-add');
+  const btnAutorizacaoHe = document.getElementById('rep-btn-autorizacao-he');
+  const btnLancamentoRep = document.getElementById('rep-btn-lancamento');
+  const btnLancamentoLoteRep = document.getElementById('rep-btn-lancamento-lote');
   if (zone) zone.style.display = 'none';
   if (res) res.style.display = 'block';
   if (btn) btn.style.display = 'inline-flex';
   if (btnPdf) btnPdf.style.display = 'inline-flex';
+  if (btnAutorizacaoHe) btnAutorizacaoHe.style.display = 'inline-flex';
+  if (btnLancamentoRep) btnLancamentoRep.style.display = 'inline-flex';
+  if (btnLancamentoLoteRep) btnLancamentoLoteRep.style.display = 'inline-flex';
   if (btnAdicionar) btnAdicionar.style.display = 'none';
   exibirLoader(false);
   if (falhasOnline.length) {
@@ -6904,6 +7087,7 @@ async function salvarAlteracoesPendentesRep_(opcoes) {
   }
 
   const lote = Array.from(repAlteracoesPendentes_.values());
+  let loteSalvo = false;
   repSalvamentoEmAndamento_ = (async function() {
     atualizarEstadoSalvamentoRep_();
     try {
@@ -6912,6 +7096,7 @@ async function salvarAlteracoesPendentesRep_(opcoes) {
         const atual = repAlteracoesPendentes_.get(item.chave);
         if (atual && atual.sequencia === item.sequencia) repAlteracoesPendentes_.delete(item.chave);
       });
+      loteSalvo = true;
       if (opcoes.manual) mostrarToast(`${resultados.length} alteração(ões) do REP salvas.`, 'success');
       return true;
     } catch (erro) {
@@ -6920,6 +7105,9 @@ async function salvarAlteracoesPendentesRep_(opcoes) {
     } finally {
       repSalvamentoEmAndamento_ = null;
       atualizarEstadoSalvamentoRep_();
+      if (loteSalvo && !repAlteracoesPendentes_.size) {
+        setTimeout(atualizarApontamentosRepSegundoPlano_, 150);
+      }
     }
   })();
   return repSalvamentoEmAndamento_;
@@ -7298,7 +7486,7 @@ function abrirAjusteDiaRep(pis, data) {
   ajusteRepAtual.validadoOriginal = Boolean(registroValidacao);
   ajusteRepAtual.validacaoObservacaoOriginal = String(registroValidacao?.observacao || '');
   const blocoValidacao = document.getElementById('rep-ajuste-validacao');
-  blocoValidacao.hidden = !(registroValidacao || dia.pendencia || dia.jornadaIncompleta);
+  blocoValidacao.hidden = !(registroValidacao || dia.pendencia || dia.jornadaIncompleta || dia.status === 'falta_sem_registro');
   document.getElementById('rep-ajuste-validado').checked = Boolean(registroValidacao);
   document.getElementById('rep-ajuste-validacao-observacao').value = registroValidacao?.observacao || '';
   document.getElementById('rep-ajuste-justificativa').value = '';
@@ -7804,12 +7992,16 @@ function categoriaSituacaoRep(status) {
 
 async function selecionarServidorRep(pis) {
   const proximoPis = String(pis || '');
+  const listaPessoas = document.querySelector('#rep-servidores-list .rep-pessoas');
+  const posicaoAntesDoClique = listaPessoas ? listaPessoas.scrollTop : rolagemPessoasRep;
+  rolagemPessoasRep = posicaoAntesDoClique;
   if (proximoPis !== pisSelecionadoRep) {
     const salvou = await garantirSalvamentoAntesDeSairRep_();
     if (!salvou) return false;
   }
-  const listaPessoas = document.querySelector('#rep-servidores-list .rep-pessoas');
-  if (listaPessoas) rolagemPessoasRep = listaPessoas.scrollTop;
+  // O salvamento pode atualizar a tela enquanto o clique ainda está em andamento.
+  // Mantemos a posição capturada antes desse processo para a lista não saltar.
+  rolagemPessoasRep = posicaoAntesDoClique;
   pisSelecionadoRep = proximoPis;
   filtroDiasRepAtual = 'todos';
   renderizarListaRep();
@@ -7981,6 +8173,11 @@ async function recarregarApontamentosRep_() {
 }
 
 function atualizarApontamentosRepSegundoPlano_() {
+  if (repTemAlteracoesPendentes_() || gravacoesBackendEmAndamento_ > 0) {
+    setTimeout(atualizarApontamentosRepSegundoPlano_, 500);
+    return;
+  }
+  const revisaoAoIniciar = revisaoMutacoesCliente_;
   Promise.all([
     chamarBackendPromessa_('listarApontamentosRep', []),
     chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
@@ -7991,6 +8188,10 @@ function atualizarApontamentosRepSegundoPlano_() {
     chamarBackendPromessa_('listarAjustesRep', []),
     chamarBackendPromessa_('listarConferenciasRep', [])
   ]).then(function(resultados) {
+    if (revisaoAoIniciar !== revisaoMutacoesCliente_ || repTemAlteracoesPendentes_() || gravacoesBackendEmAndamento_ > 0) {
+      setTimeout(atualizarApontamentosRepSegundoPlano_, 500);
+      return;
+    }
     apontamentosRep = Array.isArray(resultados[0]) ? resultados[0] : [];
     justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
     compensacoesRep = Array.isArray(resultados[2]) ? resultados[2] : [];
@@ -8200,7 +8401,7 @@ function renderizarPainelRep(servidores, container) {
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
     const infoDescarteHe = dia.horaExtraDesconsiderada ? `<div class="rep-descarte-he-dia"><span>Hora extra desconsiderada neste dia</span><strong>${formatHoursRep(dia.horaExtraDesconsiderada.horas)}h não contabilizadas</strong><small>${dia.horaExtraDesconsiderada.atualizadoPor ? `Por ${escapeHtml(primeiroNomeRep_(dia.horaExtraDesconsiderada.atualizadoPor))}` : 'Decisão manual da conferência'}</small></div>` : '';
     const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento" draggable="true" data-event-id="${escapeHtml(evento.eventId || '')}" title="Arraste esta marcação para o dia correto" ondragstart="iniciarArrasteMarcacaoRep_(event,this.dataset.eventId,'${dia.dataOriginal}')" ondragend="finalizarArrasteMarcacaoRep_(event)">
-      <b>${evento.horarioOriginal}${evento.horarioOriginal !== evento.horarioArredondado ? ` → ${evento.horarioArredondado}` : ''}</b>
+      <div class="rep-evento-horario"><input class="rep-horario-real" type="time" value="${evento.horarioOriginal}" data-original="${evento.horarioOriginal}" aria-label="Horário real" title="Horário real preservado na auditoria" ondragstart="event.stopPropagation()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}" onblur="editarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}',this)">${evento.horarioOriginal !== evento.horarioArredondado ? `<span class="rep-horario-arredondado" title="Horário considerado após arredondamento">→ ${evento.horarioArredondado}</span>` : '<span class="rep-horario-sem-arredondamento">sem arredondamento</span>'}<button type="button" class="rep-desconsiderar-rapido" onclick="event.stopPropagation();desconsiderarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}')" title="Desconsiderar esta marcação sem abrir a janela"><span data-lucide="trash-2"></span></button></div>
       <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
       ${evento.dataReal && evento.dataReal !== dia.dataOriginal ? `<small class="rep-evento-virada">Batida real em ${escapeHtml(evento.dataReal.split('-').reverse().join('/'))} · vinculada a esta jornada</small>` : ''}
       <small>${evento.manual ? 'AJUSTE MANUAL' : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
@@ -8209,7 +8410,7 @@ function renderizarPainelRep(servidores, container) {
     const sinalizadorCompensacao = dia.compensacao?.minutosAplicados ? '<span class="rep-sinalizador comp">COMP</span>' : '';
     const acaoValidacao = dia.validacaoManual
       ? `<button type="button" class="rep-ajustar-dia validar ativo" onclick="alternarValidacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}')">Reabrir alerta</button>`
-      : (dia.pendencia || dia.jornadaIncompleta ? `<button type="button" class="rep-ajustar-dia validar" onclick="alternarValidacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}')">Validar alerta</button>` : '');
+      : (dia.pendencia || dia.jornadaIncompleta || dia.status === 'falta_sem_registro' ? `<button type="button" class="rep-ajustar-dia validar" onclick="alternarValidacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}')">Validar alerta</button>` : '');
     const saldoEditavel = Number.isFinite(dia.extraDia) && !dia.pendencia && !dia.ausencia;
     const saldoValor = Number.isFinite(dia.extraDia) ? formatHoursRep(dia.extraDia) : '';
     const restaurarSaldo = dia.ajusteSaldoManual ? `<button type="button" class="rep-restaurar-saldo" onclick="restaurarSaldoDiretoRep_('${selecionado.pis}','${dia.dataOriginal}')" title="Voltar ao saldo calculado pelas batidas">Original</button>` : '';
@@ -8218,7 +8419,7 @@ function renderizarPainelRep(servidores, container) {
       : `<div class="rep-saldo-celula"><span>${!Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : saldoValor + 'h')}</span><span class="rep-sinalizadores rep-sinalizadores-saldo">${sinalizadoresSaldo}</span></div>`;
     const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
     return `<tr class="${classesDia}" data-rep-data="${dia.dataOriginal}" ondragover="permitirSoltarMarcacaoRep_(event)" ondragleave="sairDestinoMarcacaoRep_(event)" ondrop="soltarMarcacaoRep_(event,'${dia.dataOriginal}')">
-      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button>${acaoValidacao}</div></td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia lancamento" onclick="abrirLancamentoDiretoRep_('', '${dia.dataOriginal}', '${selecionado.pis}')">+ Lançamento</button>${acaoValidacao}</div></td>
       <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoOrigemCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${campoSaldo}</td>
@@ -8243,11 +8444,14 @@ function renderizarPainelRep(servidores, container) {
       </header>
       ${painelApontamentosServidor}
       ${avisoFiltro}
-      <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações e origem</th><th>Horas</th><th>Saldo</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
+      <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações (real → arredondada)</th><th title="Total considerado após entradas, saídas e intervalo">Horas trabalhadas</th><th title="Diferença entre as horas trabalhadas e a jornada. HE indica saldo positivo estimado.">Saldo do dia / HE</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>
   </div>`;
   const listaAtual = container.querySelector('.rep-pessoas');
-  if (listaAtual) listaAtual.scrollTop = rolagemPessoasRep;
+  if (listaAtual) {
+    listaAtual.scrollTop = rolagemPessoasRep;
+    requestAnimationFrame(function() { listaAtual.scrollTop = rolagemPessoasRep; });
+  }
   renderizarIcones();
 }
 
@@ -8483,12 +8687,18 @@ async function resetarLeituraRep() {
   const btn = document.getElementById('rep-btn-export');
   const btnPdf = document.getElementById('rep-btn-pdf');
   const btnAdicionar = document.getElementById('rep-btn-add');
+  const btnAutorizacaoHe = document.getElementById('rep-btn-autorizacao-he');
+  const btnLancamentoRep = document.getElementById('rep-btn-lancamento');
+  const btnLancamentoLoteRep = document.getElementById('rep-btn-lancamento-lote');
   const input = document.getElementById('rep-file-input');
   if (input) input.value = '';
   if (zone) zone.style.display = 'none';
   if (res) res.style.display = 'none';
   if (btn) btn.style.display = 'none';
   if (btnPdf) btnPdf.style.display = 'none';
+  if (btnAutorizacaoHe) btnAutorizacaoHe.style.display = 'none';
+  if (btnLancamentoRep) btnLancamentoRep.style.display = 'none';
+  if (btnLancamentoLoteRep) btnLancamentoLoteRep.style.display = 'none';
   if (btnAdicionar) btnAdicionar.style.display = 'none';
   repOnlineCarregado = false;
   await carregarModuloRepOnline(true);

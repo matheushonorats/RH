@@ -176,3 +176,36 @@ function obterChavesCreditosExistentesLocal_(abaCred) {
   }
   return chaves;
 }
+
+function salvarPenalidadePeriodoFerias(dados) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para alterar penalidades de férias.');
+  dados = dados || {};
+  const matricula = normalizarChaveMatricula_(dados.matricula);
+  const referencia = String(dados.referencia || '').trim();
+  const dias = Math.max(0, Math.min(30, parseInt(dados.dias, 10) || 0));
+  if (!matricula || !referencia) throw new Error('Período aquisitivo inválido.');
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Creditos_Ferias');
+    if (!aba) throw new Error("Aba 'Creditos_Ferias' não encontrada.");
+    const dadosAba = aba.getDataRange().getValues();
+    const cabecalho = dadosAba[0];
+    const idxMatricula = indiceCabecalho_(cabecalho, ['MATRICULA']);
+    const idxReferencia = indiceCabecalho_(cabecalho, ['REFERENCIA', 'PERIODO AQUISITIVO']);
+    let idxPenalidade = indiceCabecalho_(cabecalho, ['PENALIDADE', 'PENALIDADE DIAS']);
+    if (idxPenalidade === -1) {
+      idxPenalidade = cabecalho.length;
+      aba.getRange(1, idxPenalidade + 1).setValue('PENALIDADE_DIAS');
+    }
+    let linha = -1;
+    for (let i = 1; i < dadosAba.length; i++) {
+      if (normalizarChaveMatricula_(dadosAba[i][idxMatricula]) === matricula && String(dadosAba[i][idxReferencia] || '').trim() === referencia) { linha = i + 1; break; }
+    }
+    if (linha < 0) throw new Error('O período aquisitivo não foi encontrado.');
+    const antes = Number(aba.getRange(linha, idxPenalidade + 1).getValue() || 0);
+    aba.getRange(linha, idxPenalidade + 1).setValue(dias);
+    lancarLogSemLock_('PENALIDADE_FERIAS', 'Creditos_Ferias', 'Atualizou penalidade do período ' + referencia + '.', 'Dias', String(antes), String(dias), matricula);
+    return { sucesso: true, matricula: matricula, referencia: referencia, dias: dias };
+  } finally { lock.releaseLock(); }
+}

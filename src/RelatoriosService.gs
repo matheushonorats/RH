@@ -3,6 +3,88 @@
  * Módulo de Geração de Relatórios (RelatoriosService)
  */
 
+function obterConfiguracaoAutorizacaoHorasExtras() {
+  obterDadosUsuarioLogado();
+  const ss = obterPlanilha_();
+  const aba = ss.getSheetByName('Configuracoes');
+  const config = aba ? obterMapaConfiguracoes_(aba) : {};
+  let descricoes = [];
+  try { descricoes = JSON.parse(config.DESCRICOES_HORAS_EXTRAS || '[]'); } catch (e) {}
+  const descricaoPadrao = config.DESCRICAO_PADRAO_HORAS_EXTRAS || 'Serviços extraordinários conforme registros de ponto.';
+  descricoes = [descricaoPadrao].concat(Array.isArray(descricoes) ? descricoes : []).map(function(item) { return String(item || '').trim(); }).filter(function(item, indice, lista) { return item && lista.indexOf(item) === indice; });
+  return {
+    setor: config.SETOR_HORAS_EXTRAS || 'TURISMO',
+    secretaria: config.SECRETARIA_HORAS_EXTRAS || 'SETUR',
+    secretarioNome: config.SECRETARIO_NOME || 'LEANDRO PEREIRA DA SILVA',
+    secretarioCargo: config.SECRETARIO_CARGO || 'Secretário de Turismo',
+    descricaoPadrao: descricaoPadrao,
+    descricoes: descricoes
+  };
+}
+
+function salvarDescricaoAutorizacaoHorasExtras(descricao) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para cadastrar descrições de horas extras.');
+  descricao = String(descricao || '').trim().replace(/\s+/g, ' ').slice(0, 220);
+  if (!descricao) throw new Error('Informe uma descrição válida.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Configuracoes');
+    if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
+    const dados = aba.getDataRange().getValues();
+    let linha = -1;
+    let atuais = [];
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0] || '').trim() === 'DESCRICOES_HORAS_EXTRAS') {
+        linha = i + 1;
+        try { atuais = JSON.parse(String(dados[i][1] || '[]')); } catch (e) {}
+        break;
+      }
+    }
+    atuais = (Array.isArray(atuais) ? atuais : []).map(function(item) { return String(item || '').trim(); }).filter(Boolean);
+    if (atuais.indexOf(descricao) === -1) atuais.push(descricao);
+    atuais = atuais.slice(-30);
+    if (linha > 0) aba.getRange(linha, 2).setValue(JSON.stringify(atuais));
+    else aba.appendRow(['DESCRICOES_HORAS_EXTRAS', JSON.stringify(atuais), 'Descrições reutilizáveis da autorização de horas extras']);
+    try { lancarLog('CADASTRAR_DESCRICAO_HE', 'Configuracoes', 'Cadastrou descrição reutilizável para autorização de horas extras.', '', '', descricao, ''); } catch (e) {}
+    return atuais;
+  } finally { lock.releaseLock(); }
+}
+
+function gerenciarDescricaoAutorizacaoHorasExtras(acao, descricao, novoTexto) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para alterar descrições de horas extras.');
+  acao = String(acao || '').toUpperCase();
+  descricao = String(descricao || '').trim().replace(/\s+/g, ' ').slice(0, 220);
+  novoTexto = String(novoTexto || '').trim().replace(/\s+/g, ' ').slice(0, 220);
+  if (!descricao || (acao !== 'EXCLUIR' && acao !== 'EDITAR')) throw new Error('Operação de descrição inválida.');
+  if (acao === 'EDITAR' && !novoTexto) throw new Error('Informe a nova descrição.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Configuracoes');
+    if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
+    const dados = aba.getDataRange().getValues();
+    let linha = -1;
+    let atuais = [];
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0] || '').trim() === 'DESCRICOES_HORAS_EXTRAS') {
+        linha = i + 1;
+        try { atuais = JSON.parse(String(dados[i][1] || '[]')); } catch (e) {}
+        break;
+      }
+    }
+    atuais = (Array.isArray(atuais) ? atuais : []).map(function(item) { return String(item || '').trim(); }).filter(Boolean);
+    const indice = atuais.indexOf(descricao);
+    if (indice < 0) throw new Error('A descrição padrão do sistema não pode ser alterada por este botão.');
+    if (acao === 'EXCLUIR') atuais.splice(indice, 1);
+    else atuais[indice] = novoTexto;
+    atuais = atuais.filter(function(item, indiceItem, lista) { return item && lista.indexOf(item) === indiceItem; });
+    aba.getRange(linha, 2).setValue(JSON.stringify(atuais));
+    try { lancarLog(acao + '_DESCRICAO_HE', 'Configuracoes', (acao === 'EXCLUIR' ? 'Excluiu' : 'Editou') + ' descrição reutilizável da autorização de horas extras.', '', '', descricao, ''); } catch (e) {}
+    return atuais;
+  } finally { lock.releaseLock(); }
+}
+
 /**
  * Retorna os dados do relatório de Férias Compulsórias (servidores com 2 períodos vencidos)
  */

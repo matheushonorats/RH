@@ -19,6 +19,39 @@ function normalizarPisCpfServidor_(valor) {
   return digitos;
 }
 
+function normalizarAniversarioServidor_(valor) {
+  const texto = String(valor || '').trim();
+  const partes = texto.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-]\d{2,4})?$/);
+  if (!partes) return '';
+  const dia = Number(partes[1]);
+  const mes = Number(partes[2]);
+  const teste = new Date(2000, mes - 1, dia);
+  if (teste.getMonth() !== mes - 1 || teste.getDate() !== dia) return '';
+  return String(dia).padStart(2, '0') + '/' + String(mes).padStart(2, '0');
+}
+
+function construirMapaAniversariosNatalicios_(ss) {
+  const mapa = {};
+  const aba = ss.getSheetByName('Lançamentos') || ss.getSheetByName('Lancamentos');
+  if (!aba) return mapa;
+  const dados = obterValoresAba_(aba);
+  if (dados.length <= 1) return mapa;
+  const idx = obterIndicesColunasLancamentos_(dados[0]);
+  if (idx.tipo === -1 || idx.matricula === -1 || idx.dataInicio === -1) return mapa;
+  for (let i = 1; i < dados.length; i++) {
+    const tipo = normalizarCabecalho_(dados[i][idx.tipo]);
+    if (!tipo.includes('NATALICIA') || tipo.includes('ANULAD') || tipo.includes('NAO EFETIVAD')) continue;
+    const matricula = normalizarChaveMatricula_(dados[i][idx.matricula]);
+    const data = dados[i][idx.dataInicio] instanceof Date ? dados[i][idx.dataInicio] : lerDataFormatoBR_(dados[i][idx.dataInicio]);
+    if (!matricula || !data || isNaN(data.getTime())) continue;
+    const atual = mapa[matricula];
+    if (!atual || data.getTime() > atual.data.getTime()) mapa[matricula] = { data: data, aniversario: Utilities.formatDate(data, Session.getScriptTimeZone(), 'dd/MM') };
+  }
+  const saida = {};
+  Object.keys(mapa).forEach(function(chave) { saida[chave] = mapa[chave].aniversario; });
+  return saida;
+}
+
 function obterListaServidores() {
   obterDadosUsuarioLogado();
   return obterListaServidoresInterno_();
@@ -49,6 +82,7 @@ function obterListaServidoresInterno_() {
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
   const idxPenF = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
   const idxPenA = indiceCabecalho_(cabecalho, ["PENALIDADE ABONOS", "PENALIDADE_ABONOS"]);
+  const idxAniversario = indiceCabecalho_(cabecalho, ["ANIVERSARIO DIA MES", "ANIVERSARIO_DIA_MES", "ANIVERSARIO"]);
 
   if (idxNome === -1 || idxMatricula === -1) {
     throw new Error("Cabecalhos NOME/MATRICULA nao encontrados em Servidores. Encontrados: " + cabecalho.join(" | "));
@@ -57,6 +91,7 @@ function obterListaServidoresInterno_() {
   // Otimização O(N + M): carrega status, saldos e períodos em lote.
   const mapaStatus = construirMapaStatusServidores_(ss);
   const resumoFerias = construirResumoFerias_(ss);
+  const aniversariosNatalicios = construirMapaAniversariosNatalicios_(ss);
   
   let servidores = [];
   
@@ -92,7 +127,7 @@ function obterListaServidoresInterno_() {
       let penF = idxPenF !== -1 ? parseInt(linha[idxPenF]) || 0 : 0;
       let penA = idxPenA !== -1 ? parseInt(linha[idxPenA]) || 0 : 0;
       
-      let saldoHojeCalculado = saldoCalc - penF;
+      let saldoHojeCalculado = saldoCalc - (Number(feriasServidor.penalidadesPeriodos || 0) > 0 ? 0 : penF);
       let abonosUsadosCalculado = (feriasServidor.abonosUsados || 0) + penA;
       
       const avaliacaoCompulsoria = avaliarRiscoCompulsoriaFerias_(
@@ -112,6 +147,7 @@ function obterListaServidoresInterno_() {
         situacao: idxSituacao !== -1 ? String(linha[idxSituacao]).trim() : "",
         email: idxEmail !== -1 ? String(linha[idxEmail]).trim() : "",
         pis: idxPis !== -1 ? normalizarPisCpfServidor_(linha[idxPis]) : "",
+        aniversario: normalizarAniversarioServidor_(idxAniversario !== -1 ? linha[idxAniversario] : '') || aniversariosNatalicios[chaveMatricula] || '',
         saldoHoje: saldoHojeCalculado,
         // Inativos permanecem no histórico, mas estão fora da gestão operacional
         // de férias e nunca devem compor alertas de compulsórias.
@@ -122,6 +158,8 @@ function obterListaServidoresInterno_() {
         infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias] || "").trim() : "",
         periodosFerias: feriasServidor.periodos,
         abonosUsados: abonosUsadosCalculado,
+        penalidadeFerias: penF,
+        penalidadeAbono: penA,
         status: statusText,
       linhaPlanilha: i + 1
     });
@@ -245,6 +283,7 @@ function salvarServidor(dadosServidor) {
 
   let idxPenF = indiceCabecalho_(cabecalho, ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
   let idxPenA = indiceCabecalho_(cabecalho, ["PENALIDADE ABONOS", "PENALIDADE_ABONOS"]);
+  let idxAniversario = indiceCabecalho_(cabecalho, ["ANIVERSARIO DIA MES", "ANIVERSARIO_DIA_MES", "ANIVERSARIO"]);
 
   // Cria as colunas dinamicamente se não existirem
   if (idxPenF === -1) {
@@ -262,6 +301,13 @@ function salvarServidor(dadosServidor) {
     aba.getRange(1, idxPis + 1).setValue("PIS");
     cabecalho.push("PIS");
   }
+  if (idxAniversario === -1) {
+    idxAniversario = cabecalho.length;
+    aba.getRange(1, idxAniversario + 1).setValue("ANIVERSARIO_DIA_MES");
+    cabecalho.push("ANIVERSARIO_DIA_MES");
+  }
+  dadosServidor.aniversario = normalizarAniversarioServidor_(dadosServidor.aniversario);
+  if (dadosServidor.aniversarioInformado && !dadosServidor.aniversario) throw new Error("Informe o aniversário no formato DD/MM.");
 
   let matriculaBusca = normalizarChaveMatricula_(dadosServidor.matricula);
   if (!matriculaBusca && identificacaoOpcional) {
@@ -310,6 +356,7 @@ function salvarServidor(dadosServidor) {
     if (idxSituacao !== -1) aba.getRange(linhaEdit, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(linhaEdit, idxEmail + 1).setValue(dadosServidor.email);
     aba.getRange(linhaEdit, idxPis + 1).setValue(dadosServidor.pis);
+    aba.getRange(linhaEdit, idxAniversario + 1).setValue(dadosServidor.aniversario || '');
     if (idxAtivo !== -1) aba.getRange(linhaEdit, idxAtivo + 1).setValue(dadosServidor.ativo || "Sim");
     
     aba.getRange(linhaEdit, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);
@@ -346,6 +393,7 @@ function salvarServidor(dadosServidor) {
     if (idxSituacao !== -1) aba.getRange(novaLinhaIndex, idxSituacao + 1).setValue(dadosServidor.situacao);
     if (idxEmail !== -1) aba.getRange(novaLinhaIndex, idxEmail + 1).setValue(dadosServidor.email);
     aba.getRange(novaLinhaIndex, idxPis + 1).setValue(dadosServidor.pis);
+    aba.getRange(novaLinhaIndex, idxAniversario + 1).setValue(dadosServidor.aniversario || '');
     if (idxAtivo !== -1) aba.getRange(novaLinhaIndex, idxAtivo + 1).setValue("Sim");
     
     aba.getRange(novaLinhaIndex, idxPenF + 1).setValue(dadosServidor.penalidadeFerias || 0);
@@ -376,6 +424,31 @@ function salvarServidor(dadosServidor) {
   }
 
   return true;
+}
+
+function salvarPenalidadeAbonosServidor(dados) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para alterar penalidades de abonos.');
+  dados = dados || {};
+  const matricula = normalizarChaveMatricula_(dados.matricula);
+  const dias = Math.max(0, Math.min(5, parseInt(dados.dias, 10) || 0));
+  if (!matricula) throw new Error('Servidor inválido.');
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Servidores');
+    const valores = aba.getDataRange().getValues();
+    const cabecalho = valores[0];
+    const idxMatricula = indiceCabecalho_(cabecalho, ['MATRICULA']);
+    let idxPenalidade = indiceCabecalho_(cabecalho, ['PENALIDADE ABONOS', 'PENALIDADE_ABONOS']);
+    if (idxPenalidade === -1) { idxPenalidade = cabecalho.length; aba.getRange(1, idxPenalidade + 1).setValue('PENALIDADE ABONOS'); }
+    let linha = -1;
+    for (let i = 1; i < valores.length; i++) if (normalizarChaveMatricula_(valores[i][idxMatricula]) === matricula) { linha = i + 1; break; }
+    if (linha < 0) throw new Error('Servidor não encontrado.');
+    const antes = Number(aba.getRange(linha, idxPenalidade + 1).getValue() || 0);
+    aba.getRange(linha, idxPenalidade + 1).setValue(dias);
+    lancarLogSemLock_('PENALIDADE_ABONOS', 'Servidores', 'Atualizou penalidade de abonos na ficha individual.', 'Dias', String(antes), String(dias), matricula);
+    return { sucesso: true, matricula: matricula, dias: dias };
+  } finally { lock.releaseLock(); }
 }
 
 /**
@@ -539,6 +612,7 @@ function construirResumoFerias_(ss) {
       const idxMatricula = indiceCabecalho_(cabecalho, ["MATRICULA"]);
       const idxQtd = indiceCabecalho_(cabecalho, ["QTD DIAS", "QUANTIDADE DIAS"]);
       const idxReferencia = indiceCabecalho_(cabecalho, ["REFERENCIA", "PERIODO AQUISITIVO"]);
+      const idxPenalidade = indiceCabecalho_(cabecalho, ["PENALIDADE", "PENALIDADE DIAS"]);
       const idxLiberacao = indiceCabecalho_(cabecalho, [
         "DATA LIBERACAO",
         "DATA LIMITE AQUISITIVO",
@@ -551,6 +625,7 @@ function construirResumoFerias_(ss) {
         for (let i = 1; i < dadosCreditos.length; i++) {
           const matricula = normalizarChaveMatricula_(dadosCreditos[i][idxMatricula]);
           const quantidade = parseInt(dadosCreditos[i][idxQtd], 10) || 0;
+          const penalidade = idxPenalidade !== -1 ? Math.max(0, parseInt(dadosCreditos[i][idxPenalidade], 10) || 0) : 0;
           const referencia = idxReferencia !== -1
             ? String(dadosCreditos[i][idxReferencia] || "").trim()
             : "Período aquisitivo";
@@ -566,6 +641,7 @@ function construirResumoFerias_(ss) {
           obterRegistro_(matricula).creditos.push({
             referencia: referencia,
             quantidade: quantidade,
+            penalidade: Math.min(quantidade, penalidade),
             dataLiberacao: dataLiberacao
           });
         }
@@ -621,24 +697,28 @@ function construirResumoFerias_(ss) {
     registro.creditos.sort((a, b) => a.dataLiberacao.getTime() - b.dataLiberacao.getTime());
 
     let debitoRestante = registro.debitos;
+    registro.penalidadesPeriodos = 0;
     registro.creditos.forEach(credito => {
       const liberado = credito.dataLiberacao <= hoje;
+      const quantidadeDisponivel = Math.max(0, credito.quantidade - Number(credito.penalidade || 0));
+      registro.penalidadesPeriodos += Number(credito.penalidade || 0);
       let diasUsados = 0;
       let saldoPeriodo = 0;
 
       if (liberado) {
-        diasUsados = Math.min(debitoRestante, credito.quantidade);
+        diasUsados = Math.min(debitoRestante, quantidadeDisponivel);
         debitoRestante -= diasUsados;
-        saldoPeriodo = credito.quantidade - diasUsados;
+        saldoPeriodo = quantidadeDisponivel - diasUsados;
         registro.saldo += saldoPeriodo;
       } else {
-        registro.projetado += credito.quantidade;
+        registro.projetado += quantidadeDisponivel;
       }
 
       registro.periodos.push({
         referencia: credito.referencia,
         dataLiberacao: formatarDataServidor_(credito.dataLiberacao),
         diasOriginais: credito.quantidade,
+        penalidade: Number(credito.penalidade || 0),
         diasUsados: diasUsados,
         saldo: saldoPeriodo,
         status: !liberado ? "Em aquisição" : (saldoPeriodo > 0 ? "Disponível" : "Usufruído")

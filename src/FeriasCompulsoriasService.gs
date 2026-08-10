@@ -59,8 +59,9 @@ function obterHtmlNotificacaoFeriasCompulsorias(matricula) {
       </table>
 
       <p style="font-size:12.5px;text-align:justify;margin:0 0 13px;">
-        Para sua ciência, informamos que você possui <strong>${esc(saldo)} dias de férias disponíveis</strong>, referentes a
-        <strong>${esc(descricaoPeriodos)}</strong>. ${situacaoVencimento}
+        Para sua ciência, informamos que o servidor possui <strong>${esc(saldo)} dias de férias disponíveis</strong>, referentes a
+        <strong>${esc(descricaoPeriodos)}</strong>. ${situacaoVencimento} Assim, solicita-se que compareça ao setor de Recursos
+        Humanos para programar o gozo dessas férias, sob pena de concessão compulsória.
       </p>
 
       <p style="font-size:12.5px;text-align:justify;margin:0 0 13px;">

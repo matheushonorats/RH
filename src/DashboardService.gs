@@ -194,7 +194,8 @@ function obterDadosCompletos() {
       dashboard: obterResumoDashboard(),
       servidores: obterListaServidores(),
       lancamentos: obterListaLancamentos(),
-      protocolos: obterListaProtocolos()
+      protocolos: obterListaProtocolos(),
+      versaoDados: obterVersaoDados()
     };
   } finally {
     finalizarLeiturasEmLote_();
