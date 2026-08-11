@@ -239,6 +239,71 @@ function validarConflitosLancamento(dadosLanc) {
 }
 
 /** Garante colunas novas em planilhas que já passaram pelo setup inicial. */
+/**
+ * Consulta preventiva: informa ausencias simultaneas na mesma lotacao antes
+ * de salvar o lancamento. E um alerta de escala; a decisao final continua com o RH.
+ */
+function verificarAusenciasLotacaoLancamento(dadosLanc) {
+  if (!verificarSeEhOperador()) throw new Error('Voce nao possui permissao para validar lancamentos de RH.');
+
+  const candidato = criarIntervaloAusenciaLancamento_({
+    matricula: dadosLanc && dadosLanc.matricula,
+    tipo: dadosLanc && dadosLanc.tipo,
+    dataInicio: dadosLanc && dadosLanc.dataInicio,
+    dias: dadosLanc && dadosLanc.dias,
+    status: 'Ativo',
+    linhaPlanilha: dadosLanc && dadosLanc.linhaPlanilha
+  });
+  if (!candidato) return { temAlerta: false, lotacao: '', ausentes: [] };
+
+  const servidores = obterListaServidoresInterno_();
+  const servidorSelecionado = servidores.find(function(servidor) {
+    return normalizarChaveMatricula_(servidor.matricula) === candidato.matricula;
+  });
+  const lotacao = String(servidorSelecionado && servidorSelecionado.lotacao || '').trim();
+  if (!lotacao) return { temAlerta: false, lotacao: '', ausentes: [] };
+
+  const servidoresPorMatricula = {};
+  servidores.forEach(function(servidor) {
+    const matricula = normalizarChaveMatricula_(servidor.matricula);
+    if (matricula) servidoresPorMatricula[matricula] = servidor;
+  });
+
+  const aba = obterPlanilha_().getSheetByName('Lan\u00e7amentos');
+  if (!aba || aba.getLastRow() <= 1) return { temAlerta: false, lotacao: lotacao, ausentes: [] };
+
+  const dados = aba.getDataRange().getValues();
+  const idx = obterIndicesColunasLancamentos_(dados[0]);
+  const linhaEditada = Number(dadosLanc && dadosLanc.linhaPlanilha || 0);
+  const lotacaoNormalizada = normalizarCabecalho_(lotacao);
+  const ausentes = [];
+
+  mapearLinhasLancamentosParaConflitos_(dados, idx).forEach(function(lancamento) {
+    if (linhaEditada > 1 && Number(lancamento.linhaPlanilha || 0) === linhaEditada) return;
+    const existente = criarIntervaloAusenciaLancamento_(lancamento);
+    if (!existente || existente.matricula === candidato.matricula) return;
+    if (candidato.inicio > existente.fim || existente.inicio > candidato.fim) return;
+
+    const servidor = servidoresPorMatricula[existente.matricula];
+    if (!servidor || servidor.status === 'Inativo' || normalizarCabecalho_(servidor.lotacao) !== lotacaoNormalizada) return;
+    ausentes.push({
+      nome: String(servidor.nome || existente.nome || 'Servidor').trim(),
+      matricula: String(servidor.matricula || existente.matricula).trim(),
+      tipo: existente.tipo,
+      periodo: descreverIntervaloConflitoLancamento_(existente)
+    });
+  });
+
+  return {
+    temAlerta: ausentes.length > 0,
+    lotacao: lotacao,
+    periodoNovo: descreverIntervaloConflitoLancamento_(candidato),
+    ausentes: ausentes.slice(0, 30),
+    quantidade: ausentes.length
+  };
+}
+
+/** Ensures persistence columns are available on legacy spreadsheets. */
 function garantirColunasPersistenciaLancamentos_(aba) {
   const colunas = [
     { nome: "Dias_Pecunia", alternativas: ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"] },

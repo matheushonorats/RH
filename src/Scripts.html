@@ -439,6 +439,45 @@ let statusAtualSync = false;
 let exibindoInsightAtual = false;
 let timeoutInsight = null;
 
+function mostrarFalaEntidadeStatus_() {
+  const fantasma = document.getElementById('entidade-fab');
+  const fala = document.getElementById('sync-detailed-status');
+  if (!fantasma || !fala) return;
+  if (entidadeChatAberto || entidadeChatAbrindo) {
+    fala.style.removeProperty('left');
+    fala.style.removeProperty('top');
+    fala.style.right = '92px';
+    fala.style.bottom = '30px';
+    return;
+  }
+  pararFantasmaErrante_();
+  fantasma.classList.remove('roaming', 'passeando', 'leaving', 'exit-left', 'exit-right', 'enter-left', 'enter-right');
+  fantasma.classList.add('roaming');
+  const base = obterPosicaoBaseFantasma_();
+  if (base) {
+    fantasma.style.left = Math.round(base.x) + 'px';
+    fantasma.style.top = Math.round(base.y) + 'px';
+    fala.style.left = Math.round(base.x + 42) + 'px';
+    fala.style.top = Math.round(base.y - 3) + 'px';
+  }
+  fala.style.removeProperty('right');
+  fala.style.removeProperty('bottom');
+  fantasma.style.display = 'grid';
+  fantasma.classList.add('status-speaking', 'enter-left');
+  setTimeout(function() { fantasma.classList.remove('enter-left'); }, 620);
+}
+
+function ocultarFalaEntidadeStatus_() {
+  const fantasma = document.getElementById('entidade-fab');
+  if (!fantasma) return;
+  fantasma.classList.remove('status-speaking', 'enter-left', 'leaving', 'exit-right');
+  if (!fantasma.classList.contains('has-notification') && !entidadeChatAberto && !entidadeChatAbrindo) iniciarFantasmaErrante_(false);
+}
+
+window.addEventListener('resize', function() {
+  if (document.getElementById('sync-detailed-status')?.classList.contains('show')) mostrarFalaEntidadeStatus_();
+});
+
 function tentarMostrarInsight() {
   if (statusAtualSync) return; // Sistema está usando a barra
   if (exibindoInsightAtual) return; // Já está exibindo um insight
@@ -461,6 +500,7 @@ function tentarMostrarInsight() {
   const duracaoTicker = Math.min(180, Math.max(22, 8 + String(textEl.textContent || '').length * 0.11));
   textEl.style.setProperty('--entidade-ticker-duration', duracaoTicker + 's');
   el.classList.add('show');
+  mostrarFalaEntidadeStatus_();
   renderizarIcones();
   
   timeoutInsight = setTimeout(() => {
@@ -475,6 +515,7 @@ function fecharInsightAtual() {
   
   const el = document.getElementById('sync-detailed-status');
   el.classList.remove('show');
+  ocultarFalaEntidadeStatus_();
   
   setTimeout(() => {
     el.classList.remove('entidade-insight');
@@ -511,11 +552,13 @@ function atualizarTextoSync(texto, exibir = true, icone = 'spinner') {
     
     textEl.innerHTML = prefix + texto;
     el.classList.add('show');
+    mostrarFalaEntidadeStatus_();
     renderizarIcones();
   } else {
     if (statusAtualSync) {
       statusAtualSync = false;
       el.classList.remove('show');
+      ocultarFalaEntidadeStatus_();
       setTimeout(() => { 
         if (!el.classList.contains('show')) textEl.innerHTML = ''; 
         tentarMostrarInsight();
@@ -2900,6 +2943,25 @@ async function salvarDadosLancamento(event) {
       exibirLoader(false);
       mostrarToast(validacaoPeriodo.mensagem || 'Este lançamento se sobrepõe a outra ausência ativa do servidor.', 'error');
       return;
+    }
+
+    const alertaLotacao = await chamarBackendPromessa_('verificarAusenciasLotacaoLancamento', [dados]);
+    if (alertaLotacao && alertaLotacao.temAlerta) {
+      const pessoasAusentes = (alertaLotacao.ausentes || []).map(function(item) {
+        return '• ' + item.nome + ' (' + item.matricula + ') — ' + item.tipo + ', ' + item.periodo;
+      }).join('\n');
+      const sufixo = Number(alertaLotacao.quantidade || 0) > (alertaLotacao.ausentes || []).length
+        ? '\n\nHá mais pessoas ausentes nesse período.'
+        : '';
+      exibirLoader(false);
+      const prosseguir = await abrirConfirm(
+        'Atenção à cobertura da lotação "' + alertaLotacao.lotacao + '": no período ' + alertaLotacao.periodoNovo +
+        ', os seguintes servidores também possuem ausência ativa:\n\n' + pessoasAusentes + sufixo +
+        '\n\nDeseja confirmar este lançamento mesmo assim?',
+        'Ausências simultâneas'
+      );
+      if (!prosseguir) return;
+      exibirLoader(true);
     }
 
     const file1 = document.getElementById('lanc-file-1').files[0];

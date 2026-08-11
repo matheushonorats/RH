@@ -195,6 +195,7 @@ function obterFuncoesApiPermitidas_() {
     desativarServidor: desativarServidor,
     salvarServidor: salvarServidor,
     validarConflitosLancamento: validarConflitosLancamento,
+    verificarAusenciasLotacaoLancamento: verificarAusenciasLotacaoLancamento,
     salvarLancamento: salvarLancamento,
     registrarOperacaoPendente: registrarOperacaoPendente,
     marcarOperacaoPronta: marcarOperacaoPronta,
