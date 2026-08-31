@@ -161,6 +161,61 @@ function obterListaTiposDocumento() {
 /**
  * Retorna todas as configurações globais do sistema
  */
+function garantirConfiguracaoArredondamentoRep_(aba) {
+  if (!aba) return;
+  const ultimaLinha = aba.getLastRow();
+  const chaves = ultimaLinha > 1
+    ? aba.getRange(2, 1, ultimaLinha - 1, 1).getDisplayValues().map(function(linha) { return String(linha[0] || '').trim(); })
+    : [];
+  if (chaves.indexOf('ARREDONDAMENTO_REP') === -1) {
+    aba.appendRow([
+      'ARREDONDAMENTO_REP',
+      'SIM',
+      'Ativa ou desativa o arredondamento das marcações no Leitor REP. Desativado, os cálculos usam os minutos registrados.'
+    ]);
+  }
+}
+
+function obterConfiguracaoCalculoRep() {
+  const ss = obterPlanilha_();
+  const aba = ss.getSheetByName('Configuracoes');
+  if (!aba || aba.getLastRow() < 2) return { arredondamentoAtivo: true };
+  const dados = aba.getRange(2, 1, aba.getLastRow() - 1, 2).getDisplayValues();
+  const registro = dados.find(function(linha) { return String(linha[0] || '').trim() === 'ARREDONDAMENTO_REP'; });
+  if (!registro) return { arredondamentoAtivo: true };
+  const valor = String(registro[1] || '').trim().toUpperCase();
+  return { arredondamentoAtivo: !['NAO', 'NÃO', '0', 'FALSE', 'DESATIVADO'].includes(valor) };
+}
+
+function salvarConfiguracaoCalculoRep(configuracao) {
+  if (!verificarSeEhAdmin()) {
+    throw new Error('Somente administradores podem alterar o arredondamento do REP.');
+  }
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    throw new Error('Sistema ocupado. Não foi possível alterar o arredondamento agora.');
+  }
+  try {
+    const ss = obterPlanilha_();
+    const aba = ss.getSheetByName('Configuracoes');
+    if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
+    garantirConfiguracaoArredondamentoRep_(aba);
+    const dados = aba.getRange(2, 1, aba.getLastRow() - 1, 2).getDisplayValues();
+    const indice = dados.findIndex(function(linha) { return String(linha[0] || '').trim() === 'ARREDONDAMENTO_REP'; });
+    if (indice < 0) throw new Error('Configuração de arredondamento não encontrada.');
+    const linhaPlanilha = indice + 2;
+    const valorAntes = String(aba.getRange(linhaPlanilha, 2).getDisplayValue() || 'SIM');
+    const valorNovo = configuracao && configuracao.arredondamentoAtivo === false ? 'NAO' : 'SIM';
+    aba.getRange(linhaPlanilha, 2).setValue(valorNovo);
+    lancarLogSemLock_('EDITAR_CONFIG', 'Configuracoes', 'Alterou o arredondamento do Leitor REP para: ' + valorNovo, 'ARREDONDAMENTO_REP', valorAntes, valorNovo, 'ARREDONDAMENTO_REP');
+    return { arredondamentoAtivo: valorNovo === 'SIM' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function obterListaConfiguracoes() {
   if (!verificarSeEhAdmin()) {
     throw new Error("Você não possui permissão para visualizar configurações.");
@@ -169,6 +224,7 @@ function obterListaConfiguracoes() {
   const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Configuracoes");
   if (!aba) return [];
+  garantirConfiguracaoArredondamentoRep_(aba);
   
   const dados = aba.getDataRange().getValues();
   let configs = [];

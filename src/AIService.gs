@@ -28,6 +28,27 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
       // da pergunta, sem cache, memória conversacional ou inferência do modelo.
       contextoPlanilha.servidoresIdentificacao = obterListaServidores().map(mapearIdentificacaoServidorEntidade_);
     }
+    if (ehConsultaFeriasPorMesEntidade_(mensagemUsuario)) {
+      // A agenda mensal precisa refletir todos os lançamentos atuais, não apenas
+      // o recorte de contexto enviado ao modelo ou uma resposta memorizada.
+      const servidoresAtuais = obterListaServidores();
+      const statusPorMatricula = {};
+      servidoresAtuais.forEach(function(servidor) {
+        statusPorMatricula[normalizarChaveMatricula_(servidor.matricula)] = String(servidor.status || '');
+      });
+      contextoPlanilha.lancamentosFeriasConsulta = obterListaLancamentos().map(function(lancamento) {
+        return {
+          nome: lancamento.nome,
+          matricula: lancamento.matricula,
+          tipo: lancamento.tipo,
+          dataInicio: lancamento.dataInicio,
+          dias: lancamento.dias,
+          status: lancamento.status,
+          identidadeConsistente: lancamento.identidadeConsistente,
+          statusServidor: statusPorMatricula[normalizarChaveMatricula_(lancamento.matricula)] || ''
+        };
+      });
+    }
     const respostaOperacionalDireta = responderConsultaOperacionalDiretaEntidade_(mensagemUsuario, contextoPlanilha);
     if (respostaOperacionalDireta) {
       const interacaoDiretaId = registrarInteracaoEntidade_(mensagemUsuario, respostaOperacionalDireta);
@@ -88,7 +109,6 @@ TELAS REAIS DO SISTEMA
 - Lançamentos: documentos, férias, abonos, afastamentos, anexos e número 1DOC.
 - Protocolos: agrupamento de documentos físicos e emissão da folha de protocolo.
 - Relatórios: férias compulsórias e os demais relatórios disponíveis na interface.
-- Pré-Leitura REP: conferência temporária de batidas do ponto, competência, jornada estimada, ausências relacionadas e apontamentos; não altera o AFD original.
 - Administração: usuários, configurações e auditoria; somente administradores têm acesso.
 Não invente telas, módulos, botões ou funções que não estejam nessa lista.
 
@@ -96,7 +116,8 @@ REGRAS DE NEGÓCIO IMPORTANTES
 - Matrícula normalizada é a chave usada para relacionar servidor, lançamentos e créditos.
 - Férias futuras ou ainda "Em aquisição" não entram no saldo disponível antes da liberação.
 - Lançamentos de férias ativos descontam os períodos aquisitivos disponíveis; lançamentos anulados não descontam.
-- Férias compulsórias são sinalizadas pelo cálculo oficial: ao menos 60 dias disponíveis e o terceiro período liberando em até 6 meses; quem já possui 90 dias também permanece no alerta. Não recalcule por conta própria se o contexto já trouxer esse indicador.
+- A lista preventiva de férias é sinalizada pelo cálculo oficial assim que o segundo período aquisitivo é concluído e permanece enquanto houver saldo superior a 30 dias. Não recalcule por conta própria se o contexto já trouxer esse indicador.
+- O art. 154, §3º permite parcelar as férias em até duas etapas, quando requerido pelo servidor e no interesse da Administração. Se um período já tiver sido parcialmente gozado, o saldo remanescente corresponde à segunda e última etapa; se ainda não foi fracionado e houver tempo hábil, oriente a quitação de um período de 30 dias com possibilidade de parcelamento, sem exigir 30 dias contínuos.
 - Diferencie período aquisitivo, programação do gozo e férias compulsórias. O alerta preventivo do sistema não significa que o servidor já esteja legalmente em férias compulsórias e a data futura não deve ser descrita como férias "liberadas". Pela LC Municipal nº 146/2011, art. 154, §1º, cada período exige 12 meses de efetivo exercício; o §6º torna o gozo compulsório somente a partir do primeiro dia seguinte ao término do segundo período concessivo, mediante notificação do DGP.
 - Servidores com status Inativo ficam somente no histórico e não são responsabilidade operacional atual. Nunca os inclua em alertas, prioridades ou risco de férias compulsórias. Não presuma pagamento, quitação, aposentadoria ou perda de direito sem um campo explícito que comprove isso.
 - "Sem 1DOC" significa lançamento sem número 1DOC dentro do recorte considerado pelo sistema.
@@ -131,7 +152,6 @@ COMO RESPONDER
 25. Os alertas de auditoria cadastral são indícios automáticos, não erros confirmados. Quando existirem, informe nome, matrícula, campo e motivo, diga que o cadastro precisa ser conferido e não acuse o usuário de ter cometido um erro.
 26. ausenciasHoje é uma lista operacional informativa. Estar de férias ou afastado hoje não é, por si só, problema, risco ou pendência. Só inclua uma ausência em "pontos que exigem atenção" quando o próprio objeto trouxer uma inconsistência explícita. Se houver 1DOC no objeto, não sugira emitir 1DOC, confirmar agendamento ou regularizar esse afastamento.
 27. Em pendenciasDe1Doc, diasPendente representa há quantos dias o lançamento aguarda o número. Escreva "aguarda 1DOC há X dias"; nunca escreva "X dias pendentes de 1DOC", pois isso pode ser confundido com a duração do afastamento.
-28. Quando interfaceAtual.preLeituraRepFuncionarioSelecionado estiver presente, faça uma análise técnica somente do funcionário e da competência desse objeto. Não se limite a repetir cartões ou totais: use padroesDetectados, diasCriticos e apontamentos para explicar o provável motivo de cada conferência e ordenar próximos passos. Diferencie claramente: cálculo automático, indício que requer conferência e erro comprovado. Saldo, horas extras e vale-refeição da Pré-REP são estimativas, não autorização ou decisão administrativa. Não transfira dados de outros funcionários nem use totais do arquivo completo para concluir algo sobre a competência selecionada.
 
 COMANDOS DISPONÍVEIS (use no máximo um, apenas quando ele ajudar)
 - [NAVEGAR_DASHBOARD], [NAVEGAR_SERVIDORES], [NAVEGAR_LANCAMENTOS], [NAVEGAR_PROTOCOLOS], [NAVEGAR_RELATORIOS]
@@ -226,6 +246,9 @@ ${JSON.stringify(dadosContexto, null, 2)}
 function compactarDadosContextoEntidade_(dados) {
   const copia = JSON.parse(JSON.stringify(dados || {}));
   const planilha = copia.planilha || {};
+  // A agenda mensal completa existe somente para a consulta determinística e
+  // nunca deve ampliar o prompt ou ser enviada ao provedor de IA.
+  delete planilha.lancamentosFeriasConsulta;
   if (JSON.stringify(copia.interfaceAtual || {}).length > 2000) {
     copia.interfaceAtual = { aviso: 'Contexto visual resumido por limite de tokens.' };
   }
@@ -233,14 +256,14 @@ function compactarDadosContextoEntidade_(dados) {
   const reduzir = function(lista, limite) {
     return Array.isArray(lista) ? lista.slice(0, limite) : lista;
   };
-  planilha.ausenciasHoje = reduzir(planilha.ausenciasHoje, 10);
-  planilha.servidoresEmFeriasCompulsorias = reduzir(planilha.servidoresEmFeriasCompulsorias, 8);
-  planilha.pendenciasDe1Doc = reduzir(planilha.pendenciasDe1Doc, 8);
-  planilha.distribuicaoPorLotacao = reduzir(planilha.distribuicaoPorLotacao, 40);
-  planilha.ultimosLancamentos = reduzir(planilha.ultimosLancamentos, 6);
+  planilha.ausenciasHoje = reduzir(planilha.ausenciasHoje, 8);
+  planilha.servidoresEmFeriasCompulsorias = reduzir(planilha.servidoresEmFeriasCompulsorias, 6);
+  planilha.pendenciasDe1Doc = reduzir(planilha.pendenciasDe1Doc, 6);
+  planilha.distribuicaoPorLotacao = reduzir(planilha.distribuicaoPorLotacao, 15);
+  planilha.ultimosLancamentos = reduzir(planilha.ultimosLancamentos, 5);
   copia.memoriaValidada = reduzir(copia.memoriaValidada, 2);
-  copia.conversasAnteriores = reduzir(copia.conversasAnteriores, 4);
-  copia.insightsAnteriores = reduzir(copia.insightsAnteriores, 3);
+  copia.conversasAnteriores = reduzir(copia.conversasAnteriores, 3);
+  copia.insightsAnteriores = reduzir(copia.insightsAnteriores, 2);
 
   if (JSON.stringify(copia).length > 18000) {
     planilha.ultimosLancamentos = [];
@@ -264,6 +287,18 @@ function compactarDadosContextoEntidade_(dados) {
   return copia;
 }
 
+function consultaComplexaEntidade_(messages, execucaoBackground) {
+  if (execucaoBackground) return false;
+  const texto = (messages || []).filter(function(item) {
+    return item && item.role === 'user';
+  }).map(function(item) {
+    return String(item.content || '');
+  }).join(' ').toLowerCase();
+
+  return /\b(lei|decreto|estatuto|artigo|par[aá]grafo|jur[ií]dic|legal|direito|dever|penalidade|aposentadoria|licen[cç]a|parecer|interpreta[cç][aã]o normativa)\b/i.test(texto) ||
+    /\b(analise|cruze|compare|investigue|explique).{0,80}\b(conflito|diverg[eê]ncia|inconsist[eê]ncia|hist[oó]rico|per[ií]odo aquisitivo)\b/i.test(texto);
+}
+
 /**
  * Executa a inferência com Groq como provedor principal e OpenRouter gratuito
  * apenas como contingência. Nunca grava chaves, prompts ou respostas nos logs.
@@ -271,13 +306,17 @@ function compactarDadosContextoEntidade_(dados) {
 function chamarProvedorEntidade_(messages, execucaoBackground) {
   const estimativaEntrada = Math.ceil(JSON.stringify(messages || []).length / 4);
   const provedores = [];
+  const consultaComplexa = consultaComplexaEntidade_(messages, execucaoBackground);
   const chaveGroq = obterConfigValorInterno_('GROQ_API_KEY');
   if (chaveGroq) {
+    const modeloRapido = obterConfigValorInterno_('GROQ_MODEL_RAPIDO') || 'openai/gpt-oss-20b';
+    const modeloComplexo = obterConfigValorInterno_('GROQ_MODEL_COMPLEXO') || obterConfigValorInterno_('GROQ_MODEL') || 'openai/gpt-oss-120b';
     provedores.push({
       nome: 'Groq',
       chave: chaveGroq,
       url: 'https://api.groq.com/openai/v1/chat/completions',
-      modelo: obterConfigValorInterno_('GROQ_MODEL') || 'openai/gpt-oss-120b'
+      modelo: consultaComplexa ? modeloComplexo : modeloRapido,
+      reasoningEffort: consultaComplexa ? 'medium' : 'low'
     });
   }
 
@@ -307,8 +346,12 @@ function chamarProvedorEntidade_(messages, execucaoBackground) {
       model: provedor.modelo,
       messages: messages,
       temperature: 0.15,
-      max_tokens: execucaoBackground ? 600 : 800
+      max_tokens: execucaoBackground ? 450 : 600
     };
+    if (provedor.nome === 'Groq' && provedor.modelo.indexOf('gpt-oss') !== -1) {
+      payload.reasoning_effort = provedor.reasoningEffort || 'low';
+      payload.reasoning_format = 'hidden';
+    }
     const headers = { Authorization: 'Bearer ' + provedor.chave };
     if (provedor.nome === 'OpenRouter') {
       headers['HTTP-Referer'] = 'https://script.google.com';
@@ -605,6 +648,94 @@ function responderServidoresSemAdmissaoEntidade_(mensagem, servidores) {
   return resposta;
 }
 
+function obterMesConsultaFeriasEntidade_(mensagem) {
+  const texto = normalizarTextoBuscaEntidade_(mensagem);
+  const meses = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  let mes = 0;
+  meses.some(function(nome, indice) {
+    if (new RegExp('\\b' + nome + '\\b').test(texto)) {
+      mes = indice + 1;
+      return true;
+    }
+    return false;
+  });
+  const hoje = new Date();
+  if (!mes && /\b(este|nesse|neste|atual)\s+mes\b|\bmes\s+(atual|corrente)\b/.test(texto)) mes = hoje.getMonth() + 1;
+  if (!mes) return null;
+  const anoEncontrado = texto.match(/\b(20\d{2})\b/);
+  return { mes: mes, ano: anoEncontrado ? Number(anoEncontrado[1]) : hoje.getFullYear(), nome: meses[mes - 1] };
+}
+
+function ehConsultaFeriasPorMesEntidade_(mensagem) {
+  const texto = normalizarTextoBuscaEntidade_(mensagem);
+  if (!/\bferias\b/.test(texto) || !obterMesConsultaFeriasEntidade_(mensagem)) return false;
+  if (/\b(compulsor|terceir|vencimento|vencer)\w*/.test(texto)) return false;
+  return /\b(quem|quais|pessoas?|servidores?|funcionarios?|est[aã]o|estarao|estariam|sair|saem|gozar|programad|agenda)\w*/.test(texto);
+}
+
+function parseDataConsultaFeriasEntidade_(valor) {
+  const texto = String(valor || '').trim().split(' ')[0];
+  let partes = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  let ano, mes, dia;
+  if (partes) {
+    dia = Number(partes[1]); mes = Number(partes[2]); ano = Number(partes[3]);
+  } else {
+    partes = texto.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!partes) return null;
+    ano = Number(partes[1]); mes = Number(partes[2]); dia = Number(partes[3]);
+  }
+  const data = new Date(ano, mes - 1, dia);
+  if (data.getFullYear() !== ano || data.getMonth() !== mes - 1 || data.getDate() !== dia) return null;
+  data.setHours(0, 0, 0, 0);
+  return data;
+}
+
+function formatarDataConsultaFeriasEntidade_(data) {
+  return Utilities.formatDate(data, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+}
+
+function responderFeriasPorMesEntidade_(mensagem, lancamentos) {
+  const periodo = obterMesConsultaFeriasEntidade_(mensagem);
+  if (!periodo) return '';
+  const inicioMes = new Date(periodo.ano, periodo.mes - 1, 1);
+  const fimMes = new Date(periodo.ano, periodo.mes, 0);
+  inicioMes.setHours(0, 0, 0, 0);
+  fimMes.setHours(0, 0, 0, 0);
+
+  const encontrados = (Array.isArray(lancamentos) ? lancamentos : []).filter(function(item) {
+    if (item.identidadeConsistente === false) return false;
+    if (normalizarTextoBuscaEntidade_(item.status) === 'anulado') return false;
+    if (normalizarTextoBuscaEntidade_(item.statusServidor) === 'inativo') return false;
+    if (!/\bferias\b/.test(normalizarTextoBuscaEntidade_(item.tipo))) return false;
+    const inicio = parseDataConsultaFeriasEntidade_(item.dataInicio);
+    const dias = Math.max(0, Number(item.dias || 0));
+    if (!inicio || !dias) return false;
+    const fim = new Date(inicio.getTime());
+    fim.setDate(fim.getDate() + dias - 1);
+    item.__inicioConsulta = inicio;
+    item.__fimConsulta = fim;
+    return inicio <= fimMes && fim >= inicioMes;
+  }).sort(function(a, b) {
+    return a.__inicioConsulta - b.__inicioConsulta || String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR', { sensitivity: 'base' });
+  });
+
+  const rotulo = periodo.nome.charAt(0).toUpperCase() + periodo.nome.slice(1) + '/' + periodo.ano;
+  if (!encontrados.length) return 'Não há servidores ativos com férias alcançando **' + rotulo + '** na leitura atual da aba Lançamentos.';
+
+  const matriculas = {};
+  encontrados.forEach(function(item) { matriculas[normalizarChaveMatricula_(item.matricula) || String(item.nome || '')] = true; });
+  const limite = 50;
+  const linhas = encontrados.slice(0, limite).map(function(item, indice) {
+    let situacao = 'inicia em ' + formatarDataConsultaFeriasEntidade_(item.__inicioConsulta);
+    if (item.__inicioConsulta < inicioMes) situacao = 'já entra no mês em férias';
+    return (indice + 1) + '. **' + String(item.nome || 'Servidor sem nome') + '** — matrícula **' + String(item.matricula || '-') + '** — ' +
+      formatarDataConsultaFeriasEntidade_(item.__inicioConsulta) + ' a ' + formatarDataConsultaFeriasEntidade_(item.__fimConsulta) + ' (' + situacao + ')';
+  });
+  let resposta = '**' + Object.keys(matriculas).length + ' servidor(es) com férias em ' + rotulo + '** (' + encontrados.length + ' lançamento(s)).\n' + linhas.join('\n');
+  if (encontrados.length > limite) resposta += '\n\n' + (encontrados.length - limite) + ' lançamento(s) adicional(is) ficaram fora da listagem.';
+  return resposta;
+}
+
 /** Respostas factuais recorrentes não consomem cota da IA e preservam a visualização correta. */
 function responderConsultaOperacionalDiretaEntidade_(mensagem, contexto) {
   const pergunta = String(mensagem || '');
@@ -613,6 +744,9 @@ function responderConsultaOperacionalDiretaEntidade_(mensagem, contexto) {
   }
   if (ehConsultaServidoresSemAdmissaoEntidade_(pergunta)) {
     return responderServidoresSemAdmissaoEntidade_(pergunta, contexto && contexto.servidoresIdentificacao);
+  }
+  if (ehConsultaFeriasPorMesEntidade_(pergunta)) {
+    return responderFeriasPorMesEntidade_(pergunta, contexto && contexto.lancamentosFeriasConsulta);
   }
   const pediuMatricula = /\bmatr[ií]cula\b/i.test(pergunta) && /(qual|sabe|diga|informe|consulta|consultar|procure|busque|mostre|n[uú]mero|de quem|quem)/i.test(pergunta);
   if (pediuMatricula) {

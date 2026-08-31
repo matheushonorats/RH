@@ -123,3 +123,35 @@ function executarTestesAlertasConflitosEntidade_() {
 
   return { sucesso: true, testes: 8 };
 }
+
+/** Testes da agenda mensal determinística de férias. */
+function executarTestesConsultaFeriasPorMesEntidade_() {
+  function afirmar_(condicao, mensagem) {
+    if (!condicao) throw new Error('Teste de consulta mensal de férias falhou: ' + mensagem);
+  }
+
+  const pergunta = 'Quais servidores estarão de férias no mês de agosto de 2026?';
+  afirmar_(ehConsultaFeriasPorMesEntidade_(pergunta), 'consulta mensal não reconhecida');
+  afirmar_(!ehConsultaFeriasPorMesEntidade_('Quais férias compulsórias vencem em agosto de 2026?'), 'não deve capturar consulta de compulsórias');
+
+  const resposta = responderConsultaOperacionalDiretaEntidade_(pergunta, {
+    lancamentosFeriasConsulta: [
+      { nome: 'Ana Continua', matricula: '100', tipo: 'Férias', dataInicio: '25/07/2026', dias: 15, status: 'Ativo', statusServidor: 'Ativo' },
+      { nome: 'Bruno Inicia', matricula: '200', tipo: 'Férias', dataInicio: '10/08/2026', dias: 20, status: 'Ativo', statusServidor: 'Ativo' },
+      { nome: 'Carlos Já Voltou', matricula: '300', tipo: 'Férias', dataInicio: '01/07/2026', dias: 15, status: 'Ativo', statusServidor: 'Ativo' },
+      { nome: 'Daniela Setembro', matricula: '400', tipo: 'Férias', dataInicio: '01/09/2026', dias: 10, status: 'Ativo', statusServidor: 'Ativo' },
+      { nome: 'Eva Anulada', matricula: '500', tipo: 'Férias', dataInicio: '05/08/2026', dias: 10, status: 'Anulado', statusServidor: 'Ativo' },
+      { nome: 'Fabio Inativo', matricula: '600', tipo: 'Férias', dataInicio: '05/08/2026', dias: 10, status: 'Ativo', statusServidor: 'Inativo' },
+      { nome: 'Gisele Abono', matricula: '700', tipo: 'Abonada', dataInicio: '05/08/2026', dias: 1, status: 'Ativo', statusServidor: 'Ativo' }
+    ]
+  });
+
+  afirmar_(resposta.indexOf('**2 servidor(es)') !== -1, 'deve contar todos e somente os dois afastamentos que intersectam agosto');
+  afirmar_(resposta.indexOf('Ana Continua') !== -1 && resposta.indexOf('já entra no mês em férias') !== -1, 'deve incluir férias iniciadas no mês anterior');
+  afirmar_(resposta.indexOf('Bruno Inicia') !== -1, 'deve incluir férias que começam em agosto');
+  afirmar_(resposta.indexOf('Carlos Já Voltou') === -1, 'deve excluir quem terminou antes de agosto');
+  afirmar_(resposta.indexOf('Daniela Setembro') === -1, 'deve excluir quem começa depois de agosto');
+  afirmar_(resposta.indexOf('Eva Anulada') === -1 && resposta.indexOf('Fabio Inativo') === -1 && resposta.indexOf('Gisele Abono') === -1, 'deve excluir anulados, inativos e outros tipos');
+
+  return { sucesso: true, testes: 8 };
+}

@@ -18,6 +18,7 @@ function obterIndicesColunasLancamentos_(cabecalho) {
     diasFerias:      indiceCabecalho_(cabecalho, ["QUANTIDADE DIAS FERIAS", "QUANTIDADE DIAS", "QUANTIDADE FERIAS", "QTD FERIAS"]),
     dias:            indiceCabecalho_(cabecalho, ["DIAS", "QTD DIAS"]),
     diasPecunia:     indiceCabecalho_(cabecalho, ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"]),
+    reservaCreditoFuturo: indiceCabecalho_(cabecalho, ["RESERVA CREDITO FUTURO", "RESERVA DE CREDITO FUTURO"]),
     idOperacao:      indiceCabecalho_(cabecalho, ["ID OPERACAO", "ID DA OPERACAO"]),
     mes:             indiceCabecalho_(cabecalho, ["MES HE", "MES"]),
     ano:             indiceCabecalho_(cabecalho, ["ANO HE", "ANO"]),
@@ -27,12 +28,21 @@ function obterIndicesColunasLancamentos_(cabecalho) {
     anexo3:          indiceCabecalho_(cabecalho, ["ANEXO 3", "ANEXO3"]),
     despacho:        indiceCabecalho_(cabecalho, ["DESPACHO INDIVIDUAL", "DESPACHO"]),
     observacao:      indiceCabecalho_(cabecalho, ["OBSERVACAO INDIVIDUAL", "OBSERVACAO", "OBSERVACOES"]),
+    status:          indiceCabecalho_(cabecalho, ["STATUS", "SITUACAO DO LANCAMENTO", "SITUACAO LANCAMENTO"]),
     idProtocolo:     indiceCabecalho_(cabecalho, ["ID_PROTOCOLO", "ID PROTOCOLO"]),
     criadoPor:       indiceCabecalho_(cabecalho, ["CRIADO POR"]),
     criadoEm:        indiceCabecalho_(cabecalho, ["CRIADO EM"]),
     editadoPor:      indiceCabecalho_(cabecalho, ["EDITADO POR"]),
     editadoEm:       indiceCabecalho_(cabecalho, ["EDITADO EM"])
   };
+}
+
+/** Regra única para retirar lançamentos anulados de todos os cálculos. */
+function ehLancamentoAnulado_(linha, idx) {
+  if (!linha || !idx) return false;
+  const tipo = idx.tipo !== -1 ? normalizarCabecalho_(linha[idx.tipo]) : "";
+  const status = idx.status !== undefined && idx.status !== -1 ? normalizarCabecalho_(linha[idx.status]) : "";
+  return tipo.includes("ANULAD") || tipo.includes("NAO EFETIVAD") || status.includes("ANULAD") || status.includes("CANCELAD") || status.includes("NAO EFETIVAD");
 }
 
 /**
@@ -170,7 +180,7 @@ function mapearLinhasLancamentosParaConflitos_(dados, idx) {
       tipo: tipo,
       dataInicio: idx.dataInicio !== -1 ? linha[idx.dataInicio] : '',
       dias: obterDiasLancamento_(linha, idx),
-      status: /ANULAD|NAO EFETIVAD/.test(normalizarCabecalho_(tipo)) ? 'Anulado' : 'Ativo',
+      status: ehLancamentoAnulado_(linha, idx) ? 'Anulado' : 'Ativo',
       linhaPlanilha: indice + 2
     };
   });
@@ -307,6 +317,7 @@ function verificarAusenciasLotacaoLancamento(dadosLanc) {
 function garantirColunasPersistenciaLancamentos_(aba) {
   const colunas = [
     { nome: "Dias_Pecunia", alternativas: ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"] },
+    { nome: "Reserva_Credito_Futuro", alternativas: ["RESERVA CREDITO FUTURO", "RESERVA DE CREDITO FUTURO"] },
     { nome: "ID_Operacao", alternativas: ["ID OPERACAO", "ID DA OPERACAO"] }
   ];
 
@@ -358,7 +369,7 @@ function obterListaLancamentos() {
     let diasPecunia = obterDiasPecuniaLancamento_(linha, idx);
     
     let statusText = "Ativo";
-    if (tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) {
+    if (ehLancamentoAnulado_(linha, idx)) {
       statusText = "Anulado";
     }
     
@@ -500,15 +511,24 @@ function salvarLancamento(dadosLanc) {
 
     if (tipoNormalizado.includes("FERIAS")) {
       const totalSolicitado = diasGozo + diasPecunia;
-      const resumoFerias = construirResumoFerias_(ss);
+      if (!dataInicio) throw new Error("Informe a data de início das férias.");
+
+      // Valida o saldo na data em que as férias começam. O lançamento confirmado
+      // passa a comprometer imediatamente esse saldo, inclusive quando usar
+      // crédito que ainda será adquirido antes da saída.
+      const resumoFerias = construirResumoFerias_(ss, dataInicio);
       const registroFerias = resumoFerias[matricula];
       let saldoDisponivel = registroFerias ? Number(registroFerias.saldo) || 0 : 0;
+      const resumoFeriasHoje = construirResumoFerias_(ss);
+      const saldoDisponivelHoje = resumoFeriasHoje[matricula] ? Number(resumoFeriasHoje[matricula].saldo) || 0 : 0;
 
       // Na edição, recompõe o débito da própria linha antes de validar o novo valor.
       if (linhaEdit !== -1) {
         const linhaAnterior = dados[linhaEdit - 1];
         const tipoAnterior = idx.tipo !== -1 ? normalizarCabecalho_(linhaAnterior[idx.tipo]) : "";
-        if (tipoAnterior.includes("FERIAS") && !tipoAnterior.includes("ANULAD") && !tipoAnterior.includes("NAO EFETIVAD")) {
+        const dataInicioAnterior = idx.dataInicio !== -1 ? parseInputDate_(linhaAnterior[idx.dataInicio]) : null;
+        const anteriorJaConsumidoNaData = !dataInicioAnterior || dataInicioAnterior <= dataInicio;
+        if (tipoAnterior.includes("FERIAS") && anteriorJaConsumidoNaData && !ehLancamentoAnulado_(linhaAnterior, idx)) {
           saldoDisponivel += obterTotalDebitoFerias_(linhaAnterior, idx);
         }
       }
@@ -517,8 +537,14 @@ function salvarLancamento(dadosLanc) {
         throw new Error("Informe uma quantidade válida de dias de férias.");
       }
       if (totalSolicitado > saldoDisponivel) {
-        throw new Error("O total solicitado (" + totalSolicitado + " dias) ultrapassa o saldo disponível (" + saldoDisponivel + " dias).");
+        throw new Error("Na data de início informada, o total solicitado (" + totalSolicitado + " dias) ultrapassa o saldo disponível (" + saldoDisponivel + " dias).");
       }
+
+      const usaCreditoFuturo = totalSolicitado > saldoDisponivelHoje;
+      if (usaCreditoFuturo && dadosLanc.confirmarReservaCreditoFuturo !== true) {
+        throw new Error("Esta programação utiliza crédito de férias ainda em aquisição. Confirme a reserva desse crédito futuro para concluir o lançamento.");
+      }
+      dadosLanc.reservaCreditoFuturo = usaCreditoFuturo ? "SIM" : "";
     }
 
     // Trava para limitar quantidade de Faltas Abonadas no mesmo mês
@@ -529,6 +555,29 @@ function salvarLancamento(dadosLanc) {
                             !tipoNormalizado.includes("NAO EFETIVAD");
 
     if (ehAbonadaNormal && dataInicio) {
+      const resumoCotas = construirResumoFerias_(ss, dataInicio);
+      let abonadasUsadasAno = Number(resumoCotas[matricula] && resumoCotas[matricula].abonosUsados || 0);
+
+      // Ao editar uma abonada já efetiva no mesmo ano, retira a própria linha
+      // da contagem antes de validar o novo conteúdo.
+      if (linhaEdit !== -1) {
+        const linhaAnteriorAbono = dados[linhaEdit - 1];
+        const tipoAnteriorAbono = idx.tipo !== -1 ? normalizarCabecalho_(linhaAnteriorAbono[idx.tipo]) : "";
+        const dataAnteriorAbono = idx.dataInicio !== -1 ? parseInputDate_(linhaAnteriorAbono[idx.dataInicio]) : null;
+        const eraAbonadaNormal = (tipoAnteriorAbono.includes("ABONADA") || tipoAnteriorAbono.includes("ABONO")) &&
+          !tipoAnteriorAbono.includes("NATALICIA") && !tipoAnteriorAbono.includes("ELEITORAL") &&
+          !ehLancamentoAnulado_(linhaAnteriorAbono, idx);
+        if (eraAbonadaNormal && dataAnteriorAbono && dataAnteriorAbono.getFullYear() === dataInicio.getFullYear()) {
+          abonadasUsadasAno = Math.max(0, abonadasUsadasAno - 1);
+        }
+      }
+
+      const limiteAbonadasBase = obterLimiteAbonadasAno_(ss);
+      const limiteAbonadasServidor = Math.max(0, limiteAbonadasBase - Number(servidor.penalidadeAbono || 0));
+      if (abonadasUsadasAno >= limiteAbonadasServidor) {
+        throw new Error("O servidor já utilizou a cota anual disponível de abonadas (" + limiteAbonadasServidor + "). A penalidade registrada reduziu a cota original de " + limiteAbonadasBase + " dia(s).");
+      }
+
       let limiteAbonadasMes = 1;
       const abaConfig = ss.getSheetByName("Configuracoes");
       if (abaConfig) {
@@ -557,8 +606,7 @@ function salvarLancamento(dadosLanc) {
         const regEhAbonada = (tReg.includes("ABONADA") || tReg.includes("ABONO")) &&
                               !tReg.includes("NATALICIA") &&
                               !tReg.includes("ELEITORAL") &&
-                              !tReg.includes("ANULAD") &&
-                              !tReg.includes("NAO EFETIVAD");
+                              !ehLancamentoAnulado_(linhaReg, idx);
 
         if (regEhAbonada) {
           let dtReg = null;
@@ -600,6 +648,7 @@ function salvarLancamento(dadosLanc) {
     if (idx.dias !== -1) valoresLinha[idx.dias] = diasGozo;
     if (idx.diasFerias !== -1) valoresLinha[idx.diasFerias] = diasGozo;
     if (idx.diasPecunia !== -1) valoresLinha[idx.diasPecunia] = ehFeriasPecunia ? diasPecunia : 0;
+    if (idx.reservaCreditoFuturo !== -1) valoresLinha[idx.reservaCreditoFuturo] = dadosLanc.reservaCreditoFuturo || "";
     if (idx.mes !== -1) valoresLinha[idx.mes] = mesNome;
     if (idx.ano !== -1) valoresLinha[idx.ano] = anoNumero;
     if (idx.qtdHoras !== -1) valoresLinha[idx.qtdHoras] = dadosLanc.qtdHoras || "";
@@ -724,13 +773,15 @@ function obterInfoServidorBasico_(ss, matricula) {
   const idxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
   const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
   const idxSituacao = indiceCabecalho_(cabecalho, ["SITUACAO"]);
+  const idxPenalidadeAbono = indiceCabecalho_(cabecalho, ["PENALIDADE ABONOS", "PENALIDADE_ABONOS"]);
   
   for (let i = 1; i < dados.length; i++) {
     if (normalizarChaveMatricula_(dados[i][idxMat]) === normalizarChaveMatricula_(matricula)) {
       return {
         nome: String(dados[i][idxNome]).trim(),
         matricula: matricula,
-        situacao: idxSituacao !== -1 ? String(dados[i][idxSituacao] || "").trim() : ""
+        situacao: idxSituacao !== -1 ? String(dados[i][idxSituacao] || "").trim() : "",
+        penalidadeAbono: idxPenalidadeAbono !== -1 ? Math.max(0, parseInt(dados[i][idxPenalidadeAbono], 10) || 0) : 0
       };
     }
   }

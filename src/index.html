@@ -63,7 +63,7 @@
           <a class="menu-link" data-view="lancamentos" onclick="navegarPara('lancamentos')"><span data-lucide="file-text"></span>Lançamentos</a>
           <a class="menu-link" data-view="protocolos" onclick="navegarPara('protocolos')"><span data-lucide="clipboard-list"></span>Protocolos</a>
           <a class="menu-link" data-view="relatorios" onclick="navegarPara('relatorios')"><span data-lucide="bar-chart-3"></span>Relatórios</a>
-          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Pré-Leitura REP</a>
+          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Leitor REP</a>
           <a class="menu-link admin-only" data-view="admin" style="display: none;" onclick="navegarPara('admin')"><span data-lucide="settings"></span>Administração</a>
         </nav>
 
@@ -109,7 +109,7 @@
           <a class="menu-link" data-view="lancamentos" onclick="navegarPara('lancamentos')"><span data-lucide="file-text"></span>Lançamentos</a>
           <a class="menu-link" data-view="protocolos" onclick="navegarPara('protocolos')"><span data-lucide="clipboard-list"></span>Protocolos</a>
           <a class="menu-link" data-view="relatorios" onclick="navegarPara('relatorios')"><span data-lucide="bar-chart-3"></span>Relatórios</a>
-          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Pré-Leitura REP</a>
+          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Leitor REP</a>
           <a class="menu-link admin-only" data-view="admin" style="display: none;" onclick="navegarPara('admin')"><span data-lucide="settings"></span>Administração</a>
         </nav>
       </aside>
@@ -137,6 +137,7 @@
               <div id="loader-frase" class="loader-frase" aria-live="polite"></div>
               <div id="loader-percentage" style="color: var(--brand-primary); font-weight: 600; font-size: 16px;">0%</div>
               <div class="loader-progress-track"><div id="loader-progress-fill" class="loader-progress-fill"></div></div>
+              <div id="loader-afd-progress" class="loader-afd-progress" aria-label="Progresso individual dos AFDs" hidden></div>
               <div id="loader-text" style="color: var(--text-secondary); font-size: 13px;">Sincronizando base de dados...</div>
             </div>
           </div>
@@ -182,30 +183,31 @@
               </div>
 
               <aside class="dashboard-side-column">
-                <div class="smart-dashboard-card" id="smart-dashboard-card">
+                <div class="smart-dashboard-card" id="smart-dashboard-card" onmouseenter="suspenderPainelDashboard_()" onmouseleave="retomarPainelDashboard_()">
                   <div class="smart-card-header">
                     <div>
                       <span class="page-eyebrow" id="smart-card-eyebrow">DISTRIBUIÇÃO DA EQUIPE</span>
                       <h3 id="smart-card-title">Servidores por lotação</h3>
+                      <span id="smart-card-location" class="smart-card-location" hidden></span>
                     </div>
                     <div class="smart-card-header-actions">
                       <span class="smart-card-icon" id="smart-card-icon"><span data-lucide="map-pinned"></span></span>
-                      <button id="dismiss-smart-card-message" class="smart-card-dismiss" type="button" onclick="fecharMensagemEntidadeNoCard()" title="Fechar mensagem e ver gráfico de lotações" aria-label="Fechar mensagem e ver gráfico de lotações" style="display: none;"><span data-lucide="x"></span></button>
+                      <button class="smart-card-dismiss" type="button" onclick="alternarPausaPainelDashboard_()" title="Pausar ou retomar painel" aria-label="Pausar ou retomar painel"><span id="dashboard-billboard-pause-icon" data-lucide="pause"></span></button>
                     </div>
                   </div>
 
-                  <div id="dashboard-ai-alert-state" class="dashboard-ai-alert-state" style="display: none;">
-                    <div class="ai-alert-summary" id="dashboard-ai-alert-content"></div>
-                    <div class="smart-card-footer"><span id="dashboard-ai-alert-date"></span></div>
+                  <div id="dashboard-billboard-stage" class="dashboard-billboard-stage" aria-live="polite">
+                    <div id="dashboard-billboard-content" class="dashboard-billboard-content"></div>
+                    <div id="dashboard-billboard-entidade" class="dashboard-billboard-entidade" aria-hidden="true"><span data-lucide="ghost"></span></div>
                   </div>
-
-                  <div id="dashboard-location-state" class="dashboard-location-state">
-                    <div class="location-chart-summary"><strong id="location-chart-total">0</strong><span>servidores distribuídos por local</span></div>
-                    <div class="location-pie-layout">
-                      <div id="dashboard-location-pie" class="location-pie" role="img" aria-label="Distribuição dos servidores por lotação"></div>
-                      <div id="dashboard-location-legend" class="location-pie-legend"></div>
+                  <div class="dashboard-billboard-nav">
+                    <button type="button" onclick="mudarCenaPainelDashboard_(-1)" aria-label="Informação anterior"><span data-lucide="chevron-left"></span></button>
+                    <div class="dashboard-billboard-picker">
+                      <button id="dashboard-billboard-picker-toggle" type="button" onclick="alternarMapaPainelDashboard_()" title="Localizar uma informação no painel" aria-label="Localizar uma informação no painel" aria-expanded="false"><span data-lucide="list-filter"></span></button>
+                      <div id="dashboard-billboard-picker-list" class="dashboard-billboard-picker-list" aria-label="Informações disponíveis no painel"></div>
                     </div>
-                    <div class="smart-card-footer"><span>Dados da aba Servidores</span><span id="location-chart-count">0 lotações</span></div>
+                    <div id="dashboard-billboard-dots" class="dashboard-billboard-dots"></div>
+                    <button type="button" onclick="mudarCenaPainelDashboard_(1)" aria-label="Próxima informação"><span data-lucide="chevron-right"></span></button>
                   </div>
                 </div>
 
@@ -470,7 +472,7 @@
             <div class="dashboard-welcome rep-page-header" style="margin-bottom: 20px;">
               <div>
                 <span class="page-eyebrow">PRÉ-PROCESSAMENTO COMPARTILHADO · DRIVE</span>
-                <h2>Pré-Leitura de Arquivos de Ponto (REP / AFD)</h2>
+                <h2>Leitor REP</h2>
                 <p>Os AFDs são lidos diretamente da pasta compartilhada. Arquivos de coletas e períodos diferentes permanecem auditados separadamente, mesmo quando pertencem ao mesmo REP.</p>
               </div>
               <div class="rep-page-actions">
@@ -479,6 +481,9 @@
                 </button>
                 <button class="btn btn-secondary" onclick="resetarLeituraRep()" title="Buscar novamente os AFDs e apontamentos compartilhados">
                   <span data-lucide="refresh-cw"></span> Sincronizar pasta
+                </button>
+                <button class="btn btn-secondary" onclick="abrirInclusaoCartaoManualRep_()" title="Incluir um servidor que preenche cartão de ponto manual">
+                  <span data-lucide="clipboard-pen-line"></span> Incluir cartão manual
                 </button>
                 <button id="rep-btn-add" class="btn btn-secondary" style="display: none;" onclick="adicionarArquivosRep()">
                   <span data-lucide="file-plus-2"></span> Adicionar AFDs
@@ -528,6 +533,11 @@
                 <span>Marcações <b id="rep-total-marcacoes">0</b></span>
                 <span>Alertas <b id="rep-total-pendencias">0</b></span>
                 <span>Não conciliados <b id="rep-total-nao-conciliados">0</b></span>
+                <label id="rep-status-arredondamento" class="rep-status-arredondamento" title="Alterar o arredondamento usado nos cálculos do REP">
+                  <span class="rep-rounding-text">Arredondamento ativo</span>
+                  <input id="rep-rounding-toggle" type="checkbox" checked onchange="alterarArredondamentoRepNoPainel_(this)">
+                  <i class="rep-rounding-track" aria-hidden="true"></i>
+                </label>
                 <button type="button" class="btn btn-secondary rep-salvar-alteracoes" onclick="salvarAlteracoesPendentesRep_({ manual: true })" id="btn-rep-salvar-manual" disabled>Tudo salvo</button>
               </div>
 

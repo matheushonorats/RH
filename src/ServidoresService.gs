@@ -30,6 +30,21 @@ function normalizarAniversarioServidor_(valor) {
   return String(dia).padStart(2, '0') + '/' + String(mes).padStart(2, '0');
 }
 
+/** Limite anual configurado para abonadas normais. */
+function obterLimiteAbonadasAno_(ss) {
+  let limite = 5;
+  const aba = ss && ss.getSheetByName("Configuracoes");
+  if (!aba) return limite;
+  const dados = obterValoresAba_(aba);
+  for (let i = 1; i < dados.length; i++) {
+    if (String(dados[i][0] || '').trim() !== "LIMITE_ABONADAS_ANO") continue;
+    const informado = parseInt(dados[i][1], 10);
+    if (isFinite(informado) && informado >= 0) limite = informado;
+    break;
+  }
+  return limite;
+}
+
 function construirMapaAniversariosNatalicios_(ss) {
   const mapa = {};
   const aba = ss.getSheetByName('Lançamentos') || ss.getSheetByName('Lancamentos');
@@ -40,7 +55,7 @@ function construirMapaAniversariosNatalicios_(ss) {
   if (idx.tipo === -1 || idx.matricula === -1 || idx.dataInicio === -1) return mapa;
   for (let i = 1; i < dados.length; i++) {
     const tipo = normalizarCabecalho_(dados[i][idx.tipo]);
-    if (!tipo.includes('NATALICIA') || tipo.includes('ANULAD') || tipo.includes('NAO EFETIVAD')) continue;
+    if (!tipo.includes('NATALICIA') || ehLancamentoAnulado_(dados[i], idx)) continue;
     const matricula = normalizarChaveMatricula_(dados[i][idx.matricula]);
     const data = dados[i][idx.dataInicio] instanceof Date ? dados[i][idx.dataInicio] : lerDataFormatoBR_(dados[i][idx.dataInicio]);
     if (!matricula || !data || isNaN(data.getTime())) continue;
@@ -92,6 +107,7 @@ function obterListaServidoresInterno_() {
   const mapaStatus = construirMapaStatusServidores_(ss);
   const resumoFerias = construirResumoFerias_(ss);
   const aniversariosNatalicios = construirMapaAniversariosNatalicios_(ss);
+  const limiteAbonadasBase = obterLimiteAbonadasAno_(ss);
   
   let servidores = [];
   
@@ -120,15 +136,22 @@ function obterListaServidoresInterno_() {
       const saldoDaPlanilha = idxSaldoHoje !== -1
         ? obterNumeroPlanilha_(linha[idxSaldoHoje])
         : null;
-      const saldoCalc = saldoDaPlanilha !== null
-        ? saldoDaPlanilha
-        : (feriasServidor.saldo || 0);
+      // O resumo auditável é a fonte principal porque também considera férias
+      // futuras já confirmadas como saldo comprometido. A fórmula antiga da
+      // aba fica apenas como contingência para cadastros sem períodos migrados.
+      const possuiPeriodosAuditaveis = Array.isArray(feriasServidor.periodos) && feriasServidor.periodos.length > 0;
+      const saldoCalc = possuiPeriodosAuditaveis
+        ? (feriasServidor.saldo || 0)
+        : (saldoDaPlanilha !== null ? saldoDaPlanilha : 0);
 
       let penF = idxPenF !== -1 ? parseInt(linha[idxPenF]) || 0 : 0;
       let penA = idxPenA !== -1 ? parseInt(linha[idxPenA]) || 0 : 0;
       
-      let saldoHojeCalculado = saldoCalc - (Number(feriasServidor.penalidadesPeriodos || 0) > 0 ? 0 : penF);
-      let abonosUsadosCalculado = (feriasServidor.abonosUsados || 0) + penA;
+      // construirResumoFerias_ já incorpora a penalidade geral de férias e as
+      // penalidades específicas dos períodos, sem duplicá-las.
+      let saldoHojeCalculado = Math.max(0, saldoCalc - (possuiPeriodosAuditaveis ? 0 : penF));
+      let abonosUsadosCalculado = Number(feriasServidor.abonosUsados || 0);
+      let limiteAbonadasCalculado = Math.max(0, limiteAbonadasBase - penA);
       
       const avaliacaoCompulsoria = avaliarRiscoCompulsoriaFerias_(
         saldoHojeCalculado,
@@ -158,6 +181,9 @@ function obterListaServidoresInterno_() {
         infoFerias: idxInfoFerias !== -1 ? String(linha[idxInfoFerias] || "").trim() : "",
         periodosFerias: feriasServidor.periodos,
         abonosUsados: abonosUsadosCalculado,
+        limiteAbonadasBase: limiteAbonadasBase,
+        limiteAbonadas: limiteAbonadasCalculado,
+        abonosRestantes: Math.max(0, limiteAbonadasCalculado - abonosUsadosCalculado),
         penalidadeFerias: penF,
         penalidadeAbono: penA,
         status: statusText,
@@ -171,24 +197,35 @@ function obterListaServidoresInterno_() {
 }
 
 /**
- * Regra única de risco compulsório:
- * - exige ao menos dois períodos disponíveis (60 dias);
- * - entra no alerta quando o período seguinte libera em até 6 meses;
- * - saldos de 90 dias ou mais já ultrapassaram o limite e permanecem no alerta.
+ * Regra única da lista preventiva de programação compulsória:
+ * - entra assim que o segundo período aquisitivo estiver concluído;
+ * - permanece enquanto houver mais de 30 dias a usufruir entre os dois
+ *   primeiros períodos (por exemplo, saldo de 45 dias após gozo parcial);
+ * - a data apresentada é a formação do terceiro período, para orientar a
+ *   programação do saldo antes de novo acúmulo.
  */
 function avaliarRiscoCompulsoriaFerias_(saldoDisponivel, periodos, admissao, dataReferencia) {
   const saldo = Number(saldoDisponivel || 0);
   const hoje = dataReferencia instanceof Date ? new Date(dataReferencia) : new Date();
   hoje.setHours(0, 0, 0, 0);
 
-  if (saldo < 60) {
-    return { emRisco: false, dataTerceiroPeriodo: '', diasRestantes: null };
+  const periodosConcluidos = (periodos || []).filter(function(periodo) {
+    const liberacao = normalizarDataServidorObjeto_(periodo && periodo.dataLiberacao);
+    return liberacao && liberacao <= hoje;
+  }).length;
+  let segundoPeriodoConcluido = periodosConcluidos >= 2;
+
+  // Fallback para cadastros antigos ou para planilhas ainda sem os créditos
+  // históricos registrados: dois aniversários de admissão completados.
+  const dataAdmissao = normalizarDataServidorObjeto_(admissao);
+  if (!segundoPeriodoConcluido && dataAdmissao) {
+    const marcoSegundoPeriodo = new Date(dataAdmissao);
+    marcoSegundoPeriodo.setFullYear(marcoSegundoPeriodo.getFullYear() + 2);
+    marcoSegundoPeriodo.setHours(0, 0, 0, 0);
+    segundoPeriodoConcluido = marcoSegundoPeriodo <= hoje;
   }
 
-  // Três períodos já disponíveis: o limite já foi atingido ou ultrapassado.
-  if (saldo >= 90) {
-    return { emRisco: true, dataTerceiroPeriodo: 'Já vencido', diasRestantes: 0 };
-  }
+  const deveProgramar = segundoPeriodoConcluido && saldo > 30;
 
   let dataTerceiro = null;
   const proximo = (periodos || []).find(function(periodo) {
@@ -199,7 +236,6 @@ function avaliarRiscoCompulsoriaFerias_(saldoDisponivel, periodos, admissao, dat
   // A rotina de créditos só grava períodos adquiridos; por isso, usa o próximo
   // aniversário de admissão quando o período em aquisição ainda não existe na aba.
   if (!dataTerceiro) {
-    const dataAdmissao = normalizarDataServidorObjeto_(admissao);
     if (dataAdmissao) {
       dataTerceiro = new Date(hoje.getFullYear(), dataAdmissao.getMonth(), dataAdmissao.getDate());
       while (dataTerceiro <= hoje) {
@@ -208,17 +244,13 @@ function avaliarRiscoCompulsoriaFerias_(saldoDisponivel, periodos, admissao, dat
     }
   }
 
-  if (!dataTerceiro) {
-    return { emRisco: false, dataTerceiroPeriodo: '', diasRestantes: null };
-  }
+  if (!dataTerceiro) return { emRisco: deveProgramar, dataTerceiroPeriodo: '', diasRestantes: null };
 
   dataTerceiro.setHours(0, 0, 0, 0);
-  const limiteSeisMeses = new Date(hoje);
-  limiteSeisMeses.setMonth(limiteSeisMeses.getMonth() + 6);
   const diasRestantes = Math.ceil((dataTerceiro.getTime() - hoje.getTime()) / 86400000);
 
   return {
-    emRisco: dataTerceiro <= limiteSeisMeses,
+    emRisco: deveProgramar,
     dataTerceiroPeriodo: formatarDataServidor_(dataTerceiro),
     diasRestantes: diasRestantes
   };
@@ -502,6 +534,7 @@ function construirMapaStatusServidores_(ss) {
   const colIdxDataIni = indiceCabecalho_(cabecalho, ["DATA INICIO", "DATA DE INICIO", "DATA DE SAIDA FALTA"]);
   const idxDias = indiceCabecalho_(cabecalho, ["DIAS", "QTD DIAS"]);
   const idxDiasFerias = indiceCabecalho_(cabecalho, ["QUANTIDADE FERIAS", "QTD FERIAS"]);
+  const idxStatusLancamento = indiceCabecalho_(cabecalho, ["STATUS", "SITUACAO DO LANCAMENTO", "SITUACAO LANCAMENTO"]);
 
   if (colIdxTipo === -1 || colIdxMat === -1 || colIdxDataIni === -1) return {};
   
@@ -516,9 +549,10 @@ function construirMapaStatusServidores_(ss) {
     let linha = dadosLanc[i];
     let mat = normalizarChaveMatricula_(linha[colIdxMat]);
     let tipoDoc = normalizarCabecalho_(linha[colIdxTipo]);
+    let statusLancamento = idxStatusLancamento !== -1 ? normalizarCabecalho_(linha[idxStatusLancamento]) : "";
     
     // Ignora anulados
-    if (tipoDoc.includes("NAO EFETIVADO") || tipoDoc.includes("ANULADO")) continue;
+    if (tipoDoc.includes("NAO EFETIVADO") || tipoDoc.includes("ANULADO") || statusLancamento.includes("ANULAD") || statusLancamento.includes("CANCELAD")) continue;
     
     let dataInicio = normalizarDataServidorObjeto_(linha[colIdxDataIni]);
     if (!dataInicio) continue;
@@ -591,11 +625,32 @@ function obterNumeroPlanilha_(valor) {
  * Consolida créditos liberados, créditos futuros e férias utilizadas.
  * Os débitos são consumidos dos períodos mais antigos primeiro (FIFO).
  */
-function construirResumoFerias_(ss) {
+function construirResumoFerias_(ss, dataReferencia) {
   const resumo = {};
   const referenciasLidas = new Set();
-  const hoje = new Date();
+  const hoje = dataReferencia instanceof Date && !isNaN(dataReferencia.getTime())
+    ? new Date(dataReferencia)
+    : new Date();
   hoje.setHours(0, 0, 0, 0);
+
+  // A penalidade geral existente na ficha é tratada como o total de dias
+  // perdidos. Penalidades já atribuídas a períodos são descontadas desse total,
+  // evitando dupla redução do saldo.
+  const penalidadeGeralPorMatricula = {};
+  const abaServidores = ss.getSheetByName("Servidores");
+  if (abaServidores) {
+    const dadosServidores = obterValoresAba_(abaServidores);
+    if (dadosServidores.length > 1) {
+      const idxMatriculaServidor = indiceCabecalho_(dadosServidores[0], ["MATRICULA"]);
+      const idxPenalidadeFerias = indiceCabecalho_(dadosServidores[0], ["PENALIDADE FERIAS", "PENALIDADE_FERIAS"]);
+      if (idxMatriculaServidor !== -1 && idxPenalidadeFerias !== -1) {
+        for (let i = 1; i < dadosServidores.length; i++) {
+          const matricula = normalizarChaveMatricula_(dadosServidores[i][idxMatriculaServidor]);
+          if (matricula) penalidadeGeralPorMatricula[matricula] = Math.max(0, parseInt(dadosServidores[i][idxPenalidadeFerias], 10) || 0);
+        }
+      }
+    }
+  }
 
   function obterRegistro_(matricula) {
     if (!resumo[matricula]) {
@@ -660,7 +715,7 @@ function construirResumoFerias_(ss) {
           const linha = dadosLancamentos[i];
           const matricula = normalizarChaveMatricula_(linha[idx.matricula]);
           const tipo = normalizarCabecalho_(linha[idx.tipo]);
-          const efetivado = !tipo.includes("NAO EFETIVAD") && !tipo.includes("ANULAD");
+          const efetivado = !ehLancamentoAnulado_(linha, idx);
           const descontaFerias = tipo.includes("FERIAS") || tipo.includes("PENALIDADE") || tipo.includes("AJUSTE");
           const eAbono = (tipo.includes("ABONADA") || tipo.includes("ABONO")) && !tipo.includes("NATALICIA") && !tipo.includes("ELEITORAL");
           const dias = descontaFerias
@@ -668,6 +723,9 @@ function construirResumoFerias_(ss) {
             : obterDiasLancamento_(linha, idx);
 
           if (matricula && efetivado) {
+            // Férias confirmadas comprometem o saldo no momento do lançamento,
+            // inclusive quando o gozo ocorrerá no futuro. Quando um novo período
+            // for adquirido, o resumo será recalculado sobre a mesma reserva.
             if (descontaFerias && dias > 0) {
               obterRegistro_(matricula).debitos += dias;
             }
@@ -695,6 +753,16 @@ function construirResumoFerias_(ss) {
   Object.keys(resumo).forEach(matricula => {
     const registro = resumo[matricula];
     registro.creditos.sort((a, b) => a.dataLiberacao.getTime() - b.dataLiberacao.getTime());
+
+    const penalidadesEspecificas = registro.creditos.reduce((total, credito) => total + Number(credito.penalidade || 0), 0);
+    let penalidadeGeralRestante = Math.max(0, Number(penalidadeGeralPorMatricula[matricula] || 0) - penalidadesEspecificas);
+    registro.creditos.forEach(credito => {
+      if (penalidadeGeralRestante <= 0) return;
+      const capacidade = Math.max(0, Number(credito.quantidade || 0) - Number(credito.penalidade || 0));
+      const aplicada = Math.min(capacidade, penalidadeGeralRestante);
+      credito.penalidade = Number(credito.penalidade || 0) + aplicada;
+      penalidadeGeralRestante -= aplicada;
+    });
 
     let debitoRestante = registro.debitos;
     registro.penalidadesPeriodos = 0;

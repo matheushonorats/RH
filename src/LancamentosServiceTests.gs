@@ -65,5 +65,15 @@ function executarTestesSobreposicaoLancamentos_() {
   afirmar_(divergencias.length === 1 && divergencias[0].matriculaColuna === '26450' && divergencias[0].matriculaNoNome === '40975',
     'divergência deve ser reportada com os dois valores de matrícula');
 
-  return { sucesso: true, testes: 14 };
+  const idxStatus = obterIndicesColunasLancamentos_(['TIPO', 'STATUS']);
+  afirmar_(ehLancamentoAnulado_(['Abonada', 'Anulado'], idxStatus) === true,
+    'status Anulado deve retirar o lançamento dos cálculos mesmo preservando o tipo original');
+  afirmar_(ehLancamentoAnulado_(['Férias', 'Cancelado'], idxStatus) === true,
+    'status Cancelado deve retirar férias dos cálculos');
+  afirmar_(ehLancamentoAnulado_(['Não Efetivado (Anulado)', ''], idxStatus) === true,
+    'tipo Não Efetivado deve continuar reconhecido como anulado');
+  afirmar_(ehLancamentoAnulado_(['Abonada', 'Ativo'], idxStatus) === false,
+    'lançamento ativo deve continuar contabilizado');
+
+  return { sucesso: true, testes: 18 };
 }

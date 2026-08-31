@@ -256,7 +256,7 @@ function obterLancamentosPendentesProtocolo() {
     if (idProtLanc) continue;
     let idoc = idx.idoc !== -1 ? String(dados[i][idx.idoc]).trim() : "";
     if (idoc) continue;
-    if (tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) continue;
+    if (ehLancamentoAnulado_(dados[i], idx)) continue;
 
     let nomeBruto = idx.nome !== -1 ? String(dados[i][idx.nome]).trim() : "";
     let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;

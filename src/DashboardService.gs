@@ -58,16 +58,17 @@ function obterResumoDashboard() {
         ativosPorSituacao[rotuloSituacao] = (ativosPorSituacao[rotuloSituacao] || 0) + 1;
       }
       
-      // Risco compulsório: 60 dias disponíveis e 3º período em até 6 meses.
+      // Lista preventiva: segundo período adquirido e saldo superior a 30 dias.
       const chaveMatricula = normalizarChaveMatricula_(matricula);
       const feriasServidor = resumoFerias[chaveMatricula] || { saldo: 0, periodos: [] };
       const saldoPlanilha = colSaldoFeriasIdx !== -1
         ? obterNumeroPlanilha_(dadosServ[i][colSaldoFeriasIdx])
         : null;
       const penalidadeFerias = colPenalidadeFeriasIdx !== -1 ? (parseInt(dadosServ[i][colPenalidadeFeriasIdx], 10) || 0) : 0;
-      const saldoFerias = (saldoPlanilha !== null
-        ? saldoPlanilha
-        : (feriasServidor.saldo || 0)) - penalidadeFerias;
+      const possuiPeriodosAuditaveis = Array.isArray(feriasServidor.periodos) && feriasServidor.periodos.length > 0;
+      const saldoFerias = (possuiPeriodosAuditaveis
+        ? (feriasServidor.saldo || 0)
+        : Math.max(0, (saldoPlanilha !== null ? saldoPlanilha : 0) - penalidadeFerias));
       const avaliacaoCompulsoria = avaliarRiscoCompulsoriaFerias_(
         saldoFerias,
         feriasServidor.periodos,
@@ -99,7 +100,7 @@ function obterResumoDashboard() {
       let diasLanc = obterDiasLancamento_(linha, idxLanc);
       
       // Ignora lançamentos anulados ou de tipo "Não efetivado"
-      if (!tipoDoc || tipoDoc.toLowerCase().includes("não efetivado") || tipoDoc.toLowerCase().includes("anulado")) {
+      if (!tipoDoc || ehLancamentoAnulado_(linha, idxLanc)) {
         continue;
       }
       // Verifica pendência de 1DOC (não tem número preenchido), desconsiderando lançamentos > 1 ano

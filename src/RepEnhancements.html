@@ -1,7 +1,94 @@
 <script>
 /** Melhorias isoladas da conferência REP para evitar ampliar ainda mais o arquivo principal. */
 function obterServidorSelecionadoRep_() {
-  return (dadosRepProcessados || []).find(function(item) { return item.pis === pisSelecionadoRep; }) || null;
+  const processado = (dadosRepProcessados || []).find(function(item) { return normalizarPisRep(item.pis) === normalizarPisRep(pisSelecionadoRep); });
+  if (processado) return processado;
+  const pis = normalizarPisRep(pisSelecionadoRep);
+  if (!pis || !dadosRepCache.employees.has(pis)) return null;
+  return {
+    pis: pis,
+    nome: dadosRepCache.employees.get(pis) || 'Servidor',
+    lotacao: dadosRepCache.lotacoes.get(pis) || 'Não informada',
+    dias: [],
+    resumo: { origensSaldoCompensacao: [] }
+  };
+}
+
+function garantirModalCartaoManualRep_() {
+  let modal = document.getElementById('modal-cartao-manual-rep');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-cartao-manual-rep';
+  modal.innerHTML = `<div class="modal-content rep-cartao-manual-modal"><div class="modal-header"><div><h3 class="modal-title">Incluir cartão de ponto manual</h3><small>O servidor passará pelos mesmos cálculos do Leitor REP.</small></div><button class="modal-close" onclick="fecharModal('modal-cartao-manual-rep')"><span data-lucide="x"></span></button></div><div class="modal-body"><p class="rep-lote-intro">Selecione quem não registra ponto eletrônico e a competência do cartão. Todos os dias do mês serão preparados automaticamente na etapa seguinte.</p><div class="rep-cartao-manual-grid"><div class="form-group"><label for="rep-cartao-manual-servidor">Servidor</label><select id="rep-cartao-manual-servidor" class="form-control"></select><small id="rep-cartao-manual-aviso" class="rep-cartao-manual-aviso"></small></div><div class="form-group"><label for="rep-cartao-manual-competencia">Competência</label><input id="rep-cartao-manual-competencia" type="month" class="form-control"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal('modal-cartao-manual-rep')">Cancelar</button><button type="button" class="btn btn-primary" onclick="continuarInclusaoCartaoManualRep_()"><span data-lucide="arrow-right"></span> Preencher cartão</button></div></div>`;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+async function abrirInclusaoCartaoManualRep_() {
+  if (!repOnlineCarregado) await carregarModuloRepOnline(true);
+  const modal = garantirModalCartaoManualRep_();
+  const servidores = (AppState.servidores || [])
+    .filter(function(item) { return String(item.status || '').toLowerCase() !== 'inativo'; })
+    .sort(function(a, b) { return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'); });
+  const aptos = servidores.filter(function(item) { return Boolean(normalizarPisRep(item.pis)); });
+  const semPis = servidores.length - aptos.length;
+  const seletor = document.getElementById('rep-cartao-manual-servidor');
+  seletor.innerHTML = '<option value="">Selecione...</option>' + aptos.map(function(item) {
+    const pis = normalizarPisRep(item.pis);
+    return `<option value="${escapeHtml(pis)}">${escapeHtml(item.nome || 'Servidor')} · ${escapeHtml(item.matricula || 'sem matrícula')} · ${escapeHtml(item.lotacao || 'lotação não informada')}</option>`;
+  }).join('');
+  const aviso = document.getElementById('rep-cartao-manual-aviso');
+  aviso.textContent = semPis ? `${semPis} cadastro(s) sem PIS/CPF não podem ser vinculados até a identificação ser preenchida na ficha do servidor.` : '';
+  const campoCompetencia = document.getElementById('rep-cartao-manual-competencia');
+  const anoFiltro = document.getElementById('rep-filter-ano')?.value;
+  const mesFiltro = document.getElementById('rep-filter-mes')?.value;
+  const referencia = new Date();
+  referencia.setDate(1);
+  referencia.setMonth(referencia.getMonth() - 1);
+  campoCompetencia.value = anoFiltro && anoFiltro !== 'all' && mesFiltro && mesFiltro !== 'all'
+    ? `${anoFiltro}-${mesFiltro}`
+    : `${referencia.getFullYear()}-${String(referencia.getMonth() + 1).padStart(2, '0')}`;
+  abrirModal('modal-cartao-manual-rep');
+  renderizarIcones();
+}
+
+function continuarInclusaoCartaoManualRep_() {
+  const pis = normalizarPisRep(document.getElementById('rep-cartao-manual-servidor')?.value);
+  if (!pis) return mostrarToast('Selecione um servidor para preencher o cartão manual.', 'warning');
+  const competencia = String(document.getElementById('rep-cartao-manual-competencia')?.value || '');
+  if (!/^\d{4}-\d{2}$/.test(competencia)) return mostrarToast('Informe a competência do cartão manual.', 'warning');
+  const servidor = (AppState.servidores || []).find(function(item) { return normalizarPisRep(item.pis) === pis; });
+  if (!servidor) return mostrarToast('O cadastro selecionado não foi localizado.', 'error');
+  dadosRepCache.employees.set(pis, servidor.nome || 'Servidor');
+  dadosRepCache.lotacoes.set(pis, String(servidor.lotacao || 'Não informada').trim() || 'Não informada');
+  pisSelecionadoRep = pis;
+  fecharModal('modal-cartao-manual-rep');
+  abrirLancamentosLoteRep_({ cartaoManual: true, competencia: competencia, local: servidor.lotacao || 'Local informado manualmente' });
+}
+
+function preencherDiasCartaoManualRep_(competencia, local) {
+  const partes = String(competencia || '').split('-').map(Number);
+  if (partes.length !== 2 || !partes[0] || !partes[1]) return adicionarLinhaMarcacaoLoteRep_('', local);
+  const feriados = new Set((feriadosCompartilhadosRep || [])
+    .map(function(item) { return normalizarDataFeriadoRep_(item && item.data); })
+    .filter(Boolean));
+  obterFeriadosRep().forEach(function(data) { feriados.add(data); });
+  const ultimoDia = new Date(partes[0], partes[1], 0).getDate();
+  for (let dia = 1; dia <= ultimoDia; dia++) {
+    const data = `${partes[0]}-${String(partes[1]).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    adicionarLinhaMarcacaoLoteRep_(data, local);
+    const linha = document.querySelector('#rep-lote-marcacoes tr:last-child');
+    const diaSemana = new Date(partes[0], partes[1] - 1, dia).getDay();
+    if (!linha) continue;
+    if (feriados.has(data)) {
+      linha.classList.add('rep-cartao-feriado');
+      linha.title = 'Feriado ou ponto facultativo cadastrado no Leitor REP';
+    } else if (diaSemana === 0 || diaSemana === 6) {
+      linha.classList.add('rep-cartao-fim-semana');
+      linha.title = diaSemana === 0 ? 'Domingo' : 'Sábado';
+    }
+  }
 }
 
 async function editarMarcacaoRapidaRep_(pis, data, eventId, campo) {
@@ -87,11 +174,13 @@ function garantirModalLancamentosLoteRep_() {
   return modal;
 }
 
-function adicionarLinhaMarcacaoLoteRep_(data) {
+function adicionarLinhaMarcacaoLoteRep_(data, local) {
   const corpo = document.getElementById('rep-lote-marcacoes');
   if (!corpo) return;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="text" class="form-control rep-lote-local" value="Local informado manualmente"></td><td><input type="text" class="form-control rep-lote-justificativa" placeholder="Ex.: esquecimento da marcação"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const cartaoManual = modal && modal.dataset.modo === 'cartao-manual';
+  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="time" class="form-control rep-lote-hora"></td><td><input type="text" class="form-control rep-lote-local" value="${escapeHtml(local || modal?.dataset.local || 'Local informado manualmente')}"></td><td><input type="text" class="form-control rep-lote-justificativa" value="${cartaoManual ? 'Transcrição do cartão de ponto manual.' : ''}" placeholder="Ex.: esquecimento da marcação"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
   corpo.appendChild(tr);
   renderizarIcones();
 }
@@ -138,16 +227,27 @@ function atualizarTotalCompensacaoLoteRep_(linha) {
   return { total: total, invalida: invalida };
 }
 
-function abrirLancamentosLoteRep_() {
+function abrirLancamentosLoteRep_(opcoes) {
+  opcoes = opcoes || {};
   const emp = obterServidorSelecionadoRep_();
   if (!emp) return mostrarToast('Selecione um servidor antes de abrir os ajustes em lote.', 'warning');
   const modal = garantirModalLancamentosLoteRep_();
   modal.dataset.pis = emp.pis;
+  modal.dataset.modo = opcoes.cartaoManual ? 'cartao-manual' : 'ajuste';
+  modal.dataset.competencia = opcoes.competencia || '';
+  modal.dataset.local = opcoes.local || emp.lotacao || 'Local informado manualmente';
+  const titulo = modal.querySelector('.modal-title');
+  if (titulo) titulo.textContent = opcoes.cartaoManual ? 'Preencher cartão de ponto manual' : 'Ajustes de ponto em lote';
+  const intro = modal.querySelector('.rep-lote-intro');
+  if (intro) intro.textContent = opcoes.cartaoManual
+    ? 'Transcreva duas ou quatro marcações por dia. O cartão será calculado com as mesmas regras do REP e ficará identificado na auditoria.'
+    : 'Registre marcações esquecidas e compense déficits de vários dias em uma única conferência. O AFD original permanece preservado.';
   document.getElementById('rep-lote-servidor').textContent = emp.nome + ' · ' + emp.pis;
   document.getElementById('rep-lote-marcacoes').innerHTML = '';
   document.getElementById('rep-lote-compensacoes').innerHTML = '';
   document.getElementById('rep-lote-status').textContent = '';
-  adicionarLinhaMarcacaoLoteRep_('');
+  if (opcoes.cartaoManual) preencherDiasCartaoManualRep_(opcoes.competencia, modal.dataset.local);
+  else adicionarLinhaMarcacaoLoteRep_('', modal.dataset.local);
   abrirModal('modal-lancamentos-lote-rep');
   renderizarIcones();
 }
@@ -167,7 +267,11 @@ async function salvarLancamentosLoteRep_() {
   const emp = obterServidorSelecionadoRep_();
   const pis = modal && modal.dataset.pis;
   if (!emp || normalizarPisRep(emp.pis) !== normalizarPisRep(pis)) return mostrarToast('O servidor selecionado mudou. Abra o formulário novamente.', 'warning');
-  const linhasMarcacao = Array.from(document.querySelectorAll('#rep-lote-marcacoes tr')).filter(function(linha) { return linha.querySelector('.rep-lote-data').value || Array.from(linha.querySelectorAll('.rep-lote-hora')).some(function(campo) { return campo.value; }); });
+  const cartaoManual = modal && modal.dataset.modo === 'cartao-manual';
+  const linhasMarcacao = Array.from(document.querySelectorAll('#rep-lote-marcacoes tr')).filter(function(linha) {
+    const possuiHorario = Array.from(linha.querySelectorAll('.rep-lote-hora')).some(function(campo) { return campo.value; });
+    return cartaoManual ? possuiHorario : (linha.querySelector('.rep-lote-data').value || possuiHorario);
+  });
   const linhasCompensacao = Array.from(document.querySelectorAll('#rep-lote-compensacoes tr')).filter(function(linha) { return linha.querySelector('.rep-lote-data').value || linha.querySelector('.rep-lote-horas').value; });
   if (!linhasMarcacao.length && !linhasCompensacao.length) return mostrarToast('Inclua ao menos um ajuste.', 'warning');
   const novos = [];
@@ -184,7 +288,7 @@ async function salvarLancamentosLoteRep_() {
       const datetime = criarDataAjusteRep(data, hora);
       if (!datetime) throw new Error('Horário inválido em ' + data.split('-').reverse().join('/') + '.');
       const id = 'MANUAL|' + gerarUuidSeguroCliente_() + '|LOTE|' + linhaIndice + '|' + indice;
-      novos.push({ pis: pis, datetime: datetime, clock: linha.querySelector('.rep-lote-local').value.trim() || 'Local informado manualmente', deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '', eventId: id, eventKey: 'AJUSTE|' + id, nomeNoMomento: dadosRepCache.employees.get(String(pis)) || '', sourceFile: 'Ajuste compartilhado', rawTimestamp: datetime.getTime(), manual: true, ajusteCompartilhado: true, dataReferencia: data, ajusteOrigemData: data, justificativa: justificativa });
+      novos.push({ pis: pis, datetime: datetime, clock: linha.querySelector('.rep-lote-local').value.trim() || 'Local informado manualmente', deviceSerial: cartaoManual ? 'CARTÃO MANUAL' : 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '', eventId: id, eventKey: 'AJUSTE|' + id, nomeNoMomento: dadosRepCache.employees.get(String(pis)) || '', sourceFile: cartaoManual ? 'Cartão de ponto manual' : 'Ajuste compartilhado', rawTimestamp: datetime.getTime(), manual: true, ajusteCompartilhado: true, dataReferencia: data, ajusteOrigemData: data, justificativa: justificativa });
     });
     origensAjuste.add(data);
   });
@@ -231,8 +335,27 @@ async function salvarLancamentosLoteRep_() {
       await salvarAlteracoesPendentesRep_({ manual: true });
     }
     fecharModal('modal-lancamentos-lote-rep');
+    const resultados = document.getElementById('rep-results-container');
+    if (resultados) resultados.style.display = 'block';
+    ['rep-btn-export', 'rep-btn-pdf', 'rep-btn-autorizacao-he', 'rep-btn-lancamento', 'rep-btn-lancamento-lote'].forEach(function(id) {
+      const botaoAcao = document.getElementById(id);
+      if (botaoAcao) botaoAcao.style.display = 'inline-flex';
+    });
+    if (cartaoManual && competencias.length) {
+      const competenciaExibida = competencias.slice().sort().reverse()[0];
+      const partesCompetencia = competenciaExibida.split('-');
+      const seletorAno = document.getElementById('rep-filter-ano');
+      const seletorMes = document.getElementById('rep-filter-mes');
+      if (seletorAno && !Array.from(seletorAno.options).some(function(item) { return item.value === partesCompetencia[0]; })) {
+        seletorAno.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(partesCompetencia[0])}">${escapeHtml(partesCompetencia[0])}</option>`);
+      }
+      if (seletorAno) seletorAno.value = partesCompetencia[0];
+      if (seletorMes) seletorMes.value = partesCompetencia[1];
+    }
     atualizarProcessamentoRep({ notificarEntidade: false });
-    mostrarToast((linhasMarcacao.length + compensacoes.length) + ' ajuste(s) de ponto salvo(s) em lote.', 'success');
+    mostrarToast(cartaoManual
+      ? linhasMarcacao.length + ' dia(s) do cartão manual incluído(s) no cálculo.'
+      : (linhasMarcacao.length + compensacoes.length) + ' ajuste(s) de ponto salvo(s) em lote.', 'success');
   } catch (erro) {
     document.getElementById('rep-lote-status').textContent = 'A gravação foi interrompida: ' + mensagemErro(erro);
     mostrarToast('Não foi possível concluir todos os ajustes: ' + mensagemErro(erro), 'error');

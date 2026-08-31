@@ -136,7 +136,7 @@ function obterRelatorioAusenciasCalendario(dataInicioStr, dataFimStr) {
   for (let i = 1; i < dados.length; i++) {
     let linha = dados[i];
     let tipo = String(linha[idx.tipo]).trim();
-    if (!tipo || tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) continue;
+    if (!tipo || ehLancamentoAnulado_(linha, idx)) continue;
     
     let inicioLanc = lerDataFormatoBR_(linha[idx.dataInicio]);
     if (!inicioLanc) continue;
@@ -232,8 +232,7 @@ function obterRelatorioAbonosAnuais() {
     if ((tipo.includes("ABONADA") || tipo.includes("ABONO")) && 
         !tipo.includes("NATALICIA") && 
         !tipo.includes("ELEITORAL") && 
-        !tipo.includes("NAO EFETIVAD") && 
-        !tipo.includes("ANULAD") && 
+        !ehLancamentoAnulado_(linha, idxLanc) && 
         ano === anoAtual) {
       if (!mapaAbonos[mat]) mapaAbonos[mat] = 0;
       mapaAbonos[mat]++;
@@ -260,6 +259,7 @@ function obterRelatorioAbonosAnuais() {
   const idxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
   const idxLot = indiceCabecalho_(cabecalho, ["LOTACAO"]);
   const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
+  const idxPenalidadeAbono = indiceCabecalho_(cabecalho, ["PENALIDADE ABONOS", "PENALIDADE_ABONOS"]);
 
   if (idxNome === -1 || idxMat === -1) {
     throw new Error("Cabecalhos NOME/MATRICULA nao encontrados em Servidores.");
@@ -272,14 +272,18 @@ function obterRelatorioAbonosAnuais() {
     if (!mat || ativo === "Não") continue;
     
     let abonosUsados = mapaAbonos[mat] || 0;
+    const penalidadeAbono = idxPenalidadeAbono !== -1 ? Math.max(0, parseInt(servidores[i][idxPenalidadeAbono], 10) || 0) : 0;
+    const limiteAjustado = Math.max(0, limiteAbonos - penalidadeAbono);
     
     relatorio.push({
       nome: String(servidores[i][idxNome]).trim(),
       matricula: mat,
       lotacao: idxLot !== -1 ? String(servidores[i][idxLot]).trim() : "",
       abonosUsados: abonosUsados,
-      limiteAnual: limiteAbonos,
-      saldoRestante: Math.max(0, limiteAbonos - abonosUsados)
+      limiteAnual: limiteAjustado,
+      limiteOriginal: limiteAbonos,
+      penalidadeAbono: penalidadeAbono,
+      saldoRestante: Math.max(0, limiteAjustado - abonosUsados)
     });
   }
   

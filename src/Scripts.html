@@ -33,6 +33,7 @@ let currentView = 'dashboard';
 let revisaoMutacoesCliente_ = 0;
 let gravacoesBackendEmAndamento_ = 0;
 let temporizadorSincronizacaoSegura_ = null;
+let carregamentoInicialBancoPendente_ = true;
 
 function ehFuncaoMutacaoBackend_(nome) {
   return /^(salvar|atualizar|desativar|cancelar|remover|excluir|definir|marcar|registrar|resetar|criar|gerar)/i.test(String(nome || ''));
@@ -51,7 +52,10 @@ function registrarFimMutacaoBackend_() {
 function existemGravacoesPendentes_() {
   const filaGeralPendente = typeof SyncQueue !== 'undefined' && (SyncQueue.processando || SyncQueue.fila.length > 0);
   const filaRepPendente = typeof repTemAlteracoesPendentes_ === 'function' && repTemAlteracoesPendentes_();
-  return gravacoesBackendEmAndamento_ > 0 || filaGeralPendente || filaRepPendente;
+  const filaServidorPendente = Array.isArray(AppState.operacoesPendentes) && AppState.operacoesPendentes.some(function(op) {
+    return !/^(CONCLUIDA|CANCELADA)$/i.test(String(op && op.status || ''));
+  });
+  return gravacoesBackendEmAndamento_ > 0 || filaGeralPendente || filaRepPendente || filaServidorPendente;
 }
 
 function agendarSincronizacaoSegura_(viewAlvo) {
@@ -64,7 +68,8 @@ function agendarSincronizacaoSegura_(viewAlvo) {
     }
     const destino = sincronizacaoViewPendente || currentView;
     sincronizacaoViewPendente = null;
-    sincronizarEmSegundoPlano(destino);
+    if (carregamentoInicialBancoPendente_) sincronizarDados(true, destino || 'dashboard');
+    else sincronizarEmSegundoPlano(destino);
   }, 350);
 }
 
@@ -99,12 +104,21 @@ const SyncQueue = {
   fila: [],
   processando: false,
   MAX_RETRIES: 5,
+  resultados: {},
 
   enfileirar(tipo, funcaoNome, args, descricao) {
     const operacaoId = args && args[0] && args[0].operacaoId ? String(args[0].operacaoId) : "";
     if (operacaoId) {
       const existente = this.fila.find(item => item.operacaoId === operacaoId);
-      if (existente) return existente.id;
+      if (existente) {
+        existente.status = 'pendente';
+        existente.ultimoErro = '';
+        existente.tentativas = 0;
+        this.persistir();
+        this.atualizarUI();
+        this.processar();
+        return existente.id;
+      }
     }
     const item = {
       id: gerarUuidSeguroCliente_(),
@@ -114,7 +128,9 @@ const SyncQueue = {
       descricao: descricao || tipo,
       tentativas: 0,
       timestamp: new Date().toISOString(),
-      operacaoId: operacaoId
+      operacaoId: operacaoId,
+      status: 'pendente',
+      ultimoErro: ''
     };
     this.fila.push(item);
     this.persistir();
@@ -125,6 +141,10 @@ const SyncQueue = {
 
   processar() {
     if (this.processando || this.fila.length === 0) return;
+    if (this.fila[0].status === 'erro') {
+      this.atualizarUI();
+      return;
+    }
     if (!navigator.onLine) {
       this.atualizarUI();
       return;
@@ -145,6 +165,7 @@ const SyncQueue = {
     backendApi()
       .withSuccessHandler(function(resultado) {
         self.fila.shift(); // Remove o primeiro (processado)
+        if (item.operacaoId) self.resultados[item.operacaoId] = { sucesso: true, resultado: resultado, concluidoEm: Date.now() };
         self.processando = false;
         self.persistir();
         self.atualizarUI();
@@ -182,14 +203,16 @@ const SyncQueue = {
         const detalheErro = mensagemErro(erro);
         const erroTemporario = /sistema ocupado|tente novamente|temporari|timeout|tempo limite|network|rede|service unavailable|internal error|lock/i.test(detalheErro);
 
-        if (item.operacaoId) {
+        if (item.operacaoId && item.tipo === 'salvar_lancamento') {
           backendApi().registrarFalhaOperacaoPendente(item.operacaoId, detalheErro);
         }
 
         if (!erroTemporario || item.tentativas >= self.MAX_RETRIES) {
-          const falhou = self.fila.shift();
-          mostrarToast(`${falhou.descricao}: ${detalheErro}`, 'error');
-          atualizarTextoSync(`Falhou: ${falhou.descricao}`, true, 'warning');
+          item.status = 'erro';
+          item.ultimoErro = detalheErro;
+          if (item.operacaoId) self.resultados[item.operacaoId] = { sucesso: false, erro: detalheErro, concluidoEm: Date.now() };
+          mostrarToast(`${item.descricao} não foi confirmado e continua pendente: ${detalheErro}`, 'error');
+          atualizarTextoSync(`Pendente: ${item.descricao}`, true, 'warning');
           animarEntidadeOperacao_('falha');
           setTimeout(() => carregarOperacoesPendentesServidor(false), 500);
           setTimeout(() => { if(!self.processando) atualizarTextoSync("", false); }, 5000);
@@ -224,8 +247,9 @@ const SyncQueue = {
         const raw = localStorage.getItem(chave);
         if (raw) this.fila = JSON.parse(raw);
         if (this.fila.length > 0) {
-          mostrarToast(`${this.fila.length} operação(ões) pendente(s) encontrada(s). Sincronizando...`, 'info');
-          setTimeout(() => this.processar(), 2000);
+          const bloqueadas = this.fila.filter(item => item.status === 'erro').length;
+          mostrarToast(bloqueadas ? `${bloqueadas} operação(ões) ainda não confirmada(s). Clique no aviso para revisar.` : `${this.fila.length} operação(ões) pendente(s) encontrada(s). Sincronizando...`, bloqueadas ? 'warning' : 'info');
+          if (!bloqueadas) setTimeout(() => this.processar(), 2000);
         }
       }
     } catch(e) { this.fila = []; }
@@ -249,10 +273,13 @@ const SyncQueue = {
       barra.innerHTML = '<span class="sync-spinner"></span> Sincronizando ' + (pendentes) + ' operação(ões)...';
       barra.style.display = 'flex';
     } else if (pendentes > 0) {
+      const comErro = this.fila.filter(item => item.status === 'erro').length;
       barra.className = 'sync-bar sync-pending';
-      barra.innerHTML = '<span data-lucide="alert-circle" style="width:12px;height:12px;"></span> ' + pendentes + ' operação(ões) pendente(s)';
+      barra.innerHTML = '<span data-lucide="alert-circle" style="width:12px;height:12px;"></span> ' + pendentes + ' operação(ões) ' + (comErro ? 'não confirmada(s)' : 'pendente(s)');
       barra.style.display = 'flex';
-      atualizarTextoSync(`${pendentes} alteração(ões) pendente(s)...`, true, 'warning');
+      barra.style.cursor = 'pointer';
+      barra.onclick = abrirModalFilaSincronizacao;
+      atualizarTextoSync(`${pendentes} alteração(ões) ainda não confirmada(s)...`, true, 'warning');
     } else {
       const pendentesServidor = (AppState.operacoesPendentes || []).length;
       if (pendentesServidor > 0) {
@@ -270,6 +297,28 @@ const SyncQueue = {
     renderizarIcones();
   }
 };
+
+function aguardarConfirmacaoFila_(operacaoId, limiteMs) {
+  const inicio = Date.now();
+  const limite = Math.max(30000, Number(limiteMs || 180000));
+  return new Promise(function(resolve, reject) {
+    function verificar() {
+      const resultado = SyncQueue.resultados[operacaoId];
+      if (resultado) {
+        delete SyncQueue.resultados[operacaoId];
+        if (resultado.sucesso) resolve(resultado.resultado);
+        else reject(new Error(resultado.erro || 'A gravação não foi confirmada pelo banco de dados.'));
+        return;
+      }
+      if (Date.now() - inicio >= limite) {
+        reject(new Error('A confirmação está demorando além do esperado. A operação permanece preservada na fila de sincronização.'));
+        return;
+      }
+      setTimeout(verificar, 250);
+    }
+    verificar();
+  });
+}
 
 function gerarIdOperacaoCliente_() {
   return gerarUuidSeguroCliente_();
@@ -365,7 +414,21 @@ function abrirModalFilaSincronizacao() {
 function renderizarFilaSincronizacao_() {
   const corpo = document.getElementById('fila-sincronizacao-lista');
   if (!corpo) return;
-  const operacoes = AppState.operacoesPendentes || [];
+  const operacoesServidor = AppState.operacoesPendentes || [];
+  const idsServidor = new Set(operacoesServidor.map(function(op) { return String(op.idOperacao || ''); }));
+  const operacoesLocais = SyncQueue.fila.filter(function(item) { return !idsServidor.has(String(item.operacaoId || '')); }).map(function(item) {
+    return {
+      idOperacao: item.operacaoId || item.id,
+      descricao: item.descricao,
+      criadoEm: item.timestamp,
+      status: item.status === 'erro' ? 'ERRO' : 'PENDENTE_LOCAL',
+      pronta: true,
+      payload: item.args && item.args[0],
+      ultimoErro: item.ultimoErro || 'Aguardando confirmação do banco de dados.',
+      local: true
+    };
+  });
+  const operacoes = operacoesServidor.concat(operacoesLocais);
 
   if (!operacoes.length) {
     corpo.innerHTML = '<div class="fila-vazia"><span data-lucide="check-circle"></span><strong>Nenhuma operação pendente</strong><small>Todos os documentos foram sincronizados.</small></div>';
@@ -397,6 +460,18 @@ function renderizarFilaSincronizacao_() {
 }
 
 function tentarNovamenteOperacao(operacaoId) {
+  const local = SyncQueue.fila.find(item => String(item.operacaoId || item.id) === String(operacaoId));
+  if (local) {
+    local.status = 'pendente';
+    local.ultimoErro = '';
+    local.tentativas = 0;
+    SyncQueue.persistir();
+    SyncQueue.atualizarUI();
+    SyncQueue.processar();
+    fecharModal('modal-fila-sincronizacao');
+    mostrarToast('Operação local recolocada na fila de sincronização.', 'success');
+    return;
+  }
   const op = (AppState.operacoesPendentes || []).find(item => item.idOperacao === operacaoId);
   if (!op || !op.pronta || !op.payload) {
     mostrarToast('Esta operação ainda não possui todos os anexos necessários.', 'warning');
@@ -417,6 +492,16 @@ function visualizarAnexosFila(operacaoId) {
 async function cancelarOperacaoFila(operacaoId) {
   const confirmar = await abrirConfirm('Cancelar esta pendência? Os anexos já enviados continuarão preservados no Drive.');
   if (!confirmar) return;
+  const local = SyncQueue.fila.find(item => String(item.operacaoId || item.id) === String(operacaoId));
+  const servidor = (AppState.operacoesPendentes || []).find(item => String(item.idOperacao) === String(operacaoId));
+  if (local && !servidor) {
+    SyncQueue.fila = SyncQueue.fila.filter(item => item !== local);
+    SyncQueue.persistir();
+    SyncQueue.atualizarUI();
+    renderizarFilaSincronizacao_();
+    mostrarToast('Pendência local cancelada.', 'success');
+    return;
+  }
   exibirLoader(true);
   backendApi()
     .withSuccessHandler(function() {
@@ -439,15 +524,53 @@ let statusAtualSync = false;
 let exibindoInsightAtual = false;
 let timeoutInsight = null;
 
+function posicionarFalaEntidadeStatus_() {
+  const fantasma = document.getElementById('entidade-fab');
+  const fala = document.getElementById('sync-detailed-status');
+  if (!fantasma || !fala) return;
+
+  const posicaoFantasma = fantasma.getBoundingClientRect();
+  const larguraDesejada = Math.min(390, Math.max(180, window.innerWidth - 72));
+  const espacoDireita = window.innerWidth - posicaoFantasma.right - 10;
+  const usarEsquerda = espacoDireita < Math.min(larguraDesejada, 250) && posicaoFantasma.left > espacoDireita;
+  const larguraDisponivel = usarEsquerda
+    ? Math.max(170, posicaoFantasma.left - 18)
+    : Math.max(170, espacoDireita);
+  const largura = Math.min(larguraDesejada, larguraDisponivel);
+  const topo = Math.max(4, Math.min(window.innerHeight - 43, posicaoFantasma.top - 3));
+
+  fala.classList.toggle('fala-a-esquerda', usarEsquerda);
+  fala.style.width = Math.round(largura) + 'px';
+  fala.style.left = Math.round(usarEsquerda ? posicaoFantasma.left - largura - 8 : posicaoFantasma.right + 8) + 'px';
+  fala.style.top = Math.round(topo) + 'px';
+  fala.style.removeProperty('right');
+  fala.style.removeProperty('bottom');
+  atualizarRolagemFalaEntidadeStatus_();
+}
+
+function atualizarRolagemFalaEntidadeStatus_() {
+  const fala = document.getElementById('sync-detailed-status');
+  const texto = document.getElementById('sync-detailed-text');
+  const trilha = fala && fala.querySelector('.sync-ticker-wrapper');
+  if (!fala || !texto || !trilha) return;
+  fala.classList.remove('texto-rolando');
+  texto.style.removeProperty('--entidade-fala-deslocamento');
+  texto.style.removeProperty('--entidade-fala-duracao');
+  requestAnimationFrame(function() {
+    const deslocamento = Math.ceil(texto.scrollWidth - trilha.clientWidth);
+    if (deslocamento <= 4) return;
+    texto.style.setProperty('--entidade-fala-deslocamento', '-' + deslocamento + 'px');
+    texto.style.setProperty('--entidade-fala-duracao', Math.min(28, Math.max(9, 6 + deslocamento / 24)) + 's');
+    fala.classList.add('texto-rolando');
+  });
+}
+
 function mostrarFalaEntidadeStatus_() {
   const fantasma = document.getElementById('entidade-fab');
   const fala = document.getElementById('sync-detailed-status');
   if (!fantasma || !fala) return;
   if (entidadeChatAberto || entidadeChatAbrindo) {
-    fala.style.removeProperty('left');
-    fala.style.removeProperty('top');
-    fala.style.right = '92px';
-    fala.style.bottom = '30px';
+    posicionarFalaEntidadeStatus_();
     return;
   }
   pararFantasmaErrante_();
@@ -457,13 +580,10 @@ function mostrarFalaEntidadeStatus_() {
   if (base) {
     fantasma.style.left = Math.round(base.x) + 'px';
     fantasma.style.top = Math.round(base.y) + 'px';
-    fala.style.left = Math.round(base.x + 42) + 'px';
-    fala.style.top = Math.round(base.y - 3) + 'px';
   }
-  fala.style.removeProperty('right');
-  fala.style.removeProperty('bottom');
   fantasma.style.display = 'grid';
   fantasma.classList.add('status-speaking', 'enter-left');
+  requestAnimationFrame(posicionarFalaEntidadeStatus_);
   setTimeout(function() { fantasma.classList.remove('enter-left'); }, 620);
 }
 
@@ -656,7 +776,7 @@ window.addEventListener('offline', () => {
 });
 
 window.addEventListener('beforeunload', (e) => {
-  if (SyncQueue.fila.length > 0) {
+  if (existemGravacoesPendentes_()) {
     e.preventDefault();
     e.returnValue = 'Há operações não sincronizadas. Tem certeza que deseja sair?';
   }
@@ -697,9 +817,23 @@ function escapeHtml(unsafe) {
 }
 
 /** Mantém o app funcional mesmo quando o CDN de ícones estiver indisponível. */
+function prepararOlhosEntidade_() {
+  document.querySelectorAll('#entidade-fab svg, #loader-entidade svg, #dashboard-billboard-entidade svg, #entidade-lab-ghost svg').forEach(function(svg) {
+    const paths = Array.from(svg.querySelectorAll('path'));
+    paths.forEach(path => path.classList.remove('entidade-olho'));
+    const olhos = paths
+      .map(path => ({ path: path, tamanho: String(path.getAttribute('d') || '').length }))
+      .filter(item => item.tamanho > 0 && item.tamanho <= 24)
+      .sort((a, b) => a.tamanho - b.tamanho)
+      .slice(0, 2);
+    olhos.forEach(item => item.path.classList.add('entidade-olho'));
+  });
+}
+
 function renderizarIcones() {
   if (window.lucide && typeof window.lucide.createIcons === 'function') {
     window.lucide.createIcons();
+    prepararOlhosEntidade_();
   }
 }
 
@@ -817,11 +951,9 @@ window.addEventListener('DOMContentLoaded', () => {
   renderizarIcones();
   inicializarDropzonesAnexos();
 
-  // 1. Restaurar cache local (renderiza dados antigos imediatamente)
+  // 1. Mantém a última cópia apenas como contingência. A interface só será
+  // liberada depois de tentar carregar os dados atuais do banco.
   const temCache = restaurarCacheLocal();
-  if (temCache) {
-    popularFiltroLotacoes();
-  }
 
   // 2. Busca usuário, restaura a fila dele e faz o sincronismo
   inicializarUsuario(temCache);
@@ -865,7 +997,7 @@ async function navegarPara(idView) {
     'lancamentos': 'Histórico de Lançamentos',
     'protocolos': 'Controle de Protocolos',
     'relatorios': 'Relatórios & Emissão',
-    'pre-leitura-rep': 'Pré-Leitura de Relógio de Ponto (REP)',
+    'pre-leitura-rep': 'Leitor REP',
     'admin': 'Painel Administrativo'
   };
   document.getElementById('view-title').innerText = titulos[idView] || 'RH Central';
@@ -1054,8 +1186,9 @@ function inicializarUsuario(temCache) {
     document.querySelectorAll('.admin-only').forEach(el => el.style.removeProperty('display'));
   }
 
-  // Verifica se o token ainda é válido no servidor
-  if (!temCache) exibirLoader(true);
+  // Verifica a sessão mantendo a interface bloqueada até a leitura do banco.
+  carregamentoInicialBancoPendente_ = true;
+  exibirLoader(true, 'Carregando informações atuais do banco de dados...');
   
   backendApi()
     .withSuccessHandler(function(usuario) {
@@ -1064,13 +1197,7 @@ function inicializarUsuario(temCache) {
       atualizarBarraUsuario();
       carregarOperacoesPendentesServidor(true);
       
-      if (temCache) {
-        carregarDadosDaView('dashboard');
-        exibirLoader(false);
-        sincronizarEmSegundoPlano('dashboard');
-      } else {
-        sincronizarDados(true, 'dashboard');
-      }
+      sincronizarDados(true, 'dashboard');
     })
     .withFailureHandler(function(erro) {
       console.error("Sessão inválida:", erro);
@@ -1119,7 +1246,8 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
   }
   
   if (!reservarSincronizacaoServidor_(viewAlvo)) {
-    exibirLoader(false);
+    if (!carregamentoInicialBancoPendente_) exibirLoader(false);
+    else atualizarTextoSync('Aguardando gravações pendentes antes de carregar a base...', true, 'warning');
     return;
   }
   const revisaoAoIniciar = revisaoMutacoesCliente_;
@@ -1134,7 +1262,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
       if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesPendentes_()) {
-        exibirLoader(false);
+        if (!carregamentoInicialBancoPendente_) exibirLoader(false);
         const viewFinalPendente = concluirSincronizacaoServidor_(viewAlvo);
         atualizarTextoSync('Aguardando a gravação terminar...', true, 'warning');
         agendarSincronizacaoSegura_(viewFinalPendente || viewAlvo || currentView);
@@ -1152,6 +1280,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
       AppState.versaoDados = String(dados.versaoDados || AppState.versaoDados || '');
       AppState.dadosCompletosCarregados = true;
+      carregamentoInicialBancoPendente_ = false;
       popularFiltroLotacoes();
       salvarCacheLocal();
       if (currentView === 'pre-leitura-rep') {
@@ -1175,8 +1304,26 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       const syncBtn = document.getElementById('btn-sync-icon');
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
-      exibirLoader(false);
       concluirSincronizacaoServidor_(null);
+      if (carregamentoInicialBancoPendente_ && AppState.cacheRestaurado) {
+        carregamentoInicialBancoPendente_ = false;
+        AppState.dadosCompletosCarregados = false;
+        popularFiltroLotacoes();
+        carregarDadosDaView(viewAlvo || 'dashboard');
+        exibirLoader(false);
+        atualizarTextoSync('Banco indisponível — exibindo a última cópia salva', true, 'warning');
+        mostrarToast('Não foi possível acessar o banco agora. A última cópia conhecida foi carregada e uma nova tentativa será feita automaticamente.', 'warning');
+        setTimeout(function() { sincronizarEmSegundoPlano(viewAlvo || 'dashboard'); }, 10000);
+        return;
+      }
+      if (carregamentoInicialBancoPendente_) {
+        exibirLoader(true, 'Banco temporariamente indisponível. Tentando novamente...');
+        atualizarTextoSync('Tentando acessar o banco novamente...', true, 'warning');
+        mostrarToast('Não foi possível carregar a base. O sistema tentará novamente sem abrir uma tela vazia.', 'error');
+        setTimeout(function() { sincronizarDados(true, viewAlvo || 'dashboard'); }, 5000);
+        return;
+      }
+      exibirLoader(false);
       atualizarTextoSync("Falha na rede", true, 'warning');
       setTimeout(() => atualizarTextoSync("", false), 5000);
       mostrarToast("Falha ao sincronizar: " + mensagemErro(erro), 'error');
@@ -1255,9 +1402,7 @@ function atualizarBarraUsuario() {
   if (avatar) avatar.innerText = obterIniciais(AppState.usuarioLogado.nome);
   const greeting = document.getElementById('dashboard-greeting');
   if (greeting) greeting.innerText = `${obterSaudacao()}, ${obterPrimeiroNome(AppState.usuarioLogado.nome)}.`;
-  if (typeof lucide !== 'undefined') {
-    lucide.createIcons();
-  }
+  renderizarIcones();
 }
 
 /**
@@ -1365,6 +1510,8 @@ let loaderSafetyTimeout;
 let loaderHideTimeout;
 let loaderFraseTimer_;
 let loaderFrasesExibidas_ = 0;
+let loaderProgressoAtual_ = 0;
+let loaderProgressoAnimacao_ = null;
 const LOADER_FRASES_REP_ = [
   'Contando batidas sem perder nenhuma no caminho.', 'Conversando com os relógios de ponto.',
   'Separando hora extra de hora misteriosa.', 'O AFD é grande, mas a paciência é maior.',
@@ -1379,13 +1526,65 @@ const LOADER_FRASES_REP_ = [
 ];
 
 function atualizarProgressoLoader_(percentual, texto) {
-  const valor = Math.max(0, Math.min(100, Math.round(Number(percentual) || 0)));
+  const alvo = Math.max(0, Math.min(100, Number(percentual) || 0));
   const percText = document.getElementById('loader-percentage');
   const fill = document.getElementById('loader-progress-fill');
   const msgText = document.getElementById('loader-text');
-  if (percText) percText.innerText = valor + '%';
-  if (fill) fill.style.width = valor + '%';
   if (texto && msgText) msgText.innerText = texto;
+  if (loaderProgressoAnimacao_) cancelAnimationFrame(loaderProgressoAnimacao_);
+  const inicioValor = loaderProgressoAtual_;
+  const inicioTempo = performance.now();
+  const distancia = Math.abs(alvo - inicioValor);
+  const duracao = Math.max(280, Math.min(900, 260 + distancia * 13));
+  function animar(agora) {
+    const progresso = Math.min(1, (agora - inicioTempo) / duracao);
+    const suavizado = 1 - Math.pow(1 - progresso, 3);
+    loaderProgressoAtual_ = inicioValor + ((alvo - inicioValor) * suavizado);
+    if (percText) percText.innerText = Math.round(loaderProgressoAtual_) + '%';
+    if (fill) fill.style.width = loaderProgressoAtual_.toFixed(2) + '%';
+    if (progresso < 1) loaderProgressoAnimacao_ = requestAnimationFrame(animar);
+    else {
+      loaderProgressoAtual_ = alvo;
+      loaderProgressoAnimacao_ = null;
+    }
+  }
+  loaderProgressoAnimacao_ = requestAnimationFrame(animar);
+}
+
+function reiniciarProgressoLoader_() {
+  if (loaderProgressoAnimacao_) cancelAnimationFrame(loaderProgressoAnimacao_);
+  loaderProgressoAnimacao_ = null;
+  loaderProgressoAtual_ = 0;
+  const percText = document.getElementById('loader-percentage');
+  const fill = document.getElementById('loader-progress-fill');
+  if (percText) percText.innerText = '0%';
+  if (fill) fill.style.width = '0%';
+}
+
+function iniciarProgressoAfdsLoader_(arquivos) {
+  const container = document.getElementById('loader-afd-progress');
+  if (!container) return;
+  const lista = Array.isArray(arquivos) ? arquivos : [];
+  container.hidden = !lista.length;
+  container.innerHTML = lista.map(function(arquivo, indice) {
+    return `<span class="loader-afd-dot" data-indice="${indice}" title="Aguardando: ${escapeHtml(arquivo.nome || `AFD ${indice + 1}`)}"><i></i><b>${indice + 1}</b></span>`;
+  }).join('');
+}
+
+function atualizarProgressoAfdLoader_(indice, estado, nome) {
+  const item = document.querySelector(`#loader-afd-progress .loader-afd-dot[data-indice="${Number(indice)}"]`);
+  if (!item) return;
+  item.classList.remove('carregando', 'concluido', 'falhou');
+  if (estado) item.classList.add(estado);
+  const prefixos = { carregando: 'Carregando', concluido: 'Concluído', falhou: 'Falha' };
+  item.title = `${prefixos[estado] || 'Aguardando'}: ${nome || `AFD ${Number(indice) + 1}`}`;
+}
+
+function limparProgressoAfdsLoader_() {
+  const container = document.getElementById('loader-afd-progress');
+  if (!container) return;
+  container.hidden = true;
+  container.innerHTML = '';
 }
 
 function iniciarFrasesLoaderRep_() {
@@ -1405,14 +1604,29 @@ function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
   const loader = document.getElementById('global-loader');
   const percText = document.getElementById('loader-percentage');
   const msgText = document.getElementById('loader-text');
+  const entidadeLoader = document.getElementById('loader-entidade');
+  const entidadeNaTela = document.getElementById('entidade-fab');
 
   if (loader) {
     if (mostrar) {
       const jaVisivel = loader.style.display === 'flex';
       if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
       loader.style.display = 'flex';
+      if (!jaVisivel && entidadeLoader) {
+        entidadeLoader.classList.remove('saindo', 'entrando');
+        requestAnimationFrame(function() {
+          if (entidadeNaTela && entidadeNaTela.getBoundingClientRect().width > 0) {
+            entidadeNaTela.dataset.visibilidadeAntesLoader = entidadeNaTela.style.visibility || '';
+            entidadeNaTela.style.visibility = 'hidden';
+          }
+          entidadeLoader.classList.add('entrando');
+          setTimeout(function() { entidadeLoader.classList.remove('entrando'); }, 620);
+        });
+      }
       if (msgText) msgText.innerText = texto;
       if (percText && !jaVisivel) {
+        reiniciarProgressoLoader_();
+        if (currentView !== 'pre-leitura-rep') limparProgressoAfdsLoader_();
         atualizarProgressoLoader_(0, texto);
         if (currentView === 'pre-leitura-rep') iniciarFrasesLoaderRep_();
         else {
@@ -1420,17 +1634,17 @@ function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
           const frase = document.getElementById('loader-frase');
           if (frase) frase.textContent = '';
         }
-        percText.innerText = "0%";
         let perc = 0;
         if (loaderInterval) clearInterval(loaderInterval);
         if (currentView !== 'pre-leitura-rep') {
           loaderInterval = setInterval(() => {
             if (perc < 92) {
-              let inc = Math.max(1, Math.floor(Math.random() * (95 - perc) / 5));
-              perc += inc;
+              const restante = 92 - perc;
+              const inc = Math.max(.45, Math.min(2.6, restante * (.035 + Math.random() * .025)));
+              perc = Math.min(92, perc + inc);
               atualizarProgressoLoader_(perc);
             }
-          }, 300);
+          }, 520);
         }
       }
       // Safety net: desliga loader após 30 segundos automaticamente
@@ -1438,16 +1652,27 @@ function exibirLoader(mostrar, texto = "Sincronizando base de dados...") {
       loaderSafetyTimeout = setTimeout(() => {
         exibirLoader(false);
         console.warn('Loader desligado pelo limite de segurança.');
-      }, currentView === 'pre-leitura-rep' ? 5 * 60 * 1000 : 30000);
+      }, (currentView === 'pre-leitura-rep' || carregamentoInicialBancoPendente_) ? 5 * 60 * 1000 : 30000);
     } else {
       if (loaderSafetyTimeout) clearTimeout(loaderSafetyTimeout);
       clearTimeout(loaderFraseTimer_);
       atualizarProgressoLoader_(100);
       if (loaderHideTimeout) clearTimeout(loaderHideTimeout);
+      if (entidadeLoader) {
+        entidadeLoader.classList.remove('entrando', 'saindo');
+        void entidadeLoader.offsetWidth;
+        entidadeLoader.classList.add('saindo');
+      }
       loaderHideTimeout = setTimeout(() => {
         loader.style.display = 'none';
         if (loaderInterval) clearInterval(loaderInterval);
-      }, 350);
+        if (entidadeLoader) entidadeLoader.classList.remove('saindo');
+        if (entidadeNaTela && entidadeNaTela.dataset.visibilidadeAntesLoader !== undefined) {
+          entidadeNaTela.style.visibility = entidadeNaTela.dataset.visibilidadeAntesLoader;
+          delete entidadeNaTela.dataset.visibilidadeAntesLoader;
+        }
+        limparProgressoAfdsLoader_();
+      }, 520);
     }
   }
 }
@@ -1607,51 +1832,410 @@ function alertaDashboardEntidadeAcionavel(resposta) {
   return temProblema && temReferencia;
 }
 
+let painelDashboardCenas_ = [];
+let painelDashboardIndice_ = 0;
+let painelDashboardTimer_ = null;
+let painelDashboardPausado_ = false;
+let painelDashboardEmTransicao_ = false;
+let painelDashboardHover_ = false;
+let painelDashboardScrollFrame_ = null;
+let painelDashboardScrollInicio_ = 0;
+let painelDashboardScrollPausaInicio_ = 0;
+let painelDashboardScrollPausaAcumulada_ = 0;
+let painelDashboardAssinatura_ = '';
+
+function normalizarTextoPainelDashboard_(valor) {
+  return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+}
+
+function dataPainelDashboard_(valor) {
+  if (valor instanceof Date && !isNaN(valor.getTime())) return new Date(valor.getFullYear(), valor.getMonth(), valor.getDate());
+  const texto = String(valor || '').trim().split(' ')[0];
+  let partes = texto.split('/');
+  if (partes.length === 3) {
+    const data = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+    return isNaN(data.getTime()) ? null : data;
+  }
+  partes = texto.split('-');
+  if (partes.length === 3) {
+    const data = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+    return isNaN(data.getTime()) ? null : data;
+  }
+  return null;
+}
+
+function formatarDataPainelDashboard_(data) {
+  return data instanceof Date && !isNaN(data.getTime()) ? data.toLocaleDateString('pt-BR') : '-';
+}
+
+function formatarDataComSemanaPainelDashboard_(data) {
+  if (!(data instanceof Date) || isNaN(data.getTime())) return '-';
+  const diaSemana = data.toLocaleDateString('pt-BR', { weekday: 'long' });
+  return `${diaSemana}, ${formatarDataPainelDashboard_(data)}`;
+}
+
+function corLotacaoPainelDashboard_(indice, total) {
+  const matiz = Math.round((indice * 347 / Math.max(1, total)) % 360);
+  return `hsl(${matiz} 72% ${indice % 3 === 0 ? 48 : 58}%)`;
+}
+
+let painelDashboardLotacoesAtivas_ = [];
+
+function coordenadaGraficoLotacao_(centro, raio, angulo) {
+  const radianos = (angulo - 90) * Math.PI / 180;
+  return { x: centro + raio * Math.cos(radianos), y: centro + raio * Math.sin(radianos) };
+}
+
+function caminhoFatiaGraficoLotacao_(inicio, fim) {
+  const centro = 80, raio = 74;
+  const a = coordenadaGraficoLotacao_(centro, raio, inicio);
+  const b = coordenadaGraficoLotacao_(centro, raio, fim);
+  const grandeArco = fim - inicio > 180 ? 1 : 0;
+  return `M ${centro} ${centro} L ${a.x.toFixed(2)} ${a.y.toFixed(2)} A ${raio} ${raio} 0 ${grandeArco} 1 ${b.x.toFixed(2)} ${b.y.toFixed(2)} Z`;
+}
+
+function selecionarLotacaoPainelDashboard_(indice) {
+  const item = painelDashboardLotacoesAtivas_[Number(indice)];
+  if (!item) return;
+  document.querySelectorAll('[data-lotacao-painel]').forEach(function(elemento) {
+    elemento.classList.toggle('selecionada', Number(elemento.dataset.lotacaoPainel) === Number(indice));
+  });
+  const foco = document.getElementById('billboard-location-focus');
+  if (foco) foco.innerHTML = `<strong>${item.quantidade}</strong><span>${escapeHtml(item.lotacao)}</span><small>${item.percentual}% da equipe</small>`;
+  const linha = document.querySelector(`.billboard-location-row[data-lotacao-painel="${Number(indice)}"]`);
+  linha?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function cenaLotacoesPainelDashboard_() {
+  const lista = obterDistribuicaoLotacoesDashboard();
+  const total = lista.reduce((soma, item) => soma + item.quantidade, 0);
+  painelDashboardLotacoesAtivas_ = lista.map(function(item, indice) {
+    return Object.assign({}, item, { cor: corLotacaoPainelDashboard_(indice, lista.length), percentual: total ? Math.round(item.quantidade / total * 100) : 0 });
+  });
+  let angulo = 0;
+  const fatias = painelDashboardLotacoesAtivas_.map(function(item, indice) {
+    const proximoAngulo = angulo + (total ? item.quantidade / total * 360 : 0);
+    const fatia = `<path data-lotacao-painel="${indice}" class="${indice === 0 ? 'selecionada' : ''}" d="${caminhoFatiaGraficoLotacao_(angulo, proximoAngulo)}" fill="${item.cor}" onclick="selecionarLotacaoPainelDashboard_(${indice})"><title>${escapeHtml(item.lotacao)}: ${item.quantidade} servidores (${item.percentual}%)</title></path>`;
+    angulo = proximoAngulo;
+    return fatia;
+  }).join('');
+  const legenda = painelDashboardLotacoesAtivas_.map(function(item, indice) {
+    return `<button type="button" data-lotacao-painel="${indice}" class="billboard-location-row ${indice === 0 ? 'selecionada' : ''}" onclick="selecionarLotacaoPainelDashboard_(${indice})" title="Selecionar ${escapeHtml(item.lotacao)}"><i style="background:${item.cor}"></i><span title="${escapeHtml(item.lotacao)}">${escapeHtml(item.lotacao)}</span><strong>${item.quantidade}</strong><small>${item.percentual}%</small></button>`;
+  }).join('');
+  const primeiro = painelDashboardLotacoesAtivas_[0];
+  return {
+    eyebrow: 'DISTRIBUIÇÃO COMPLETA DA EQUIPE', title: 'Servidores por lotação', icon: 'map-pinned', accent: 'verde',
+    html: `<div class="billboard-location-summary"><strong>${total}</strong><span>servidores em ${lista.length} lotações</span></div><div class="billboard-location-layout"><div class="billboard-location-chart"><svg class="billboard-location-pie" viewBox="0 0 160 160" role="img" aria-label="Gráfico interativo de servidores por lotação">${fatias}</svg><div id="billboard-location-focus" class="billboard-location-focus"><strong>${primeiro ? primeiro.quantidade : 0}</strong><span>${escapeHtml(primeiro ? primeiro.lotacao : 'Sem dados')}</span><small>${primeiro ? primeiro.percentual : 0}% da equipe</small></div></div><div class="billboard-location-list">${legenda || '<div class="billboard-empty">Nenhuma lotação cadastrada.</div>'}</div></div>`,
+    footer: 'Clique em uma fatia ou lotação para destacar', counter: `${lista.length} lotações`, navegacao: 'Lotações'
+  };
+}
+
+function montarListaPainelDashboard_(itens, vazio) {
+  return itens.length ? `<div class="billboard-list">${itens.join('')}</div>` : `<div class="billboard-empty"><span data-lucide="circle-check-big"></span><strong>${escapeHtml(vazio)}</strong></div>`;
+}
+
+function montarAusenciasSimultaneasPainelDashboard_(servidores, lancamentos) {
+  const servidorPorMatricula = {};
+  servidores.forEach(function(s) { servidorPorMatricula[String(s.matricula || '').trim()] = s; });
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const limite = new Date(hoje); limite.setDate(limite.getDate() + 180);
+  const ausencias = lancamentos.reduce(function(saida, l) {
+    const tipo = normalizarTextoPainelDashboard_(l.tipo);
+    const status = normalizarTextoPainelDashboard_(l.status);
+    if (status.includes('ANULAD') || tipo.includes('NAO EFETIVAD') || !/(FERIAS|LICENCA|ABON|ATESTADO|AFAST|FALTA)/.test(tipo)) return saida;
+    const inicio = dataPainelDashboard_(l.dataInicio);
+    if (!inicio) return saida;
+    const dias = Math.max(1, Number(l.dias || l.diasFerias || 1));
+    const fim = new Date(inicio); fim.setDate(fim.getDate() + dias - 1);
+    if (fim < hoje || inicio > limite) return saida;
+    const servidor = servidorPorMatricula[String(l.matricula || '').trim()];
+    const lotacao = String(servidor && servidor.lotacao || '').trim();
+    if (!servidor || !lotacao || String(servidor.status || '').toLowerCase() === 'inativo') return saida;
+    saida.push({ nome: servidor.nome || l.nome, matricula: servidor.matricula, lotacao: lotacao, tipo: l.tipo, inicio: inicio, fim: fim, linhaPlanilha: Number(l.linhaPlanilha || 0) });
+    return saida;
+  }, []);
+  const grupos = {};
+  ausencias.forEach(function(a) {
+    if (!grupos[a.lotacao]) grupos[a.lotacao] = [];
+    grupos[a.lotacao].push(a);
+  });
+  return Object.keys(grupos).sort().reduce(function(cenas, lotacao) {
+    const lista = grupos[lotacao].sort((a, b) => a.inicio - b.inicio || String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+    const periodos = [];
+    for (let cursor = new Date(hoje); cursor <= limite; cursor.setDate(cursor.getDate() + 1)) {
+      const pessoasPorMatricula = {};
+      lista.forEach(function(ausencia) {
+        if (ausencia.inicio <= cursor && ausencia.fim >= cursor) pessoasPorMatricula[String(ausencia.matricula || '')] = ausencia;
+      });
+      const pessoas = Object.values(pessoasPorMatricula).sort(function(a, b) { return String(a.nome).localeCompare(String(b.nome), 'pt-BR'); });
+      if (pessoas.length < 2) continue;
+      const chave = pessoas.map(function(pessoa) { return String(pessoa.matricula || ''); }).sort().join('|');
+      const anterior = periodos[periodos.length - 1];
+      const diaSeguinte = anterior ? new Date(anterior.fim) : null;
+      if (diaSeguinte) diaSeguinte.setDate(diaSeguinte.getDate() + 1);
+      const ehContinuidade = anterior && anterior.chave === chave && diaSeguinte.getFullYear() === cursor.getFullYear() && diaSeguinte.getMonth() === cursor.getMonth() && diaSeguinte.getDate() === cursor.getDate();
+      if (ehContinuidade) anterior.fim = new Date(cursor);
+      else periodos.push({ chave: chave, inicio: new Date(cursor), fim: new Date(cursor), pessoas: pessoas });
+    }
+    periodos.forEach(function(periodo) {
+      const textoPeriodo = periodo.inicio.getTime() === periodo.fim.getTime()
+        ? formatarDataComSemanaPainelDashboard_(periodo.inicio)
+        : `${formatarDataComSemanaPainelDashboard_(periodo.inicio)} a ${formatarDataComSemanaPainelDashboard_(periodo.fim)}`;
+      const corrente = periodo.pessoas.map(function(pessoa, indice) {
+        const abrir = Number(pessoa.linhaPlanilha || 0)
+          ? `abrirLancamentoDoPainelDashboard_(${Number(pessoa.linhaPlanilha)})`
+          : `abrirFichaServidor('${escapeHtml(String(pessoa.matricula || ''))}')`;
+        const nome = `<button type="button" class="billboard-conflict-node" onclick="${abrir}">${escapeHtml(pessoa.nome)}</button>`;
+        if (indice === periodo.pessoas.length - 1) return nome;
+        return `${nome}<span class="billboard-conflict-connector" aria-hidden="true"><i></i></span>`;
+      }).join('');
+      const html = `<div class="billboard-conflict-network"><div class="billboard-conflict-period"><span data-lucide="calendar-range"></span>${textoPeriodo}</div><div class="billboard-conflict-chain">${corrente}</div><div class="billboard-conflict-summary"><span data-lucide="users-round"></span><strong>${periodo.pessoas.length}</strong> pessoas ausentes simultaneamente</div></div>`;
+      cenas.push({ eyebrow: 'COBERTURA DA EQUIPE', title: 'Ausências simultâneas', localizacao: lotacao, icon: 'users-round', accent: 'laranja', html: html, footer: 'Clique em um nome para abrir o lançamento', counter: `${periodo.pessoas.length} pessoas`, navegacao: `Ausências · ${lotacao}` });
+    });
+    return cenas;
+  }, []);
+}
+
+function montarCenasPainelDashboard_(insight) {
+  const servidores = (AppState.servidores || []).filter(s => String(s.status || '').toLowerCase() !== 'inativo');
+  const lancamentos = AppState.lancamentos || [];
+  const cenas = [cenaLotacoesPainelDashboard_()];
+  const sem1Doc = lancamentos.filter(function(l) {
+    const status = normalizarTextoPainelDashboard_(l.status);
+    const tipo = normalizarTextoPainelDashboard_(l.tipo);
+    if (status.includes('ANULAD') || tipo.includes('NAO EFETIVAD') || String(l.idoc || '').trim()) return false;
+    const data = dataPainelDashboard_(l.dataSolicitacao);
+    return !data || ((Date.now() - data.getTime()) / 86400000) <= 365;
+  });
+  cenas.push({ eyebrow: 'PENDÊNCIAS DOCUMENTAIS', title: 'Lançamentos sem número 1Doc', icon: 'file-warning', accent: 'laranja', html: montarListaPainelDashboard_(sem1Doc.map(function(l) { return `<button type="button" class="billboard-list-item" onclick="abrirLancamentoDoPainelDashboard_(${Number(l.linhaPlanilha || 0)})"><span><strong>${escapeHtml(l.nome || 'Servidor')}</strong><small>${escapeHtml(l.tipo || 'Lançamento')}</small></span><em>${escapeHtml(l.dataSolicitacao || l.dataInicio || 'Sem data')}</em></button>`; }), 'Nenhum lançamento aguardando 1Doc'), footer: 'Clique para abrir o lançamento', counter: `${sem1Doc.length} pendências`, navegacao: 'Pendências 1Doc' });
+
+  const compulsorias = servidores.filter(s => s.feriasCompulsorias === true).sort((a, b) => Number(a.diasParaTerceiroPeriodo || 999999) - Number(b.diasParaTerceiroPeriodo || 999999));
+  cenas.push({ eyebrow: 'PROGRAMAÇÃO DE FÉRIAS', title: 'Pessoas na lista de compulsórias', icon: 'calendar-warning', accent: 'vermelho', html: montarListaPainelDashboard_(compulsorias.map(function(s) { return `<button type="button" class="billboard-list-item" onclick="abrirFichaServidor('${escapeHtml(String(s.matricula || ''))}')"><span><strong>${escapeHtml(s.nome)}</strong><small>${escapeHtml(s.lotacao || 'Lotação não informada')}</small></span><em>${Number(s.saldoHoje || 0)} dias · ${escapeHtml(s.dataTerceiroPeriodo || 'prazo não informado')}</em></button>`; }), 'Nenhuma pessoa na lista preventiva de programação'), footer: 'Clique para consultar o saldo e os períodos', counter: `${compulsorias.length} pessoas`, navegacao: 'Férias' });
+
+  montarAusenciasSimultaneasPainelDashboard_(servidores, lancamentos).forEach(cena => cenas.push(cena));
+
+  const situacoes = {};
+  servidores.forEach(function(s) { const nome = String(s.situacao || 'Não informada').trim() || 'Não informada'; situacoes[nome] = (situacoes[nome] || 0) + 1; });
+  const listaSituacoes = Object.entries(situacoes).sort((a, b) => b[1] - a[1]);
+  const maxSituacao = Math.max(1, ...listaSituacoes.map(item => item[1]));
+  cenas.push({ eyebrow: 'PERFIL DA EQUIPE', title: 'Composição funcional', icon: 'contact-round', accent: 'azul', html: `<div class="billboard-bars">${listaSituacoes.map(function(item) { return `<div><span>${escapeHtml(item[0])}</span><i><b style="width:${Math.max(4, item[1] / maxSituacao * 100)}%"></b></i><strong>${item[1]}</strong></div>`; }).join('')}</div>`, footer: 'Servidores ativos por situação', counter: `${servidores.length} pessoas` });
+
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const aniversarios = servidores.map(function(s) {
+    const partes = String(s.aniversario || '').split('/');
+    if (partes.length !== 2) return null;
+    let data = new Date(hoje.getFullYear(), Number(partes[1]) - 1, Number(partes[0]));
+    if (data < hoje) data = new Date(hoje.getFullYear() + 1, Number(partes[1]) - 1, Number(partes[0]));
+    const dias = Math.round((data - hoje) / 86400000);
+    return dias <= 30 ? { servidor: s, data: data, dias: dias } : null;
+  }).filter(Boolean).sort((a,b) => a.dias - b.dias || String(a.servidor.nome).localeCompare(String(b.servidor.nome), 'pt-BR'));
+  cenas.push({ eyebrow: 'PRÓXIMOS 30 DIAS', title: 'Aniversariantes da equipe', icon: 'cake-slice', accent: 'roxo', html: montarListaPainelDashboard_(aniversarios.map(function(item, indice) { const proximidade = item.dias === 0 ? 'HOJE' : item.dias === 1 ? 'AMANHÃ' : `EM ${item.dias} DIAS`; return `<button type="button" class="billboard-list-item billboard-birthday-item" onclick="abrirFichaServidor('${escapeHtml(String(item.servidor.matricula || ''))}')"><b>${indice + 1}</b><span><strong>${escapeHtml(item.servidor.nome)}</strong><small>${escapeHtml(item.servidor.lotacao || 'Lotação não informada')}</small></span><em><strong>${formatarDataPainelDashboard_(item.data)}</strong><small>${proximidade}</small></em></button>`; }), 'Nenhum aniversário nos próximos 30 dias'), footer: 'Em ordem cronológica, do mais próximo ao mais distante', counter: `${aniversarios.length} pessoas` });
+
+  if (insight && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta)) cenas.push({ eyebrow: 'A ENTIDADE OBSERVOU', title: 'Prioridades e pontos de atenção', icon: 'ghost', accent: 'verde', html: `<div class="billboard-entidade-texto">${renderizarMarkdownSeguroEntidade(limparComandosEntidade(insight.resposta))}</div>`, footer: 'Leitura automática dos dados atuais', counter: 'Entidade' });
+  const temasPorIcone = {
+    'map-pinned': 'lotacoes', 'file-warning': 'documentos', 'calendar-warning': 'ferias',
+    'users-round': 'ausencias', 'contact-round': 'equipe', 'cake-slice': 'aniversarios', 'ghost': 'entidade'
+  };
+  cenas.forEach(function(cena) { cena.tema = temasPorIcone[cena.icon] || 'geral'; });
+  return cenas;
+}
+
+function ornamentacaoCenaPainelDashboard_(cena) {
+  const icone = cena.icon || 'sparkles';
+  return `<div class="billboard-theme-art" aria-hidden="true"><span data-lucide="${icone}"></span><i></i><i></i><i></i><i></i><i></i><i></i></div>`;
+}
+
+function pararRolagemPainelDashboard_() {
+  if (painelDashboardScrollFrame_) cancelAnimationFrame(painelDashboardScrollFrame_);
+  painelDashboardScrollFrame_ = null;
+  painelDashboardScrollInicio_ = 0;
+  painelDashboardScrollPausaInicio_ = 0;
+  painelDashboardScrollPausaAcumulada_ = 0;
+}
+
+function iniciarRolagemPainelDashboard_(posicaoInicial) {
+  pararRolagemPainelDashboard_();
+  const conteudo = document.getElementById('dashboard-billboard-content');
+  if (!conteudo) return 0;
+  const rolavel = conteudo.querySelector('.billboard-location-list, .billboard-list, .billboard-bars, .billboard-entidade-texto, .billboard-conflict-network');
+  if (!rolavel) return 0;
+  const limiteRolagem = Math.max(0, rolavel.scrollHeight - rolavel.clientHeight);
+  const inicioRolagem = Math.max(0, Math.min(limiteRolagem, Number(posicaoInicial || 0)));
+  rolavel.scrollTop = inicioRolagem;
+  const distancia = Math.max(0, limiteRolagem - inicioRolagem);
+  if (distancia < 5) return 0;
+  const atraso = 2200;
+  const velocidade = 13;
+  const duracao = distancia / velocidade * 1000;
+  function rolar(agora) {
+    if (!painelDashboardScrollInicio_) painelDashboardScrollInicio_ = agora;
+    const estaPausado = painelDashboardPausado_ || painelDashboardHover_ || painelDashboardEmTransicao_;
+    if (estaPausado) {
+      if (!painelDashboardScrollPausaInicio_) painelDashboardScrollPausaInicio_ = agora;
+      painelDashboardScrollFrame_ = requestAnimationFrame(rolar);
+      return;
+    }
+    if (painelDashboardScrollPausaInicio_) {
+      painelDashboardScrollPausaAcumulada_ += agora - painelDashboardScrollPausaInicio_;
+      painelDashboardScrollPausaInicio_ = 0;
+    }
+    const decorrido = agora - painelDashboardScrollInicio_ - painelDashboardScrollPausaAcumulada_;
+    if (decorrido > atraso) rolavel.scrollTop = Math.min(limiteRolagem, inicioRolagem + (decorrido - atraso) / duracao * distancia);
+    if (rolavel.scrollTop < limiteRolagem - 1) painelDashboardScrollFrame_ = requestAnimationFrame(rolar);
+    else painelDashboardScrollFrame_ = null;
+  }
+  painelDashboardScrollFrame_ = requestAnimationFrame(rolar);
+  return atraso + duracao;
+}
+
+function abrirLancamentoDoPainelDashboard_(linhaPlanilha) {
+  const linha = Number(linhaPlanilha || 0);
+  if (!linha) return navegarPara('lancamentos');
+  abrirViewLancamento(linha);
+}
+
+function alternarMapaPainelDashboard_() {
+  const seletor = document.querySelector('.dashboard-billboard-picker');
+  const botao = document.getElementById('dashboard-billboard-picker-toggle');
+  if (!seletor || !botao) return;
+  const aberto = !seletor.classList.contains('aberto');
+  seletor.classList.toggle('aberto', aberto);
+  botao.setAttribute('aria-expanded', String(aberto));
+}
+
+function fecharMapaPainelDashboard_() {
+  const seletor = document.querySelector('.dashboard-billboard-picker');
+  const botao = document.getElementById('dashboard-billboard-picker-toggle');
+  seletor?.classList.remove('aberto');
+  botao?.setAttribute('aria-expanded', 'false');
+}
+
+function selecionarCenaMapaPainelDashboard_(indice) {
+  fecharMapaPainelDashboard_();
+  irParaCenaPainelDashboard_(indice);
+}
+
+function atualizarNavegacaoPainelDashboard_() {
+  const dots = document.getElementById('dashboard-billboard-dots');
+  const lista = document.getElementById('dashboard-billboard-picker-list');
+  if (!dots || !lista) return;
+  dots.innerHTML = painelDashboardCenas_.map(function(cena, indice) {
+    const nome = String(cena.navegacao || cena.title || `Informação ${indice + 1}`);
+    return `<button type="button" class="${indice === painelDashboardIndice_ ? 'ativo' : ''}" onclick="irParaCenaPainelDashboard_(${indice})" title="${escapeHtml(nome)}" aria-label="Abrir: ${escapeHtml(nome)}"></button>`;
+  }).join('');
+  lista.innerHTML = painelDashboardCenas_.map(function(cena, indice) {
+    const nome = String(cena.navegacao || cena.title || `Informação ${indice + 1}`);
+    return `<button type="button" class="${indice === painelDashboardIndice_ ? 'ativo' : ''}" onclick="selecionarCenaMapaPainelDashboard_(${indice})"><span data-lucide="${escapeHtml(cena.icon || 'circle-dot')}"></span><span>${escapeHtml(nome)}</span><small>${indice + 1}</small></button>`;
+  }).join('');
+}
+
+function exibirCenaPainelDashboard_(posicaoRolagem) {
+  const cena = painelDashboardCenas_[painelDashboardIndice_];
+  const conteudo = document.getElementById('dashboard-billboard-content');
+  if (!cena || !conteudo) return;
+  document.getElementById('smart-card-eyebrow').innerText = cena.eyebrow;
+  document.getElementById('smart-card-title').innerText = cena.title;
+  const localizacao = document.getElementById('smart-card-location');
+  if (localizacao) {
+    localizacao.innerText = cena.localizacao || '';
+    localizacao.hidden = !cena.localizacao;
+  }
+  document.getElementById('smart-card-icon').innerHTML = `<span data-lucide="${cena.icon}"></span>`;
+  const card = document.getElementById('smart-dashboard-card');
+  card.dataset.accent = cena.accent || 'verde';
+  card.dataset.tema = cena.tema || 'geral';
+  card.classList.remove('cena-entrando');
+  void card.offsetWidth;
+  card.classList.add('cena-entrando');
+  setTimeout(function() { card.classList.remove('cena-entrando'); }, 700);
+  conteudo.innerHTML = `<div class="dashboard-billboard-scene">${ornamentacaoCenaPainelDashboard_(cena)}<div class="billboard-scene-body">${cena.html}</div><div class="smart-card-footer"><span>${escapeHtml(cena.footer || '')}</span><span>${escapeHtml(cena.counter || '')}</span></div></div>`;
+  conteudo.className = 'dashboard-billboard-content entrando';
+  setTimeout(function() { conteudo.classList.remove('entrando'); }, 700);
+  atualizarNavegacaoPainelDashboard_();
+  renderizarIcones();
+  const tempoRolagem = iniciarRolagemPainelDashboard_(posicaoRolagem);
+  conteudo.dataset.tempoExibicao = String(Math.max(11000, Math.ceil(tempoRolagem + 3000)));
+}
+
+function agendarPainelDashboard_() {
+  if (painelDashboardTimer_) clearTimeout(painelDashboardTimer_);
+  if (painelDashboardPausado_ || painelDashboardHover_ || painelDashboardCenas_.length < 2 || currentView !== 'dashboard') return;
+  const conteudo = document.getElementById('dashboard-billboard-content');
+  const tempo = Math.max(11000, Number(conteudo && conteudo.dataset.tempoExibicao || 11000));
+  painelDashboardTimer_ = setTimeout(function() {
+    if (currentView === 'dashboard') irParaCenaPainelDashboard_(painelDashboardIndice_ + 1, true);
+  }, tempo);
+}
+
+function suspenderPainelDashboard_() { painelDashboardHover_ = true; if (painelDashboardTimer_) clearTimeout(painelDashboardTimer_); }
+function retomarPainelDashboard_() { painelDashboardHover_ = false; if (!painelDashboardPausado_) agendarPainelDashboard_(); }
+
+function irParaCenaPainelDashboard_(indice, automatico) {
+  if (painelDashboardEmTransicao_ || !painelDashboardCenas_.length) return;
+  const novoIndice = (Number(indice) + painelDashboardCenas_.length) % painelDashboardCenas_.length;
+  if (novoIndice === painelDashboardIndice_) return agendarPainelDashboard_();
+  painelDashboardEmTransicao_ = true;
+  if (painelDashboardTimer_) clearTimeout(painelDashboardTimer_);
+  pararRolagemPainelDashboard_();
+  const conteudo = document.getElementById('dashboard-billboard-content');
+  const entidade = document.getElementById('dashboard-billboard-entidade');
+  conteudo?.classList.add('saindo');
+  if (!automatico) {
+    setTimeout(function() {
+      painelDashboardIndice_ = novoIndice;
+      exibirCenaPainelDashboard_();
+      painelDashboardEmTransicao_ = false;
+      agendarPainelDashboard_();
+    }, 360);
+    return;
+  }
+  setTimeout(function() { entidade?.classList.add('visivel'); }, 260);
+  setTimeout(function() {
+    painelDashboardIndice_ = novoIndice;
+    exibirCenaPainelDashboard_();
+    entidade?.classList.add('saindo');
+  }, 3260);
+  setTimeout(function() {
+    entidade?.classList.remove('visivel', 'saindo');
+    painelDashboardEmTransicao_ = false;
+    agendarPainelDashboard_();
+  }, 3920);
+}
+
+function mudarCenaPainelDashboard_(direcao) { irParaCenaPainelDashboard_(painelDashboardIndice_ + Number(direcao || 1)); }
+
+function alternarPausaPainelDashboard_() {
+  painelDashboardPausado_ = !painelDashboardPausado_;
+  const icone = document.getElementById('dashboard-billboard-pause-icon');
+  if (icone) icone.setAttribute('data-lucide', painelDashboardPausado_ ? 'play' : 'pause');
+  if (painelDashboardPausado_ && painelDashboardTimer_) clearTimeout(painelDashboardTimer_);
+  else agendarPainelDashboard_();
+  renderizarIcones();
+}
+
 function renderizarCardInteligenteDashboard(insight) {
   const card = document.getElementById('smart-dashboard-card');
-  const alertState = document.getElementById('dashboard-ai-alert-state');
-  const locationState = document.getElementById('dashboard-location-state');
-  const eyebrow = document.getElementById('smart-card-eyebrow');
-  const title = document.getElementById('smart-card-title');
-  const icon = document.getElementById('smart-card-icon');
-  if (!card || !alertState || !locationState) return;
-
-  const briefing = AppState.briefingDiarioEntidade;
-  const temAlertas = Boolean(insight && insight.mostrar !== false && insight.temAlertas && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta));
-  const temBriefing = Boolean(briefing && briefing.mostrar !== false && briefing.disponivel && briefing.resposta);
-  const chaveMensagem = temAlertas
-    ? 'insight:' + String(insight.geradoEm || '') + ':' + String(insight.resposta || '').slice(0, 80)
-    : (temBriefing ? 'briefing:' + String(briefing.data || '') + ':' + String(briefing.geradoEm || '') : '');
-  const mostrarEntidade = (temAlertas || temBriefing) && AppState.mensagemEntidadeOculta !== chaveMensagem;
-  const botaoFechar = document.getElementById('dismiss-smart-card-message');
-  card.classList.toggle('has-alerts', false);
-  card.classList.toggle('has-briefing', mostrarEntidade);
-  if (botaoFechar) botaoFechar.style.display = mostrarEntidade ? 'grid' : 'none';
-  alertState.style.display = mostrarEntidade ? 'flex' : 'none';
-  locationState.style.display = mostrarEntidade ? 'none' : 'flex';
-
-  if (mostrarEntidade && temAlertas) {
-    eyebrow.innerText = 'VISÃO GERAL DA ENTIDADE';
-    title.innerText = 'Resumo e prioridades atualizados';
-    icon.innerHTML = '<span data-lucide="ghost"></span>';
-    document.getElementById('dashboard-ai-alert-content').innerHTML = renderizarMarkdownSeguroEntidade(limparComandosEntidade(insight.resposta));
-    const data = insight.geradoEm ? new Date(Number(insight.geradoEm)) : new Date();
-    document.getElementById('dashboard-ai-alert-date').innerText = `Atualizado em ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
-  } else if (mostrarEntidade && temBriefing) {
-    eyebrow.innerText = 'VISÃO GERAL DA ENTIDADE';
-    title.innerText = 'Resumo e prioridades atualizados';
-    icon.innerHTML = '<span data-lucide="ghost"></span>';
-    document.getElementById('dashboard-ai-alert-content').innerHTML = renderizarMarkdownSeguroEntidade(limparComandosEntidade(briefing.resposta));
-    const data = briefing.verificadoEm ? new Date(Number(briefing.verificadoEm)) : (briefing.geradoEm ? new Date(Number(briefing.geradoEm)) : new Date());
-    document.getElementById('dashboard-ai-alert-date').innerText = `Verificado em ${data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
-  } else {
-    eyebrow.innerText = 'DISTRIBUIÇÃO DA EQUIPE';
-    title.innerText = 'Servidores por lotação';
-    icon.innerHTML = '<span data-lucide="map-pinned"></span>';
-    renderizarDistribuicaoLotacoesDashboard();
+  if (!card || !document.getElementById('dashboard-billboard-content')) return;
+  const cenaAtual = painelDashboardCenas_[painelDashboardIndice_];
+  const chaveAtual = cenaAtual ? `${cenaAtual.tema}|${cenaAtual.title}` : '';
+  const rolavelAtual = document.querySelector('#dashboard-billboard-content .billboard-location-list, #dashboard-billboard-content .billboard-list, #dashboard-billboard-content .billboard-bars, #dashboard-billboard-content .billboard-entidade-texto, #dashboard-billboard-content .billboard-conflict-network');
+  const posicaoAtual = rolavelAtual ? rolavelAtual.scrollTop : 0;
+  const novasCenas = montarCenasPainelDashboard_(insight);
+  const novaAssinatura = novasCenas.map(function(cena) { return `${cena.tema}|${cena.title}|${cena.counter}|${cena.html}`; }).join('||');
+  if (painelDashboardAssinatura_ === novaAssinatura && painelDashboardCenas_.length) {
+    atualizarConviteEntidade();
+    return;
   }
+  painelDashboardCenas_ = novasCenas;
+  fecharMapaPainelDashboard_();
+  painelDashboardAssinatura_ = novaAssinatura;
+  const indicePreservado = chaveAtual ? painelDashboardCenas_.findIndex(function(cena) { return `${cena.tema}|${cena.title}` === chaveAtual; }) : -1;
+  if (indicePreservado >= 0) painelDashboardIndice_ = indicePreservado;
+  else if (!chaveAtual) painelDashboardIndice_ = 0;
+  if (painelDashboardIndice_ >= painelDashboardCenas_.length) painelDashboardIndice_ = 0;
+  exibirCenaPainelDashboard_(indicePreservado >= 0 ? posicaoAtual : 0);
+  agendarPainelDashboard_();
   atualizarConviteEntidade();
-  renderizarIcones();
 }
 
 function fecharMensagemEntidadeNoCard() {
@@ -1977,7 +2561,7 @@ function toggleCamposObrigatoriosServidor() {
 /**
  * Envia os dados do formulário de servidor ao backend do Apps Script
  */
-function salvarDadosServidor(event) {
+async function salvarDadosServidor(event) {
   event.preventDefault();
   const botaoSalvar = event.submitter || document.getElementById('btn-servidor-salvar');
   if (!iniciarOperacaoInterface('salvar-servidor', botaoSalvar, 'Salvando...')) return;
@@ -2000,6 +2584,7 @@ function salvarDadosServidor(event) {
   }
 
   const dados = {
+    operacaoId: gerarIdOperacaoCliente_(),
     matricula: document.getElementById('serv-matricula').value.trim(),
     pis: normalizarPisRep(document.getElementById('serv-pis').value),
     nome: document.getElementById('serv-nome').value.trim().toUpperCase(),
@@ -2022,14 +2607,18 @@ function salvarDadosServidor(event) {
     return;
   }
   
-  // Otimista: fecha modal e atualiza UI imediatamente
-  exibirLoader(false);
-  fecharModal('modal-servidor');
-  mostrarToast("Alteração protegida. Aguardando confirmação do servidor...", 'info');
-
-  // Enfileira operação para o servidor
+  mostrarToast("Enviando alteração e aguardando confirmação do banco...", 'info');
   SyncQueue.enfileirar('salvar_servidor', 'salvarServidor', [dados], 'Salvar servidor ' + dados.nome);
-  carregarListaServidores();
+  try {
+    await aguardarConfirmacaoFila_(dados.operacaoId, 180000);
+    exibirLoader(false);
+    fecharModal('modal-servidor');
+    mostrarToast("Cadastro confirmado no banco de dados.", 'success');
+    agendarSincronizacaoSegura_('servidores');
+  } catch (erroConfirmacao) {
+    exibirLoader(false);
+    mostrarToast("A alteração ainda não foi confirmada. O formulário foi mantido aberto: " + mensagemErro(erroConfirmacao), 'error');
+  }
   } finally {
     finalizarOperacaoInterface('salvar-servidor', botaoSalvar);
   }
@@ -2256,7 +2845,10 @@ function abrirFichaServidor(matricula) {
 
         let elNormais = document.getElementById('ficha-abonadas-normais');
         let elNatalicias = document.getElementById('ficha-abonadas-natalicias');
-        if(elNormais) elNormais.innerText = contAbonadasNormais + " / 5";
+        const limiteAbonadasFicha = Number.isFinite(Number(s.limiteAbonadas))
+          ? Number(s.limiteAbonadas)
+          : Math.max(0, 5 - Number(s.penalidadeAbono || 0));
+        if(elNormais) elNormais.innerText = contAbonadasNormais + " / " + limiteAbonadasFicha;
         if(elNatalicias) elNatalicias.innerHTML = contAbonadasNatalicias > 0
           ? '<span title="Solicitada neste ano" style="color:var(--status-active-text)">✓ Solicitada</span>'
           : '<span title="Ainda não solicitada neste ano" style="color:var(--text-muted)">○ Não solicitada</span>';
@@ -2511,7 +3103,9 @@ function sugerirDespacho() {
   } else if ((tipo.toLowerCase().includes("abonada") || tipo.toLowerCase().includes("abono")) && !tipo.toLowerCase().includes("natal") && !tipo.toLowerCase().includes("eleitor")) {
     const usados = parseInt(servidor.abonosUsados) || 0;
     const novoUsado = usados + 1;
-    const limite = 5; // Padrão
+    const limite = Number.isFinite(Number(servidor.limiteAbonadas))
+      ? Number(servidor.limiteAbonadas)
+      : Math.max(0, 5 - Number(servidor.penalidadeAbono || 0));
     const restante = Math.max(0, limite - novoUsado);
     texto = `Possuía direito a ${limite} abonadas. Solicitou a ${novoUsado}ª abonada. Restam ${restante}.`;
   } else if (tipo === "Atestado") {
@@ -2590,9 +3184,12 @@ function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo, 
   document.getElementById('info-serv-lotacao').innerText = lotacao || 'Não informada';
   document.getElementById('info-serv-saldo').innerText = saldo + ' dias';
   
-  const abonos = parseInt(abonosUsados) || 0;
-  const restantes = Math.max(0, 5 - abonos);
-  document.getElementById('info-serv-abonadas').innerText = `${abonos}/5`;
+  const servidorSelecionado = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula));
+  const abonos = parseInt(servidorSelecionado?.abonosUsados ?? abonosUsados, 10) || 0;
+  const limite = Number.isFinite(Number(servidorSelecionado?.limiteAbonadas))
+    ? Number(servidorSelecionado.limiteAbonadas)
+    : Math.max(0, 5 - Number(servidorSelecionado?.penalidadeAbono || 0));
+  document.getElementById('info-serv-abonadas').innerText = `${abonos}/${limite}`;
   
   document.getElementById('lanc-servidor-info').style.display = "block";
   
@@ -2864,14 +3461,27 @@ async function salvarDadosLancamento(event) {
       const lancamentoEditado = linhaAtual > 1 && AppState.lancamentos
         ? AppState.lancamentos.find(l => l.linhaPlanilha === linhaAtual)
         : null;
-      const saldoRecomposto = (parseInt(servidorSaldo && servidorSaldo.saldoHoje, 10) || 0)
-        + (lancamentoEditado
+      const dataInicioFerias = dataInicioInput ? new Date(`${dataInicioInput}T00:00:00`) : null;
+      const saldoAtual = parseInt(servidorSaldo && servidorSaldo.saldoHoje, 10) || 0;
+      const creditosQueLiberamAteASaida = (servidorSaldo?.periodosFerias || []).reduce(function(total, periodo) {
+        if (!dataInicioFerias || periodo.status !== 'Em aquisição') return total;
+        const partes = String(periodo.dataLiberacao || '').split('/');
+        if (partes.length !== 3) return total;
+        const liberacao = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+        const diasDoPeriodo = Math.max(0, Number(periodo.diasOriginais || 0) - Number(periodo.penalidade || 0));
+        return liberacao <= dataInicioFerias ? total + diasDoPeriodo : total;
+      }, 0);
+      const saldoNaData = saldoAtual + creditosQueLiberamAteASaida;
+      const inicioAnterior = lancamentoEditado?.dataInicio ? new Date(`${String(lancamentoEditado.dataInicio).split('T')[0]}T00:00:00`) : null;
+      const lancamentoAnteriorJaConsiderado = !inicioAnterior || !dataInicioFerias || inicioAnterior <= dataInicioFerias;
+      const saldoRecomposto = saldoNaData
+        + (lancamentoEditado && lancamentoAnteriorJaConsiderado
           ? (parseInt(lancamentoEditado.diasDebitados, 10) || parseInt(lancamentoEditado.dias, 10) || 0)
           : 0);
 
       if (totalSolicitado > saldoRecomposto) {
         exibirLoader(false);
-        mostrarToast(`O total solicitado (${totalSolicitado} dias) ultrapassa o saldo disponível (${saldoRecomposto} dias).`, 'error');
+        mostrarToast(`Na data de início informada, o total solicitado (${totalSolicitado} dias) ultrapassa o saldo disponível (${saldoRecomposto} dias).`, 'error');
         return;
       }
     }
@@ -2904,6 +3514,31 @@ async function salvarDadosLancamento(event) {
     dataInicioInput = document.getElementById('lanc-data-falta').value;
     diasInput = 1; // abonos duram 1 dia
   }
+
+  let confirmarReservaCreditoFuturo = false;
+  if ((tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)") && dataInicioInput) {
+    const servidor = AppState.servidores.find(s => String(s.matricula) === String(matricula));
+    const saldoHoje = Number(servidor?.saldoHoje || 0);
+    const totalFerias = Number(diasInput || 0) + Number(diasPecuniaInput || 0);
+    if (totalFerias > saldoHoje) {
+      const inicio = new Date(`${dataInicioInput}T00:00:00`);
+      const creditosFuturos = (servidor?.periodosFerias || []).filter(function(periodo) {
+        if (periodo.status !== 'Em aquisição') return false;
+        const partes = String(periodo.dataLiberacao || '').split('/');
+        if (partes.length !== 3) return false;
+        return new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0])) <= inicio;
+      });
+      const nomesPeriodos = creditosFuturos.map(function(periodo) { return periodo.referencia || periodo.dataLiberacao; }).join(', ') || 'crédito futuro disponível na data de saída';
+      exibirLoader(false);
+      confirmarReservaCreditoFuturo = await abrirConfirm(
+        `Esta programação usa ${totalFerias - saldoHoje} dia(s) de crédito ainda em aquisição.\n\n` +
+        `O sistema reservará esse saldo futuro (${nomesPeriodos}) para esta saída e impedirá uso duplicado em novos lançamentos. Férias já confirmadas passam a compor imediatamente o saldo comprometido e os alertas serão recalculados.\n\nDeseja confirmar a reserva?`,
+        'Reservar crédito futuro de férias'
+      );
+      if (!confirmarReservaCreditoFuturo) return;
+      exibirLoader(true);
+    }
+  }
   
   const operacaoId = gerarIdOperacaoCliente_();
   const dados = {
@@ -2916,6 +3551,7 @@ async function salvarDadosLancamento(event) {
     dataInicio: dataInicioInput,
     dias: diasInput,
     diasPecunia: diasPecuniaInput,
+    confirmarReservaCreditoFuturo: confirmarReservaCreditoFuturo,
     qtdHoras: qtdHorasInput,
     mesHE: document.getElementById('lanc-mes-he') ? document.getElementById('lanc-mes-he').value : "",
     anoHE: document.getElementById('lanc-ano-he') ? document.getElementById('lanc-ano-he').value : "",
@@ -3009,13 +3645,18 @@ async function salvarDadosLancamento(event) {
     console.warn('A fila segura será reconstruída pelos anexos vinculados:', mensagemErro(erroFila));
   }
 
-  // Otimista: fecha o modal imediatamente
-  exibirLoader(false);
-  fecharModal('modal-lancamento');
-  mostrarToast("Documento protegido. Aguardando confirmação do servidor...", 'info');
-
-  // Enfileira a gravação do lançamento no servidor
+  mostrarToast("Documento protegido. Aguardando confirmação do banco de dados...", 'info');
   SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
+  try {
+    await aguardarConfirmacaoFila_(operacaoId, 180000);
+    exibirLoader(false);
+    fecharModal('modal-lancamento');
+    mostrarToast("Lançamento confirmado no banco de dados.", 'success');
+    agendarSincronizacaoSegura_('lancamentos');
+  } catch (erroConfirmacao) {
+    exibirLoader(false);
+    mostrarToast("O lançamento ainda não foi confirmado. O formulário foi mantido aberto e a operação continua preservada: " + mensagemErro(erroConfirmacao), 'error');
+  }
   } finally {
     finalizarOperacaoInterface('salvar-lancamento', botaoSalvarLancamento);
   }
@@ -3423,7 +4064,7 @@ function gerarDadosRelatorio() {
 
   
   if (tipo === 'compulsorias') {
-    tituloUltimoRelatorio = "Relatório de Férias Compulsórias (Acúmulo de 2 Períodos)";
+    tituloUltimoRelatorio = "Relatório de Programação Preventiva de Férias";
     backendApi().withSuccessHandler(handlerSucesso).withFailureHandler(handlerErro).obterRelatorioCompulsorias();
   } else if (tipo === 'situacao_ferias') {
     tituloUltimoRelatorio = "Relatório de Situação Geral de Férias";
@@ -3466,8 +4107,8 @@ function desenharTabelaRelatorio(tipo, dados) {
   const thStyle = "cursor:pointer; user-select:none; transition: background 0.2s;";
   
   if (tipo === 'compulsorias') {
-    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual", "Prazo Máx. p/ Pedido", "Venc. 3º Período"];
-    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Cargo</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Lotação</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Saldo Atual</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Prazo Máx. p/ Pedido</th><th onclick="ordenarTabelaRelatorio(this, 6)" style="${thStyle} text-align:center;">Venc. 3º Per.</th>`;
+    colunasUltimoRelatorio = ["Servidor", "Matrícula", "Cargo", "Lotação", "Saldo Atual", "Data p/ Programação", "Formação do 3º Período"];
+    htmlHead += `<th onclick="ordenarTabelaRelatorio(this, 0)" style="${thStyle}">Servidor</th><th onclick="ordenarTabelaRelatorio(this, 1)" style="${thStyle}">Matrícula</th><th onclick="ordenarTabelaRelatorio(this, 2)" style="${thStyle}">Cargo</th><th onclick="ordenarTabelaRelatorio(this, 3)" style="${thStyle}">Lotação</th><th onclick="ordenarTabelaRelatorio(this, 4)" style="${thStyle} text-align:center;">Saldo Atual</th><th onclick="ordenarTabelaRelatorio(this, 5)" style="${thStyle} text-align:center;">Data p/ Programação</th><th onclick="ordenarTabelaRelatorio(this, 6)" style="${thStyle} text-align:center;">Formação 3º Per.</th>`;
     
     // Default sort by who needs to leave first
     dados = dados.map(s => {
@@ -3687,7 +4328,7 @@ function exportarRelatorioExcel() {
  * Calcula a data limite para o início das férias com base na liberação do próximo (3º) período.
  */
 function calcularLimiteCompulsoria(servidor) {
-  if (servidor.dataTerceiroPeriodo === 'Já vencido' || Number(servidor.saldoHoje || 0) >= 90) {
+  if (servidor.dataTerceiroPeriodo === 'Já vencido') {
     return { vencimento3: 'Já vencido', limiteInicio: 'Imediato', diasRestantes: 0 };
   }
 
@@ -4106,7 +4747,12 @@ function renderizarTabelaConfiguracoes() {
   let html = "";
   
   AppState.configs.forEach(c => {
-    html += `<tr>       <td><strong>${escapeHtml(c.chave)}</strong></td>       <td><input type="text" class="form-control" style="max-width:300px; padding:6px 12px;" value="${escapeHtml(c.valor)}" id="cfg-val-${c.linhaPlanilha}"></td>       <td style="font-size:12px; color: var(--text-secondary);">${escapeHtml(c.descricao)}</td>       <td>         <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="editarValorConfiguracao(${c.linhaPlanilha}, '${escapeHtml(c.chave)}')">           Salvar         </button>       </td>     </tr>`;
+    const arredondamentoRep = c.chave === 'ARREDONDAMENTO_REP';
+    const ativo = !['NAO', 'NÃO', '0', 'FALSE', 'DESATIVADO'].includes(String(c.valor || '').trim().toUpperCase());
+    const controle = arredondamentoRep
+      ? `<label class="config-switch"><input type="checkbox" id="cfg-val-${c.linhaPlanilha}" ${ativo ? 'checked' : ''} onchange="this.closest('.config-switch').querySelector('b').textContent=this.checked?'Ativado':'Desativado'"><span class="config-switch-track"></span><b>${ativo ? 'Ativado' : 'Desativado'}</b></label>`
+      : `<input type="text" class="form-control" style="max-width:300px; padding:6px 12px;" value="${escapeHtml(c.valor)}" id="cfg-val-${c.linhaPlanilha}">`;
+    html += `<tr><td><strong>${escapeHtml(c.chave)}</strong></td><td>${controle}</td><td style="font-size:12px; color: var(--text-secondary);">${escapeHtml(c.descricao)}</td><td><button class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="editarValorConfiguracao(${c.linhaPlanilha}, '${escapeHtml(c.chave)}')">Salvar</button></td></tr>`;
   });
   
   tbody.innerHTML = html || `<tr><td colspan="4" style="text-align:center;">Nenhuma configuração disponível.</td></tr>`;
@@ -4114,7 +4760,7 @@ function renderizarTabelaConfiguracoes() {
 
 function editarValorConfiguracao(linha, chave) {
   const input = document.getElementById(`cfg-val-${linha}`);
-  const valor = input.value.trim();
+  const valor = input.type === 'checkbox' ? (input.checked ? 'SIM' : 'NAO') : input.value.trim();
   
   if (!valor) {
     mostrarToast("O valor do parâmetro não pode ficar em branco.", 'warning');
@@ -4126,6 +4772,10 @@ function editarValorConfiguracao(linha, chave) {
   backendApi()
     .withSuccessHandler(function() {
       mostrarToast(`Parâmetro ${chave} atualizado com sucesso!`, 'success');
+      if (chave === 'ARREDONDAMENTO_REP') {
+        aplicarConfiguracaoCalculoRep_({ arredondamentoAtivo: valor === 'SIM' });
+        if (dadosRepCache && dadosRepCache.punches && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
+      }
       carregarListaConfiguracoes();
     })
     .withFailureHandler(function(e) {
@@ -4684,6 +5334,9 @@ function toggleChatEntidade() {
     entidadeChatAbrindo = false;
     entidadeChatAberto = true;
     chatWindow.style.display = 'flex';
+    if (document.getElementById('sync-detailed-status')?.classList.contains('show')) {
+      requestAnimationFrame(mostrarFalaEntidadeStatus_);
+    }
     document.getElementById('entidade-input').focus();
     if (!jaEstavaVisivelComMensagem && !entidadeSaudacaoInicialExibida) {
       addMensagemEntidade('Olá! Como posso ajudar?', false);
@@ -4808,6 +5461,9 @@ function fecharChatEntidade() {
     fantasma.classList.remove('leaving', 'exit-left', 'exit-right');
     entidadeFantasmaSaindo = false;
     iniciarFantasmaErrante_(true);
+    if (document.getElementById('sync-detailed-status')?.classList.contains('show')) {
+      requestAnimationFrame(mostrarFalaEntidadeStatus_);
+    }
   }, 680);
 }
 
@@ -5248,7 +5904,7 @@ function setEntidadePensando(isThinking) {
   }
 }
 
-function montarContextoEntidade(mensagemUsuario = '', contextoExtra = null) {
+function montarContextoEntidade(mensagemUsuario = '') {
   const servidores = Array.isArray(AppState.servidores) ? AppState.servidores : [];
   const lancamentos = Array.isArray(AppState.lancamentos) ? AppState.lancamentos : [];
   const protocolos = Array.isArray(AppState.protocolos) ? AppState.protocolos : [];
@@ -5314,10 +5970,6 @@ function montarContextoEntidade(mensagemUsuario = '', contextoExtra = null) {
     pendenciasDe1Doc: pendencias1Doc,
     equipePorLotacao: Object.entries(porLotacao).sort((a, b) => b[1] - a[1]).slice(0, 15).map(item => ({ lotacao: item[0], quantidade: item[1] })),
     protocolosPorStatus: statusProtocolos,
-    preLeituraRepTemporaria: montarContextoRepEconomicoEntidade_(mensagemUsuario),
-    preLeituraRepFuncionarioSelecionado: contextoExtra && contextoExtra.preLeituraRepFuncionarioSelecionado
-      ? contextoExtra.preLeituraRepFuncionarioSelecionado
-      : null,
     ultimosLancamentos: lancamentos.slice(-15).reverse().map(l => ({ nome: l.nome, matricula: l.matricula, tipo: l.tipo, dataInicio: l.dataInicio, diasGozo: l.dias, diasPecunia: l.diasPecunia || 0, diasDebitados: l.diasDebitados || l.dias, status: l.status, idoc: l.idoc || '' })),
     limitesDeListagem: { feriasCompulsorias: 30, pendenciasDe1Doc: 30, ausenciasHoje: 20 }
   });
@@ -5346,7 +5998,7 @@ function avaliarRespostaEntidade(interacaoId, util, botao) {
     .avaliarInteracaoEntidade(interacaoId, util ? 'UTIL' : 'NAO_UTIL', correcao);
 }
 
-function enviarMensagemEntidade(textoForcado = null, contextoExtra = null) {
+function enviarMensagemEntidade(textoForcado = null) {
   const input = document.getElementById('entidade-input');
   const texto = textoForcado || input.value.trim();
   
@@ -5363,7 +6015,7 @@ function enviarMensagemEntidade(textoForcado = null, contextoExtra = null) {
   setEntidadePensando(true);
   document.getElementById('entidade-chips').style.display = 'none';
   
-  const contexto = montarContextoEntidade(texto, contextoExtra);
+  const contexto = montarContextoEntidade(texto);
   const historicoAnterior = entidadeHistorico.slice(0, -1).slice(-10);
   
   backendApi()
@@ -5513,6 +6165,7 @@ let falhasIntegridadeRep = [];
 let infoPastaEntradaRep = null;
 let repOnlineCarregado = false;
 let repOnlineCarregando = false;
+let arredondamentoRepAtivo = true;
 const ITENS_POR_PAGINA_REP = 250;
 const TAMANHO_PARTE_REP_ONLINE_ = 1500000;
 
@@ -5638,6 +6291,29 @@ async function abrirPastaEntradaRep() {
   }
 }
 
+function prepararCartoesManuaisSemAfdRep_() {
+  limparEstadoLeituraRep_();
+  (AppState.servidores || []).forEach(servidor => {
+    const pis = normalizarPisRep(servidor.pis);
+    if (!pis || !servidor.nome) return;
+    dadosRepCache.employees.set(pis, servidor.nome);
+    dadosRepCache.lotacoes.set(pis, String(servidor.lotacao || 'Não informada').trim() || 'Não informada');
+  });
+  aplicarAjustesCompartilhadosRep_();
+  const anos = Array.from(new Set((dadosRepCache.punches || []).map(item => String(item.datetime.getFullYear())))).sort().reverse();
+  const seletorAno = document.getElementById('rep-filter-ano');
+  if (seletorAno) seletorAno.innerHTML = '<option value="all">Todos os Anos</option>' + anos.map(ano => `<option value="${ano}">${ano}</option>`).join('');
+  if (dadosRepCache.punches.length) {
+    const maisRecente = dadosRepCache.punches.slice().sort((a, b) => b.datetime - a.datetime)[0].datetime;
+    if (seletorAno) seletorAno.value = String(maisRecente.getFullYear());
+    const seletorMes = document.getElementById('rep-filter-mes');
+    if (seletorMes) seletorMes.value = String(maisRecente.getMonth() + 1).padStart(2, '0');
+    const resultados = document.getElementById('rep-results-container');
+    if (resultados) resultados.style.display = 'block';
+    atualizarProcessamentoRep({ notificarEntidade: false });
+  }
+}
+
 async function carregarModuloRepOnline(forcar) {
   if (repOnlineCarregando || (repOnlineCarregado && !forcar)) return;
   if (repTemAlteracoesPendentes_()) {
@@ -5666,10 +6342,12 @@ async function carregarModuloRepOnline(forcar) {
       chamarBackendPromessa_('listarDescartesHoraExtraRep', []),
       chamarBackendPromessa_('listarFeriadosRep', []),
       chamarBackendPromessa_('listarAjustesRep', []),
-      chamarBackendPromessa_('listarConferenciasRep', [])
+      chamarBackendPromessa_('listarConferenciasRep', []),
+      chamarBackendPromessa_('obterConfiguracaoCalculoRep', [])
     ]);
     infoPastaEntradaRep = resultados[0] || null;
     const arquivosEntrada = Array.isArray(resultados[1]) ? resultados[1] : [];
+    iniciarProgressoAfdsLoader_(arquivosEntrada);
     apontamentosRep = Array.isArray(resultados[2]) ? resultados[2] : [];
     justificativasLancamentoRep = Array.isArray(resultados[3]) ? resultados[3] : [];
     compensacoesRep = Array.isArray(resultados[4]) ? resultados[4] : [];
@@ -5678,6 +6356,7 @@ async function carregarModuloRepOnline(forcar) {
     feriadosCompartilhadosRep = Array.isArray(resultados[7]) ? resultados[7] : [];
     ajustesCompartilhadosRep = Array.isArray(resultados[8]) ? resultados[8] : [];
     conferenciasRep = Array.isArray(resultados[9]) ? resultados[9] : [];
+    aplicarConfiguracaoCalculoRep_(resultados[10] || { arredondamentoAtivo: true });
     atualizarCampoFeriadosCompartilhadosRep_();
     repOnlineCarregado = true;
     falhasIntegridadeRep = [];
@@ -5690,8 +6369,14 @@ async function carregarModuloRepOnline(forcar) {
       const arquivos = [];
       for (let i = 0; i < arquivosEntrada.length; i++) {
         atualizarProgressoLoader_(8 + ((i / Math.max(1, arquivosEntrada.length)) * 52), `Verificando ${i + 1}/${arquivosEntrada.length}: ${arquivosEntrada[i].nome}`);
-        try { arquivos.push(await baixarArquivoPastaEntradaRep_(arquivosEntrada[i], i + 1, arquivosEntrada.length)); }
+        atualizarProgressoAfdLoader_(i, 'carregando', arquivosEntrada[i].nome);
+        try {
+          arquivos.push(await baixarArquivoPastaEntradaRep_(arquivosEntrada[i], i + 1, arquivosEntrada.length));
+          atualizarProgressoAfdLoader_(i, 'concluido', arquivosEntrada[i].nome);
+          atualizarProgressoLoader_(8 + (((i + 1) / Math.max(1, arquivosEntrada.length)) * 52), `AFD ${i + 1}/${arquivosEntrada.length} verificado: ${arquivosEntrada[i].nome}`);
+        }
         catch (erro) {
+          atualizarProgressoAfdLoader_(i, 'falhou', arquivosEntrada[i].nome);
           falhasIntegridadeRep.push({ nome: arquivosEntrada[i].nome, arquivoId: arquivosEntrada[i].id, motivo: mensagemErro(erro), tamanho: arquivosEntrada[i].tamanho });
         }
       }
@@ -5712,9 +6397,12 @@ async function carregarModuloRepOnline(forcar) {
       return;
     }
     if (!arquivosEntrada.length) {
+      prepararCartoesManuaisSemAfdRep_();
       if (statusPasta) statusPasta.textContent = 'Pasta de AFDs vazia';
-      if (detalhePasta) detalhePasta.textContent = 'Abra a pasta, envie os arquivos .txt/AFD e clique em Sincronizar pasta.';
-      mostrarToast('A pasta de AFDs está vazia. Abra a pasta, envie os arquivos e sincronize novamente.', 'info');
+      if (detalhePasta) detalhePasta.textContent = dadosRepCache.punches.length
+        ? 'Nenhum AFD encontrado. Exibindo somente os cartões de ponto manuais já incluídos.'
+        : 'Abra a pasta, envie os arquivos .txt/AFD ou inclua um cartão de ponto manual.';
+      mostrarToast(dadosRepCache.punches.length ? 'Cartões manuais carregados sem arquivos AFD.' : 'A pasta de AFDs está vazia. Você ainda pode incluir cartões manuais.', 'info');
       return;
     }
   } catch (erro) {
@@ -5946,6 +6634,58 @@ function roundTimeRep(dateObj) {
   rounded.setSeconds(0);
   rounded.setMilliseconds(0);
   return rounded;
+}
+
+function horarioConsideradoRep_(dateObj) {
+  if (arredondamentoRepAtivo) return roundTimeRep(dateObj);
+  const considerado = new Date(dateObj.getTime());
+  considerado.setSeconds(0, 0);
+  return considerado;
+}
+
+function aplicarConfiguracaoCalculoRep_(configuracao) {
+  arredondamentoRepAtivo = !configuracao || configuracao.arredondamentoAtivo !== false;
+  const indicador = document.getElementById('rep-status-arredondamento');
+  const texto = indicador && indicador.querySelector('.rep-rounding-text');
+  const toggle = document.getElementById('rep-rounding-toggle');
+  const podeAlterar = ['Administrador', 'Admin'].includes(String(AppState.usuarioLogado?.papel || ''));
+  if (indicador) {
+    if (texto) texto.textContent = arredondamentoRepAtivo ? 'Arredondamento ativo' : 'Arredondamento desativado';
+    indicador.classList.toggle('desativado', !arredondamentoRepAtivo);
+    indicador.classList.toggle('somente-leitura', !podeAlterar);
+    indicador.title = (arredondamentoRepAtivo
+      ? 'Os horários considerados seguem o arredondamento institucional.'
+      : 'Os cálculos usam os minutos exatos registrados.') + (podeAlterar ? ' Clique para alterar.' : ' Somente administradores podem alterar.');
+  }
+  if (toggle) {
+    toggle.checked = arredondamentoRepAtivo;
+    toggle.disabled = !podeAlterar;
+  }
+}
+
+async function alterarArredondamentoRepNoPainel_(campo) {
+  if (!campo || campo.disabled) return;
+  const ativoAnterior = arredondamentoRepAtivo;
+  const ativoNovo = Boolean(campo.checked);
+  const mensagem = ativoNovo
+    ? 'Ativar o arredondamento institucional para todos os cálculos do Leitor REP?'
+    : 'Desativar o arredondamento e recalcular usando os minutos exatos registrados?';
+  if (!window.confirm(mensagem)) {
+    campo.checked = ativoAnterior;
+    return;
+  }
+  campo.disabled = true;
+  try {
+    const resposta = await chamarBackendComRetryTemporario_('salvarConfiguracaoCalculoRep', [{ arredondamentoAtivo: ativoNovo }], 'Alterando o arredondamento do REP');
+    aplicarConfiguracaoCalculoRep_(resposta || { arredondamentoAtivo: ativoNovo });
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast(ativoNovo ? 'Arredondamento ativado.' : 'Arredondamento desativado. Cálculos refeitos com os minutos exatos.', 'success');
+  } catch (erro) {
+    aplicarConfiguracaoCalculoRep_({ arredondamentoAtivo: ativoAnterior });
+    mostrarToast('Não foi possível alterar o arredondamento: ' + mensagemErro(erro), 'error');
+  } finally {
+    campo.disabled = false;
+  }
 }
 
 function toDateStringRep(dateObj) {
@@ -6450,7 +7190,7 @@ function processDataRep(employees, punches, lotacoes) {
     const diaSeguro = empSeguro.dias.get(dataOriginal);
     diaSeguro.eventos.push({
       original: punch.datetime,
-      arredondada: roundTimeRep(punch.datetime),
+      arredondada: horarioConsideradoRep_(punch.datetime),
       local: punch.clock,
       rep: punch.deviceSerial,
       nsr: punch.nsr,
@@ -6473,7 +7213,7 @@ function processDataRep(employees, punches, lotacoes) {
       const batidas = eventos.map(evento => evento.arredondada);
       const isImpar = batidas.length % 2 !== 0;
       const batidasExcedentes = batidas.length > 4;
-      const conflitoArredondamento = new Set(batidas.map(d => d.getTime())).size !== batidas.length;
+      const conflitoArredondamento = arredondamentoRepAtivo && new Set(batidas.map(d => d.getTime())).size !== batidas.length;
       const chavesMomento = new Map();
       eventos.forEach(evento => {
         const chave = evento.original.getTime();
@@ -6484,7 +7224,7 @@ function processDataRep(employees, punches, lotacoes) {
       const partesDataJornada = diaSeguro.data.split('-').map(Number);
       const diaSemana = new Date(partesDataJornada[0], partesDataJornada[1] - 1, partesDataJornada[2]).getDay();
       const diaExtra = diaSemana === 0 || diaSemana === 6 || feriados.has(diaSeguro.data);
-      // O VR segue a mesma jornada arredondada exibida na conferência.
+      // O VR segue a mesma jornada considerada exibida na conferência.
       // Em dia não útil, 06h00 exatas já geram o vale.
       let elegivelValeRefeicao = false;
       // Jornada contínua de 7h ou mais sem marcações de almoço: aplica o
@@ -6910,6 +7650,7 @@ async function processarArquivosRep(files, opcoes) {
     dadosRepCache.punches.push(...punches);
     // Libera a interface entre arquivos grandes.
     await new Promise(resolve => setTimeout(resolve, 0));
+    atualizarProgressoLoader_(progressoBase + ((indiceArquivo / Math.max(1, novosArquivos.length)) * progressoFaixa), `Interpretado ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
   }
 
   aplicarVinculosRepPersistidos_();
@@ -7037,6 +7778,11 @@ function aplicarAjustesCompartilhadosRep_() {
   });
   (ajustesCompartilhadosRep || []).forEach(registro => {
     const pis = normalizarPisRep(registro.pis);
+    const servidor = (AppState.servidores || []).find(item => normalizarPisRep(item.pis) === pis);
+    if (servidor) {
+      dadosRepCache.employees.set(pis, servidor.nome || 'Servidor');
+      dadosRepCache.lotacoes.set(pis, String(servidor.lotacao || 'Não informada').trim() || 'Não informada');
+    }
     (registro.ajustes || []).forEach(ajuste => {
       if (ajuste.tipo === 'DESCONSIDERAR') {
         const original = dadosRepCache.punches.find(item => !item.manual && normalizarPisRep(item.pis) === pis && String(item.eventKey || item.eventId || '') === String(ajuste.eventoChave || ''));
@@ -7050,12 +7796,13 @@ function aplicarAjustesCompartilhadosRep_() {
       if (ajuste.tipo !== 'ADICIONAR') return;
       const data = criarDataAjusteRep(ajuste.data, ajuste.hora);
       if (!data || isNaN(data)) return;
+      const cartaoManual = ajuste.origem === 'CARTAO_MANUAL';
       dadosRepCache.punches.push({
         pis, datetime: data, clock: ajuste.local || 'Local informado manualmente',
-        deviceSerial: 'AJUSTE COMPARTILHADO', nsr: 'MANUAL', lineNumber: '',
+        deviceSerial: cartaoManual ? 'CARTÃO MANUAL' : 'AJUSTE COMPARTILHADO', nsr: 'MANUAL', lineNumber: '',
         eventId: String(ajuste.id || `AJUSTE|${pis}|${ajuste.data}|${ajuste.hora}`),
         eventKey: `AJUSTE|${String(ajuste.id || `${pis}|${ajuste.data}|${ajuste.hora}`)}`,
-        nomeNoMomento: dadosRepCache.employees.get(pis) || '', sourceFile: 'Ajuste compartilhado',
+        nomeNoMomento: dadosRepCache.employees.get(pis) || '', sourceFile: cartaoManual ? 'Cartão de ponto manual' : 'Ajuste compartilhado',
         rawTimestamp: data.getTime(), manual: true, ajusteCompartilhado: true,
         dataReferencia: ajuste.dataReferencia || ajuste.data, ajusteOrigemData: ajuste.origemData || ajuste.dataReferencia || ajuste.data, justificativa: ajuste.justificativa || ''
       });
@@ -7083,7 +7830,7 @@ function montarAjustesCompetenciaRep_(pis, competencia, adicionais) {
       const chave = 'A|' + id;
       if (!vistos.has(chave)) {
         vistos.add(chave);
-        acoes.push({ tipo: 'ADICIONAR', id, data, dataReferencia: item.dataReferencia || data, origemData: item.ajusteOrigemData || item.dataReferencia || data, hora: `${String(item.datetime.getHours()).padStart(2, '0')}:${String(item.datetime.getMinutes()).padStart(2, '0')}`, local: item.clock || 'Local informado manualmente', justificativa: item.justificativa || '' });
+        acoes.push({ tipo: 'ADICIONAR', id, data, dataReferencia: item.dataReferencia || data, origemData: item.ajusteOrigemData || item.dataReferencia || data, hora: `${String(item.datetime.getHours()).padStart(2, '0')}:${String(item.datetime.getMinutes()).padStart(2, '0')}`, local: item.clock || 'Local informado manualmente', justificativa: item.justificativa || '', origem: item.sourceFile === 'Cartão de ponto manual' || item.deviceSerial === 'CARTÃO MANUAL' ? 'CARTAO_MANUAL' : 'AJUSTE' });
       }
     }
   });
@@ -7294,7 +8041,7 @@ function obterRecorteAtualPreLeituraRep_() {
 
 function montarResumoPreLeituraRepEntidade_() {
   if (currentView !== 'pre-leitura-rep' || !Array.isArray(dadosRepProcessados) || !dadosRepProcessados.length) {
-    return { disponivel: false, observacao: 'Nenhuma Pré-leitura REP está carregada nesta sessão.' };
+    return { disponivel: false, observacao: 'Nenhuma leitura do REP está carregada nesta sessão.' };
   }
 
   let marcacoes = 0;
@@ -7366,24 +8113,6 @@ function montarResumoPreLeituraRepEntidade_() {
   };
 }
 
-function montarContextoRepEconomicoEntidade_(mensagemUsuario) {
-  if (currentView !== 'pre-leitura-rep' || !dadosRepProcessados.length) return { disponivel: false };
-  const pergunta = String(mensagemUsuario || '');
-  const perguntaSobreRep = /\b(rep|ponto|batida|marca(?:ç|c)[aã]o|jornada|intervalo|hora(?:s)?|afd|nsr|arquivo|alerta|pend[eê]ncia|n[aã]o conciliad|esta tela|aqui)\b/i.test(pergunta);
-  if (perguntaSobreRep) return montarResumoPreLeituraRepEntidade_();
-
-  const alertas = dadosRepProcessados.reduce(function(total, emp) {
-    return total + Number(emp.resumo && emp.resumo.pendencias || 0);
-  }, 0);
-  return {
-    disponivel: true,
-    detalhesOmitidosParaEconomizarTokens: true,
-    servidoresProcessados: dadosRepProcessados.length,
-    totalAlertas: alertas,
-    observacao: 'Os detalhes temporários do REP só devem ser solicitados quando a pergunta tratar desta pré-leitura.'
-  };
-}
-
 function observarPreLeituraRepEntidade_(notificar) {
   const resumo = montarResumoPreLeituraRepEntidade_();
   if (!resumo.disponivel) return;
@@ -7412,7 +8141,7 @@ function observarPreLeituraRepEntidade_(notificar) {
     if (item.quantidadeAlertas) motivos.push(item.quantidadeAlertas + ' alerta(s) de marcação');
     return item.nome + ' — ' + motivos.join(' e ');
   });
-  let mensagem = 'Na competência ' + resumo.recorte.rotulo + ', a Pré-leitura REP encontrou ' + resumo.alertas + ' alerta(s) e ' + resumo.naoConciliados + ' servidor(es) não conciliado(s).';
+  let mensagem = 'Carregamento do REP concluído para ' + resumo.recorte.rotulo + ': ' + resumo.alertas + ' alerta(s) e ' + resumo.naoConciliados + ' servidor(es) não conciliado(s).';
   if (prioridades.length) mensagem += '\nPrioridades:\n• ' + prioridades.join('\n• ');
   if (totalProblemasArquivo) mensagem += '\nTambém encontrei ' + resumo.auditoriaArquivos.marcacoesInvalidas + ' marcação(ões) inválida(s) e ' + resumo.auditoriaArquivos.quebrasNsr + ' quebra(s) de NSR nos arquivos.';
   mensagem += '\nRecomendo conferir esses casos antes de usar o espelho como apoio administrativo.';
@@ -8144,7 +8873,7 @@ function montarAnaliseFuncionarioRepEntidade_(emp) {
     });
 
   return {
-    escopoEstrito: 'Interpretar somente este funcionário e a competência selecionada. Não usar outros funcionários da Pré-REP.',
+    escopoEstrito: 'Interpretar somente este funcionário e a competência selecionada. Não usar outros funcionários do Leitor REP.',
     natureza: 'Pré-leitura auxiliar; saldos e horas extras são estimativas para conferência, não autorização administrativa.',
     competencia: recorte.rotulo,
     funcionario: {
@@ -8177,30 +8906,6 @@ function montarAnaliseFuncionarioRepEntidade_(emp) {
       };
     })
   };
-}
-
-let entidadeAjudaRepEmAndamento = false;
-function pedirAjudaEntidadeRep() {
-  if (entidadeAjudaRepEmAndamento) return;
-  const emp = dadosRepProcessados.find(function(item) { return item.pis === pisSelecionadoRep; });
-  const analise = montarAnaliseFuncionarioRepEntidade_(emp);
-  if (!emp || !analise) return mostrarToast('Selecione um funcionário na Pré-leitura REP.', 'warning');
-
-  entidadeAjudaRepEmAndamento = true;
-  const pergunta = 'Analise tecnicamente a Pré-leitura REP de ' + emp.nome + ' na competência ' + analise.competencia + '. Não repita apenas os totais: explique os padrões detectados, priorize os dias que realmente exigem conferência, diferencie cálculo automático de possível erro e indique próximos passos concretos. Não analise outros funcionários.';
-  const enviar = function() {
-    enviarMensagemEntidade(pergunta, { preLeituraRepFuncionarioSelecionado: analise });
-    entidadeAjudaRepEmAndamento = false;
-  };
-
-  if (!entidadeChatAberto && !entidadeChatAbrindo) {
-    toggleChatEntidade();
-    setTimeout(enviar, 1350);
-  } else if (entidadeChatAbrindo) {
-    setTimeout(enviar, 900);
-  } else {
-    enviar();
-  }
 }
 
 function abrirApontamentoRep(pis, data, escopo, eventoChave, id) {
@@ -8462,11 +9167,10 @@ function renderizarPainelRep(servidores, container) {
     const infoOrigemCompensacao = dia.minutosCompensadosComoOrigem ? `<div class="rep-compensacao-origem"><span>HE usada em compensação</span><strong>${minutosParaHoraRep_(dia.minutosCompensadosComoOrigem)}h retiradas deste dia</strong><small>Saldo de HE antes da retirada: ${formatHoursRep(dia.horaExtraAntesCompensacao)}h</small></div>` : '';
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
     const infoDescarteHe = dia.horaExtraDesconsiderada ? `<div class="rep-descarte-he-dia"><span>Hora extra desconsiderada neste dia</span><strong>${formatHoursRep(dia.horaExtraDesconsiderada.horas)}h não contabilizadas</strong><small>${dia.horaExtraDesconsiderada.atualizadoPor ? `Por ${escapeHtml(primeiroNomeRep_(dia.horaExtraDesconsiderada.atualizadoPor))}` : 'Decisão manual da conferência'}</small></div>` : '';
-    const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento" draggable="true" data-event-id="${escapeHtml(evento.eventId || '')}" title="Arraste esta marcação para o dia correto" ondragstart="iniciarArrasteMarcacaoRep_(event,this.dataset.eventId,'${dia.dataOriginal}')" ondragend="finalizarArrasteMarcacaoRep_(event)">
-      <div class="rep-evento-horario"><input class="rep-horario-real" type="time" value="${evento.horarioOriginal}" data-original="${evento.horarioOriginal}" aria-label="Horário real" title="Horário real preservado na auditoria" ondragstart="event.stopPropagation()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}" onblur="editarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}',this)">${evento.horarioOriginal !== evento.horarioArredondado ? `<span class="rep-horario-arredondado" title="Horário considerado após arredondamento">→ ${evento.horarioArredondado}</span>` : '<span class="rep-horario-sem-arredondamento">sem arredondamento</span>'}<button type="button" class="rep-desconsiderar-rapido" onclick="event.stopPropagation();desconsiderarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}')" title="Desconsiderar esta marcação sem abrir a janela"><span data-lucide="trash-2"></span></button></div>
-      <span>Local: ${escapeHtml(evento.local || 'não informado')}</span>
+    const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento rep-comprovante-afd" draggable="true" data-event-id="${escapeHtml(evento.eventId || '')}" title="Local: ${escapeHtml(evento.local || 'não informado')} · Arraste esta marcação para o dia correto" ondragstart="iniciarArrasteMarcacaoRep_(event,this.dataset.eventId,'${dia.dataOriginal}')" ondragend="finalizarArrasteMarcacaoRep_(event)">
+      <div class="rep-evento-horario"><div class="rep-comprovante-hora"><small>REGISTRADO</small><input class="rep-horario-real" type="time" value="${evento.horarioOriginal}" data-original="${evento.horarioOriginal}" aria-label="Horário real" title="Horário real preservado na auditoria" ondragstart="event.stopPropagation()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}" onblur="editarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}',this)"></div>${evento.horarioOriginal !== evento.horarioArredondado ? `<span class="rep-horario-arredondado" title="Horário considerado após arredondamento"><small>CONSIDERADO</small><strong>${evento.horarioArredondado}</strong></span>` : '<span class="rep-horario-sem-arredondamento">SEM AJUSTE</span>'}<button type="button" class="rep-desconsiderar-rapido" onclick="event.stopPropagation();desconsiderarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}')" title="Desconsiderar esta marcação sem abrir a janela"><span data-lucide="trash-2"></span></button></div>
       ${evento.dataReal && evento.dataReal !== dia.dataOriginal ? `<small class="rep-evento-virada">Batida real em ${escapeHtml(evento.dataReal.split('-').reverse().join('/'))} · vinculada a esta jornada</small>` : ''}
-      <small>${evento.manual ? 'AJUSTE MANUAL' : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
+      <small class="rep-comprovante-auditoria">${evento.manual ? (evento.rep === 'CARTÃO MANUAL' ? 'CARTÃO MANUAL' : 'AJUSTE MANUAL') : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
     </div>`).join('');
     const sinalizadoresSaldo = `${dia.temHoraExtra ? '<span class="rep-sinalizador he">HE</span>' : ''}${dia.temValeRefeicao ? '<span class="rep-sinalizador vr">VR</span>' : ''}`;
     const sinalizadorCompensacao = dia.compensacao?.minutosAplicados ? '<span class="rep-sinalizador comp">COMP</span>' : '';
@@ -8498,7 +9202,7 @@ function renderizarPainelRep(servidores, container) {
       <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button></div></div>
         <div class="rep-grupo-resumo">
           <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Saldo de horas positivas</small><b>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h</b><em>${formatHoursRep(selecionado.resumo.horasExtras)}h válidas · ${formatHoursRep(selecionado.resumo.horasExtrasDesconsideradas || 0)}h desconsideradas · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h retiradas</em></button>
-          <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada arredondada ≥ 6h em dia não útil</em></button>
+          <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada considerada ≥ 6h em dia não útil</em></button>
           <button type="button" class="rep-indicador-resumo devidas ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Soma do que ainda falta cumprir em dias úteis, após justificativas e compensações."><small>Horas devidas</small><b>${selecionado.resumo.horasDevidas > 0 ? '-' : ''}${formatHoursRep(selecionado.resumo.horasDevidas || 0)}h</b><em>Inclui falta de 8h em dia útil</em></button>
           <button type="button" class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''} ${filtroDiasRepAtual === 'alertas' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('alertas')" aria-pressed="${filtroDiasRepAtual === 'alertas'}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></button>
           <button type="button" class="rep-indicador-resumo apontamentos ${apontamentosAbertos.length ? 'tem-apontamento' : ''} ${filtroDiasRepAtual === 'apontamentos' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('apontamentos')" aria-pressed="${filtroDiasRepAtual === 'apontamentos'}"><small>Apontamentos abertos</small><b>${apontamentosAbertos.length}</b><em>${apontamentosConcluidos} concluído(s)</em></button>
@@ -8506,7 +9210,7 @@ function renderizarPainelRep(servidores, container) {
       </header>
       ${painelApontamentosServidor}
       ${avisoFiltro}
-      <div class="rep-table-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações (real → arredondada)</th><th title="Total considerado após entradas, saídas e intervalo">Horas trabalhadas</th><th title="Diferença entre as horas trabalhadas e a jornada. HE indica saldo positivo estimado.">Saldo do dia / HE</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
+      <div class="rep-table-wrap rep-tabela-detalhe-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações (registrada → considerada)</th><th title="Total considerado após entradas, saídas e intervalo">Horas trabalhadas</th><th title="Diferença entre as horas trabalhadas e a jornada.">Horas extras</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>
   </div>`;
   const listaAtual = container.querySelector('.rep-pessoas');
@@ -8808,7 +9512,7 @@ function exportarRepPdfUmaPagina(emp) {
   const janela = window.open('', '_blank', 'width=1200,height=850');
   if (!janela) return alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este Web App.');
   janela.document.open();
-  janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pre-leitura REP - ${escapeHtml(emp.nome)}</title><style>
+  janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Leitor REP - ${escapeHtml(emp.nome)}</title><style>
     @page{size:A4 landscape;margin:5mm}
     *{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#172033;font-family:Arial,sans-serif}body{font-size:7px;line-height:1.12}.folha{width:100%}
     .topo{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;border-bottom:2px solid #087f5b;padding-bottom:4px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:2px 5px;border-radius:2px;margin-right:5px}h1{display:inline;font-size:13px;margin:0}.subtitulo{color:#687386;margin-top:2px}.pessoa{text-align:right}.pessoa b{display:block;font-size:11px}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:5px 0}.resumo span{border:1px solid #d8e2de;border-radius:3px;padding:3px 5px;color:#687386}.resumo b{float:right;color:#172033;font-size:9px}.resumo span:first-child b{color:#087f5b}
@@ -8857,9 +9561,9 @@ async function exportarRepPdf() {
   const janela = window.open('', '_blank', 'width=1100,height=800');
   if (!janela) return alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este Web App.');
   janela.document.open();
-  janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pré-leitura REP - ${escapeHtml(emp.nome)}</title><style>
+  janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Leitor REP - ${escapeHtml(emp.nome)}</title><style>
     @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#172033;margin:0;font-size:10px;background:#fff}.topo{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #087f5b;padding-bottom:10px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:5px 8px;border-radius:4px;margin-bottom:6px}h1{font-size:18px;margin:0 0 3px}h2{font-size:15px;margin:0 0 3px}.muted{color:#687386}.pessoa{text-align:right}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}.resumo span{padding:10px;border:1px solid #d8e2de;border-radius:7px;color:#687386}.resumo b{display:block;margin-top:4px;color:#172033;font-size:16px}.resumo span:nth-child(1) b{color:#087f5b}.dia{page-break-inside:avoid;border:1px solid #d8e2de;border-radius:8px;margin:0 0 10px;overflow:hidden}.dia-head{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#edf6f2}.dia-head div{display:flex;gap:8px;align-items:center}.dia-head span{color:#687386}.status{font-style:normal;font-size:9px;padding:4px 7px;border-radius:12px;background:#fff;color:#53615c}.eventos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px}.evento{display:grid;grid-template-columns:55px 1fr;gap:2px 8px;padding:7px;border-left:3px solid #087f5b;background:#f7f9f8}.evento b{grid-row:1/4;font-size:13px}.evento span{color:#45524d}.evento small{color:#7a8681}.dia-total{display:flex;justify-content:flex-end;gap:18px;padding:7px 10px;border-top:1px solid #e4e9e7;background:#fbfcfc}.dia-total span{color:#687386}.dia-total b{color:#172033;margin-left:4px}.observacao{margin-top:16px;padding:10px;border:1px solid #d8e2de;border-radius:7px;min-height:50px}.assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:45px;margin-top:38px}.assinaturas div{border-top:1px solid #687386;padding-top:5px;text-align:center;color:#687386}footer{margin-top:14px;color:#687386;font-size:8px}.acoes{position:fixed;right:14px;top:12px;padding:8px 12px;background:#087f5b;color:#fff;border:0;border-radius:5px;cursor:pointer}@media print{.acoes{display:none}}@media(max-width:700px){.eventos{grid-template-columns:1fr}}
-  </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><header class="topo"><div><span class="marca">SETUR</span><h1>Espelho de Pré-leitura de Ponto</h1><div class="muted">Conferência auxiliar baseada nos registros originais do AFD</div></div><div class="pessoa"><h2>${escapeHtml(emp.nome)}</h2><div>PIS/CPF: ${escapeHtml(emp.pis)}</div><div class="muted">Emitido em ${new Date().toLocaleString('pt-BR')}</div></div></header><div class="resumo"><span>Horas extras<b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>VR · jornada arredondada ≥ 6h em dia não útil<b>${emp.resumo.valeRefeicao}</b></span><span>Horas apuradas<b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Alertas<b>${emp.resumo.pendencias}</b></span></div>${linhas}${ajustesPdf ? `<div class="observacao"><b>Ajustes manuais realizados</b><ul>${ajustesPdf}</ul></div>` : ''}<div class="observacao"><b>Observações da conferência</b></div><div class="assinaturas"><div>Responsável pela conferência</div><div>Servidor</div></div><footer>Documento auxiliar. Ajustes manuais aparecem identificados e não alteram o AFD original. Horas extras dependem da validação e autorização administrativa aplicável.</footer></body></html>`);
+  </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><header class="topo"><div><span class="marca">SETUR</span><h1>Espelho de Pré-leitura de Ponto</h1><div class="muted">Conferência auxiliar baseada nos registros originais do AFD</div></div><div class="pessoa"><h2>${escapeHtml(emp.nome)}</h2><div>PIS/CPF: ${escapeHtml(emp.pis)}</div><div class="muted">Emitido em ${new Date().toLocaleString('pt-BR')}</div></div></header><div class="resumo"><span>Horas extras<b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>VR · jornada considerada ≥ 6h em dia não útil<b>${emp.resumo.valeRefeicao}</b></span><span>Horas apuradas<b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Alertas<b>${emp.resumo.pendencias}</b></span></div>${linhas}${ajustesPdf ? `<div class="observacao"><b>Ajustes manuais realizados</b><ul>${ajustesPdf}</ul></div>` : ''}<div class="observacao"><b>Observações da conferência</b></div><div class="assinaturas"><div>Responsável pela conferência</div><div>Servidor</div></div><footer>Documento auxiliar. Ajustes manuais aparecem identificados e não alteram o AFD original. Horas extras dependem da validação e autorização administrativa aplicável.</footer></body></html>`);
   janela.document.close();
   janela.focus();
 }
@@ -8878,7 +9582,7 @@ async function exportarRepExcel() {
         'PIS Conciliado': emp.naoConciliado ? 'Não' : 'Sim',
         'Data': dia.dataFormatada,
         'Batidas Originais': dia.batidasOriginais,
-        'Batidas Arredondadas': dia.batidas.join(' - '),
+        'Batidas Consideradas': dia.batidas.join(' - '),
         'Total Horas Dia': dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia),
         'Saldo Considerado': dia.pendencia ? 'Conferir' : formatHoursRep(dia.horaExtraDesconsiderada ? 0 : dia.saldoDia),
         'Hora Extra Desconsiderada': dia.horaExtraDesconsiderada ? formatHoursRep(dia.horaExtraDesconsiderada.horas) : '',

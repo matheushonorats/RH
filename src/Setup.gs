@@ -287,7 +287,8 @@ function popularDadosPadrao(ss) {
       ["SECRETARIA_HORAS_EXTRAS", "SETUR", "Sigla da secretaria na autorização de horas extras"],
       ["SECRETARIO_NOME", "LEANDRO PEREIRA DA SILVA", "Nome da autoridade que assina a autorização de horas extras"],
       ["SECRETARIO_CARGO", "Secretário de Turismo", "Cargo da autoridade que assina a autorização de horas extras"],
-      ["DESCRICAO_PADRAO_HORAS_EXTRAS", "Serviços extraordinários conforme registros de ponto.", "Descrição padrão usada nas linhas da autorização"]
+      ["DESCRICAO_PADRAO_HORAS_EXTRAS", "Serviços extraordinários conforme registros de ponto.", "Descrição padrão usada nas linhas da autorização"],
+      ["ARREDONDAMENTO_REP", "SIM", "Ativa ou desativa o arredondamento das marcações no Leitor REP. Desativado, os cálculos usam os minutos registrados."]
     ];
     dadosConfig.forEach(linha => abaConfig.appendRow(linha));
     Logger.log("Configurações padrão inicializadas.");

@@ -95,7 +95,7 @@ function executarRelatorioEmailDiario_() {
   let listaAbonosProximos = [];
   let listaCompulsorias = [];
   
-  // 2. Obter Servidores em risco de Férias Compulsórias (6 meses ou vencidos)
+  // 2. Obter servidores na lista preventiva de programação de férias.
   try {
     listaCompulsorias = todosServidoresEmail.filter(function(s) {
       return s.status !== "Inativo" && s.feriasCompulsorias === true;
@@ -133,7 +133,7 @@ function executarRelatorioEmailDiario_() {
   for (let i = 1; i < dadosLanc.length; i++) {
     let linha = dadosLanc[i];
     let tipo = String(linha[idx.tipo]).trim();
-    if (!tipo || tipo.toLowerCase().includes("não efetivado") || tipo.toLowerCase().includes("anulado")) {
+    if (!tipo || ehLancamentoAnulado_(linha, idx)) {
       continue;
     }
     
@@ -265,7 +265,7 @@ function enviarAlertaHtmlV2_(email, ferias, abonos, compulsorias) {
   );
 
   if (compulsorias && compulsorias.length) {
-    html += `<div style="width:100%;margin:0 0 20px;box-sizing:border-box;"><h3 style="margin:0 0 10px;color:#b91c1c;font-size:14px;border-bottom:2px solid #dc2626;padding-bottom:6px;">FÉRIAS COMPULSÓRIAS - PRÓXIMOS 6 MESES</h3>
+    html += `<div style="width:100%;margin:0 0 20px;box-sizing:border-box;"><h3 style="margin:0 0 10px;color:#b91c1c;font-size:14px;border-bottom:2px solid #dc2626;padding-bottom:6px;">PROGRAMAÇÃO PREVENTIVA DE FÉRIAS</h3>
       <table cellpadding="0" cellspacing="0" style="width:100%;max-width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;margin:0;box-sizing:border-box;">
         <thead><tr style="background:#fff1f2;color:#991b1b;">
           <th style="${borda}width:29%;text-align:left;">Servidor</th>
@@ -455,11 +455,11 @@ function enviarAlertaHtmlLegado_(email, ferias, abonos, compulsorias) {
     html += `</tbody></table>`;
   }
 
-  // FÉRIAS COMPULSÓRIAS (RISCO / PRÓXIMOS 6 MESES / VENCIDOS)
+  // FÉRIAS COMPULSÓRIAS (saldo acima de 30 dias após o segundo período)
   if (compulsorias && compulsorias.length > 0) {
     html += `
       <h3 style="color: #d97706; font-size: 14px; border-bottom: 2px solid #d97706; padding-bottom: 6px; margin-top: 24px; margin-bottom: 12px; text-transform: uppercase;">
-        Risco de Férias Compulsórias (Próximos 6 meses / Vencidos)
+        Programação Preventiva de Férias
       </h3>
       <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 12.5px;">
         <thead>

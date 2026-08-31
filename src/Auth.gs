@@ -222,6 +222,8 @@ function obterFuncoesApiPermitidas_() {
     resetarSenhaUsuario: resetarSenhaUsuario,
     desativarUsuario: desativarUsuario,
     obterListaConfiguracoes: obterListaConfiguracoes,
+    obterConfiguracaoCalculoRep: obterConfiguracaoCalculoRep,
+    salvarConfiguracaoCalculoRep: salvarConfiguracaoCalculoRep,
     salvarConfiguracao: salvarConfiguracao,
     obterBriefingDiarioEntidade: obterBriefingDiarioEntidade,
     marcarBriefingDiarioEntidadeComoVisto: marcarBriefingDiarioEntidadeComoVisto,
