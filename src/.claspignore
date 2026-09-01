@@ -1,0 +1,8 @@
+**/output/**
+**/tmp/**
+**/work/**
+**/.git/**
+**/.agents/**
+**/.codex/**
+**/.entidade-docs-update/**
+

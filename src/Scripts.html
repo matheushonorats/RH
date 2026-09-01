@@ -4770,11 +4770,17 @@ function editarValorConfiguracao(linha, chave) {
   exibirLoader(true);
   
   backendApi()
-    .withSuccessHandler(function() {
+    .withSuccessHandler(async function() {
       mostrarToast(`Parâmetro ${chave} atualizado com sucesso!`, 'success');
-      if (chave === 'ARREDONDAMENTO_REP') {
-        aplicarConfiguracaoCalculoRep_({ arredondamentoAtivo: valor === 'SIM' });
-        if (dadosRepCache && dadosRepCache.punches && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
+      const chavesCalculoRep = ['ARREDONDAMENTO_REP', 'REGRA_SALDO_DIARIO_REP', 'TOLERANCIA_DEFICIT_REP', 'CONTAGEM_DEFICIT_REP', 'HE_MEIA_MIN_REP', 'HE_HORA_MIN_REP'];
+      if (chavesCalculoRep.includes(chave)) {
+        try {
+          const configuracao = await chamarBackendPromessa_('obterConfiguracaoCalculoRep', []);
+          aplicarConfiguracaoCalculoRep_(configuracao);
+          if (dadosRepCache && dadosRepCache.punches && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
+        } catch (erroConfig) {
+          mostrarToast('O parâmetro foi salvo, mas o Leitor REP só será atualizado na próxima sincronização.', 'warning');
+        }
       }
       carregarListaConfiguracoes();
     })
@@ -6166,6 +6172,10 @@ let infoPastaEntradaRep = null;
 let repOnlineCarregado = false;
 let repOnlineCarregando = false;
 let arredondamentoRepAtivo = true;
+let configuracaoCalculoRepAtual = {
+  modo: 'LEGADO', arredondamentoAtivo: true, regraSaldoDiarioAtiva: false,
+  toleranciaDeficitMin: 10, contagemDeficit: 'INTEGRAL', heMeiaMin: 16, heHoraMin: 46
+};
 const ITENS_POR_PAGINA_REP = 250;
 const TAMANHO_PARTE_REP_ONLINE_ = 1500000;
 
@@ -6637,25 +6647,55 @@ function roundTimeRep(dateObj) {
 }
 
 function horarioConsideradoRep_(dateObj) {
-  if (arredondamentoRepAtivo) return roundTimeRep(dateObj);
+  if (configuracaoCalculoRepAtual.modo === 'LEGADO') return roundTimeRep(dateObj);
   const considerado = new Date(dateObj.getTime());
   considerado.setSeconds(0, 0);
   return considerado;
 }
 
+function normalizarConfiguracaoCalculoRep_(configuracao) {
+  configuracao = configuracao || {};
+  let modo = String(configuracao.modo || '').toUpperCase();
+  if (!['LEGADO', 'EXATO', 'SALDO_DIARIO'].includes(modo)) {
+    modo = configuracao.regraSaldoDiarioAtiva ? 'SALDO_DIARIO' : (configuracao.arredondamentoAtivo === false ? 'EXATO' : 'LEGADO');
+  }
+  const limitar = function(valor, padrao, minimo, maximo) {
+    const numero = Math.round(Number(valor));
+    return Number.isFinite(numero) && numero >= minimo && numero <= maximo ? numero : padrao;
+  };
+  const heMeiaMin = limitar(configuracao.heMeiaMin, 16, 1, 59);
+  let heHoraMin = limitar(configuracao.heHoraMin, 46, 2, 60);
+  if (heHoraMin <= heMeiaMin) heHoraMin = Math.min(60, heMeiaMin + 1);
+  return {
+    modo: modo,
+    arredondamentoAtivo: modo === 'LEGADO',
+    regraSaldoDiarioAtiva: modo === 'SALDO_DIARIO',
+    toleranciaDeficitMin: limitar(configuracao.toleranciaDeficitMin, 10, 0, 59),
+    contagemDeficit: String(configuracao.contagemDeficit || '').toUpperCase() === 'EXCEDENTE' ? 'EXCEDENTE' : 'INTEGRAL',
+    heMeiaMin: heMeiaMin,
+    heHoraMin: heHoraMin
+  };
+}
+
 function aplicarConfiguracaoCalculoRep_(configuracao) {
-  arredondamentoRepAtivo = !configuracao || configuracao.arredondamentoAtivo !== false;
+  configuracaoCalculoRepAtual = normalizarConfiguracaoCalculoRep_(configuracao);
+  arredondamentoRepAtivo = configuracaoCalculoRepAtual.modo === 'LEGADO';
   const indicador = document.getElementById('rep-status-arredondamento');
   const texto = indicador && indicador.querySelector('.rep-rounding-text');
   const toggle = document.getElementById('rep-rounding-toggle');
   const podeAlterar = ['Administrador', 'Admin'].includes(String(AppState.usuarioLogado?.papel || ''));
+  const rotulos = { LEGADO: 'Arredondamento por batida', EXATO: 'Minutos exatos', SALDO_DIARIO: 'Regra por saldo diário' };
   if (indicador) {
-    if (texto) texto.textContent = arredondamentoRepAtivo ? 'Arredondamento ativo' : 'Arredondamento desativado';
-    indicador.classList.toggle('desativado', !arredondamentoRepAtivo);
+    if (texto) texto.textContent = rotulos[configuracaoCalculoRepAtual.modo];
+    indicador.classList.toggle('desativado', configuracaoCalculoRepAtual.modo === 'EXATO');
+    indicador.classList.toggle('saldo-diario', configuracaoCalculoRepAtual.modo === 'SALDO_DIARIO');
     indicador.classList.toggle('somente-leitura', !podeAlterar);
-    indicador.title = (arredondamentoRepAtivo
-      ? 'Os horários considerados seguem o arredondamento institucional.'
-      : 'Os cálculos usam os minutos exatos registrados.') + (podeAlterar ? ' Clique para alterar.' : ' Somente administradores podem alterar.');
+    indicador.title = (configuracaoCalculoRepAtual.modo === 'LEGADO'
+      ? 'Cada batida segue o arredondamento institucional legado.'
+      : (configuracaoCalculoRepAtual.modo === 'EXATO'
+        ? 'Os cálculos usam os minutos exatos registrados.'
+        : `O saldo total do dia usa ${configuracaoCalculoRepAtual.toleranciaDeficitMin} min de tolerância e faixas configuráveis de HE.`))
+      + (podeAlterar ? ' Use “Configurar cálculo” para alterar.' : ' Somente administradores podem alterar.');
   }
   if (toggle) {
     toggle.checked = arredondamentoRepAtivo;
@@ -6665,26 +6705,97 @@ function aplicarConfiguracaoCalculoRep_(configuracao) {
 
 async function alterarArredondamentoRepNoPainel_(campo) {
   if (!campo || campo.disabled) return;
-  const ativoAnterior = arredondamentoRepAtivo;
+  const configuracaoAnterior = Object.assign({}, configuracaoCalculoRepAtual);
   const ativoNovo = Boolean(campo.checked);
   const mensagem = ativoNovo
-    ? 'Ativar o arredondamento institucional para todos os cálculos do Leitor REP?'
-    : 'Desativar o arredondamento e recalcular usando os minutos exatos registrados?';
+    ? 'Usar o modo legado, com arredondamento individual das batidas?'
+    : 'Usar minutos exatos, sem tolerância ou faixas de saldo diário?';
   if (!window.confirm(mensagem)) {
-    campo.checked = ativoAnterior;
+    campo.checked = configuracaoAnterior.modo === 'LEGADO';
     return;
   }
   campo.disabled = true;
   try {
-    const resposta = await chamarBackendComRetryTemporario_('salvarConfiguracaoCalculoRep', [{ arredondamentoAtivo: ativoNovo }], 'Alterando o arredondamento do REP');
-    aplicarConfiguracaoCalculoRep_(resposta || { arredondamentoAtivo: ativoNovo });
+    const novaConfiguracao = Object.assign({}, configuracaoAnterior, { modo: ativoNovo ? 'LEGADO' : 'EXATO' });
+    const resposta = await chamarBackendComRetryTemporario_('salvarConfiguracaoCalculoRep', [novaConfiguracao], 'Alterando a política de cálculo do REP');
+    aplicarConfiguracaoCalculoRep_(resposta || novaConfiguracao);
     atualizarProcessamentoRep({ notificarEntidade: false });
-    mostrarToast(ativoNovo ? 'Arredondamento ativado.' : 'Arredondamento desativado. Cálculos refeitos com os minutos exatos.', 'success');
+    mostrarToast(ativoNovo ? 'Modo legado ativado.' : 'Modo de minutos exatos ativado.', 'success');
   } catch (erro) {
-    aplicarConfiguracaoCalculoRep_({ arredondamentoAtivo: ativoAnterior });
-    mostrarToast('Não foi possível alterar o arredondamento: ' + mensagemErro(erro), 'error');
+    aplicarConfiguracaoCalculoRep_(configuracaoAnterior);
+    mostrarToast('Não foi possível alterar a política de cálculo: ' + mensagemErro(erro), 'error');
   } finally {
     campo.disabled = false;
+  }
+}
+
+function garantirModalPoliticaCalculoRep_() {
+  let modal = document.getElementById('modal-politica-calculo-rep');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-politica-calculo-rep';
+  modal.innerHTML = `<div class="modal-content rep-politica-calculo-modal"><div class="modal-header"><div><h3 class="modal-title">Política de cálculo do Leitor REP</h3><small>Configuração global, aplicada a todos os computadores.</small></div><button class="modal-close" onclick="fecharModal('modal-politica-calculo-rep')"><span data-lucide="x"></span></button></div><div class="modal-body"><div class="rep-politica-aviso"><b>As marcações originais nunca são alteradas.</b><span>A política modifica apenas os horários considerados, saldos, alertas e totalizações futuras do Leitor REP.</span></div><div class="form-group"><label for="rep-politica-modo">Modo de cálculo</label><select id="rep-politica-modo" class="form-control" onchange="atualizarCamposPoliticaCalculoRep_()"><option value="LEGADO">Legado — arredondar cada batida</option><option value="EXATO">Minutos exatos — sem arredondamento</option><option value="SALDO_DIARIO">Saldo diário — tolerância e faixas configuráveis</option></select></div><div id="rep-politica-campos-diarios" class="rep-politica-grid"><div class="form-group"><label for="rep-politica-tolerancia">Tolerância de déficit no dia</label><div class="rep-politica-com-unidade"><input id="rep-politica-tolerancia" type="number" min="0" max="59" step="1" class="form-control"><span>min</span></div></div><div class="form-group"><label for="rep-politica-contagem">Ao ultrapassar a tolerância</label><select id="rep-politica-contagem" class="form-control"><option value="INTEGRAL">Contar o déficit inteiro</option><option value="EXCEDENTE">Contar somente o excedente</option></select></div><div class="form-group"><label for="rep-politica-he-meia">Meia hora extra a partir de</label><div class="rep-politica-com-unidade"><input id="rep-politica-he-meia" type="number" min="1" max="59" step="1" class="form-control"><span>min</span></div></div><div class="form-group"><label for="rep-politica-he-hora">Hora extra cheia a partir de</label><div class="rep-politica-com-unidade"><input id="rep-politica-he-hora" type="number" min="2" max="60" step="1" class="form-control"><span>min</span></div></div></div><div id="rep-politica-exemplo" class="rep-politica-exemplo"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal('modal-politica-calculo-rep')">Cancelar</button><button type="button" class="btn btn-primary" id="rep-politica-salvar" onclick="salvarPoliticaCalculoRep_()"><span data-lucide="save"></span> Salvar e recalcular</button></div></div>`;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function atualizarCamposPoliticaCalculoRep_() {
+  const modo = document.getElementById('rep-politica-modo')?.value || 'LEGADO';
+  const campos = document.getElementById('rep-politica-campos-diarios');
+  if (campos) campos.classList.toggle('inativo', modo !== 'SALDO_DIARIO');
+  if (campos) campos.querySelectorAll('input,select').forEach(function(campo) { campo.disabled = modo !== 'SALDO_DIARIO'; });
+  const exemplo = document.getElementById('rep-politica-exemplo');
+  if (!exemplo) return;
+  if (modo === 'LEGADO') exemplo.innerHTML = '<b>Modo atual preservado</b><span>Cada marcação é levada para 00, 30 ou 60 minutos antes do cálculo da jornada.</span>';
+  else if (modo === 'EXATO') exemplo.innerHTML = '<b>Sem tolerância automática</b><span>Cada minuto registrado entra integralmente no saldo positivo ou negativo.</span>';
+  else exemplo.innerHTML = '<b>Fechamento sobre o total do dia</b><span>As batidas permanecem exatas; a tolerância é aplicada ao déficit diário e as faixas ao saldo positivo diário.</span>';
+}
+
+function abrirPoliticaCalculoRep_() {
+  const podeAlterar = ['Administrador', 'Admin'].includes(String(AppState.usuarioLogado?.papel || ''));
+  if (!podeAlterar) return mostrarToast('Somente administradores podem alterar a política de cálculo do REP.', 'warning');
+  garantirModalPoliticaCalculoRep_();
+  const cfg = configuracaoCalculoRepAtual;
+  document.getElementById('rep-politica-modo').value = cfg.modo;
+  document.getElementById('rep-politica-tolerancia').value = cfg.toleranciaDeficitMin;
+  document.getElementById('rep-politica-contagem').value = cfg.contagemDeficit;
+  document.getElementById('rep-politica-he-meia').value = cfg.heMeiaMin;
+  document.getElementById('rep-politica-he-hora').value = cfg.heHoraMin;
+  atualizarCamposPoliticaCalculoRep_();
+  abrirModal('modal-politica-calculo-rep');
+  renderizarIcones();
+}
+
+async function salvarPoliticaCalculoRep_() {
+  const configuracaoAnterior = Object.assign({}, configuracaoCalculoRepAtual);
+  const nova = {
+    modo: document.getElementById('rep-politica-modo').value,
+    toleranciaDeficitMin: Number(document.getElementById('rep-politica-tolerancia').value),
+    contagemDeficit: document.getElementById('rep-politica-contagem').value,
+    heMeiaMin: Number(document.getElementById('rep-politica-he-meia').value),
+    heHoraMin: Number(document.getElementById('rep-politica-he-hora').value)
+  };
+  if (nova.modo === 'SALDO_DIARIO') {
+    if (!Number.isInteger(nova.toleranciaDeficitMin) || nova.toleranciaDeficitMin < 0 || nova.toleranciaDeficitMin > 59) return mostrarToast('Informe uma tolerância entre 0 e 59 minutos.', 'warning');
+    if (!Number.isInteger(nova.heMeiaMin) || !Number.isInteger(nova.heHoraMin) || nova.heMeiaMin < 1 || nova.heHoraMin > 60 || nova.heHoraMin <= nova.heMeiaMin) return mostrarToast('As faixas de hora extra são inválidas. O limite da hora cheia deve ser maior que o da meia hora.', 'warning');
+  } else {
+    Object.assign(nova, configuracaoAnterior, { modo: nova.modo });
+  }
+  if (!window.confirm('Salvar esta política global e recalcular a competência atualmente aberta?')) return;
+  const botao = document.getElementById('rep-politica-salvar');
+  if (botao) botao.disabled = true;
+  try {
+    const resposta = await chamarBackendComRetryTemporario_('salvarConfiguracaoCalculoRep', [nova], 'Salvando a política de cálculo do REP');
+    aplicarConfiguracaoCalculoRep_(resposta || nova);
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    fecharModal('modal-politica-calculo-rep');
+    mostrarToast('Política de cálculo salva e competência recalculada.', 'success');
+  } catch (erro) {
+    aplicarConfiguracaoCalculoRep_(configuracaoAnterior);
+    mostrarToast('Não foi possível salvar a política de cálculo: ' + mensagemErro(erro), 'error');
+  } finally {
+    if (botao) botao.disabled = false;
   }
 }
 
@@ -6697,6 +6808,25 @@ function toDateStringRep(dateObj) {
 
 function getHoursDiffRep(start, end) {
   return (end - start) / (1000 * 60 * 60);
+}
+
+/** Aplica tolerância/faixas somente ao saldo final do dia, em minutos inteiros. */
+function aplicarPoliticaSaldoDiarioRep_(saldoHoras) {
+  const saldoMinutos = Math.round(Number(saldoHoras || 0) * 60);
+  const cfg = configuracaoCalculoRepAtual;
+  if (cfg.modo !== 'SALDO_DIARIO' || saldoMinutos === 0) return saldoMinutos / 60;
+  if (saldoMinutos < 0) {
+    const deficit = Math.abs(saldoMinutos);
+    if (deficit <= cfg.toleranciaDeficitMin) return 0;
+    const minutosDevidos = cfg.contagemDeficit === 'EXCEDENTE' ? deficit - cfg.toleranciaDeficitMin : deficit;
+    return -minutosDevidos / 60;
+  }
+  const horasCompletas = Math.floor(saldoMinutos / 60) * 60;
+  const restante = saldoMinutos % 60;
+  let restanteConsiderado = 0;
+  if (restante >= cfg.heHoraMin) restanteConsiderado = 60;
+  else if (restante >= cfg.heMeiaMin) restanteConsiderado = 30;
+  return (horasCompletas + restanteConsiderado) / 60;
 }
 
 function formatarDataParcialFeriadoRep_(digitos) {
@@ -7250,7 +7380,8 @@ function processDataRep(employees, punches, lotacoes) {
           descontoIntervalo = Math.max(0, 1 - intervaloConsiderado);
           totalDia = Math.max(0, totalDia - descontoIntervalo);
         }
-        saldoDia = diaExtra ? totalDia : totalDia - jornadaReferencia;
+        const saldoBrutoDia = diaExtra ? totalDia : totalDia - jornadaReferencia;
+        saldoDia = aplicarPoliticaSaldoDiarioRep_(saldoBrutoDia);
         elegivelValeRefeicao = diaExtra && totalDia >= 6;
         empSeguro.resumo.trabalhadas += totalDia;
         empSeguro.resumo.saldo += saldoDia;
@@ -7288,6 +7419,8 @@ function processDataRep(employees, punches, lotacoes) {
           dataReferencia: evento.dataReferencia || '', ajusteOrigemData: evento.ajusteOrigemData || ''
         })),
         totalDia, saldoDia, extraDia: saldoDia,
+        saldoBrutoDia: Number.isFinite(totalDia) ? (diaExtra ? totalDia : totalDia - jornadaReferencia) : null,
+        regraSaldoDiarioAplicada: configuracaoCalculoRepAtual.modo === 'SALDO_DIARIO',
         relogios: Array.from(diaSeguro.relogios).join(', '),
         reps: Array.from(diaSeguro.reps).join(', '),
         fontes: Array.from(diaSeguro.fontes).join(', '),
@@ -7723,6 +7856,8 @@ async function processarArquivosRep(files, opcoes) {
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
   const btnPdf = document.getElementById('rep-btn-pdf');
+  const btnAlertasServidor = document.getElementById('rep-btn-alertas-servidor');
+  const btnAlertasGeral = document.getElementById('rep-btn-alertas-geral');
   const btnAdicionar = document.getElementById('rep-btn-add');
   const btnAutorizacaoHe = document.getElementById('rep-btn-autorizacao-he');
   const btnLancamentoRep = document.getElementById('rep-btn-lancamento');
@@ -7731,6 +7866,8 @@ async function processarArquivosRep(files, opcoes) {
   if (res) res.style.display = 'block';
   if (btn) btn.style.display = 'inline-flex';
   if (btnPdf) btnPdf.style.display = 'inline-flex';
+  if (btnAlertasServidor) btnAlertasServidor.style.display = 'inline-flex';
+  if (btnAlertasGeral) btnAlertasGeral.style.display = 'inline-flex';
   if (btnAutorizacaoHe) btnAutorizacaoHe.style.display = 'inline-flex';
   if (btnLancamentoRep) btnLancamentoRep.style.display = 'inline-flex';
   if (btnLancamentoLoteRep) btnLancamentoLoteRep.style.display = 'inline-flex';
@@ -9170,6 +9307,7 @@ function renderizarPainelRep(servidores, container) {
     const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento rep-comprovante-afd" draggable="true" data-event-id="${escapeHtml(evento.eventId || '')}" title="Local: ${escapeHtml(evento.local || 'não informado')} · Arraste esta marcação para o dia correto" ondragstart="iniciarArrasteMarcacaoRep_(event,this.dataset.eventId,'${dia.dataOriginal}')" ondragend="finalizarArrasteMarcacaoRep_(event)">
       <div class="rep-evento-horario"><div class="rep-comprovante-hora"><small>REGISTRADO</small><input class="rep-horario-real" type="time" value="${evento.horarioOriginal}" data-original="${evento.horarioOriginal}" aria-label="Horário real" title="Horário real preservado na auditoria" ondragstart="event.stopPropagation()" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}else if(event.key==='Escape'){this.value=this.dataset.original;this.blur()}" onblur="editarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}',this)"></div>${evento.horarioOriginal !== evento.horarioArredondado ? `<span class="rep-horario-arredondado" title="Horário considerado após arredondamento"><small>CONSIDERADO</small><strong>${evento.horarioArredondado}</strong></span>` : '<span class="rep-horario-sem-arredondamento">SEM AJUSTE</span>'}<button type="button" class="rep-desconsiderar-rapido" onclick="event.stopPropagation();desconsiderarMarcacaoRapidaRep_('${selecionado.pis}','${dia.dataOriginal}','${escapeHtml(evento.eventId || '')}')" title="Desconsiderar esta marcação sem abrir a janela"><span data-lucide="trash-2"></span></button></div>
       ${evento.dataReal && evento.dataReal !== dia.dataOriginal ? `<small class="rep-evento-virada">Batida real em ${escapeHtml(evento.dataReal.split('-').reverse().join('/'))} · vinculada a esta jornada</small>` : ''}
+      <small class="rep-comprovante-local" title="${escapeHtml(evento.local || 'Local não informado')}">LOCAL · ${escapeHtml(evento.local || 'NÃO INFORMADO')}</small>
       <small class="rep-comprovante-auditoria">${evento.manual ? (evento.rep === 'CARTÃO MANUAL' ? 'CARTÃO MANUAL' : 'AJUSTE MANUAL') : `REP ${escapeHtml(evento.rep || '-')} · NSR ${escapeHtml(evento.nsr || '-')}`}</small>
     </div>`).join('');
     const sinalizadoresSaldo = `${dia.temHoraExtra ? '<span class="rep-sinalizador he">HE</span>' : ''}${dia.temValeRefeicao ? '<span class="rep-sinalizador vr">VR</span>' : ''}`;
@@ -9452,6 +9590,8 @@ async function resetarLeituraRep() {
   const res = document.getElementById('rep-results-container');
   const btn = document.getElementById('rep-btn-export');
   const btnPdf = document.getElementById('rep-btn-pdf');
+  const btnAlertasServidor = document.getElementById('rep-btn-alertas-servidor');
+  const btnAlertasGeral = document.getElementById('rep-btn-alertas-geral');
   const btnAdicionar = document.getElementById('rep-btn-add');
   const btnAutorizacaoHe = document.getElementById('rep-btn-autorizacao-he');
   const btnLancamentoRep = document.getElementById('rep-btn-lancamento');
@@ -9462,6 +9602,8 @@ async function resetarLeituraRep() {
   if (res) res.style.display = 'none';
   if (btn) btn.style.display = 'none';
   if (btnPdf) btnPdf.style.display = 'none';
+  if (btnAlertasServidor) btnAlertasServidor.style.display = 'none';
+  if (btnAlertasGeral) btnAlertasGeral.style.display = 'none';
   if (btnAutorizacaoHe) btnAutorizacaoHe.style.display = 'none';
   if (btnLancamentoRep) btnLancamentoRep.style.display = 'none';
   if (btnLancamentoLoteRep) btnLancamentoLoteRep.style.display = 'none';
@@ -9564,6 +9706,176 @@ async function exportarRepPdf() {
   janela.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Leitor REP - ${escapeHtml(emp.nome)}</title><style>
     @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#172033;margin:0;font-size:10px;background:#fff}.topo{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #087f5b;padding-bottom:10px}.marca{display:inline-block;background:#087f5b;color:#fff;font-weight:700;padding:5px 8px;border-radius:4px;margin-bottom:6px}h1{font-size:18px;margin:0 0 3px}h2{font-size:15px;margin:0 0 3px}.muted{color:#687386}.pessoa{text-align:right}.resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}.resumo span{padding:10px;border:1px solid #d8e2de;border-radius:7px;color:#687386}.resumo b{display:block;margin-top:4px;color:#172033;font-size:16px}.resumo span:nth-child(1) b{color:#087f5b}.dia{page-break-inside:avoid;border:1px solid #d8e2de;border-radius:8px;margin:0 0 10px;overflow:hidden}.dia-head{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#edf6f2}.dia-head div{display:flex;gap:8px;align-items:center}.dia-head span{color:#687386}.status{font-style:normal;font-size:9px;padding:4px 7px;border-radius:12px;background:#fff;color:#53615c}.eventos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px}.evento{display:grid;grid-template-columns:55px 1fr;gap:2px 8px;padding:7px;border-left:3px solid #087f5b;background:#f7f9f8}.evento b{grid-row:1/4;font-size:13px}.evento span{color:#45524d}.evento small{color:#7a8681}.dia-total{display:flex;justify-content:flex-end;gap:18px;padding:7px 10px;border-top:1px solid #e4e9e7;background:#fbfcfc}.dia-total span{color:#687386}.dia-total b{color:#172033;margin-left:4px}.observacao{margin-top:16px;padding:10px;border:1px solid #d8e2de;border-radius:7px;min-height:50px}.assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:45px;margin-top:38px}.assinaturas div{border-top:1px solid #687386;padding-top:5px;text-align:center;color:#687386}footer{margin-top:14px;color:#687386;font-size:8px}.acoes{position:fixed;right:14px;top:12px;padding:8px 12px;background:#087f5b;color:#fff;border:0;border-radius:5px;cursor:pointer}@media print{.acoes{display:none}}@media(max-width:700px){.eventos{grid-template-columns:1fr}}
   </style></head><body><button class="acoes" onclick="window.print()">Salvar como PDF</button><header class="topo"><div><span class="marca">SETUR</span><h1>Espelho de Pré-leitura de Ponto</h1><div class="muted">Conferência auxiliar baseada nos registros originais do AFD</div></div><div class="pessoa"><h2>${escapeHtml(emp.nome)}</h2><div>PIS/CPF: ${escapeHtml(emp.pis)}</div><div class="muted">Emitido em ${new Date().toLocaleString('pt-BR')}</div></div></header><div class="resumo"><span>Horas extras<b>${formatHoursRep(emp.resumo.horasExtras)}h</b></span><span>VR · jornada considerada ≥ 6h em dia não útil<b>${emp.resumo.valeRefeicao}</b></span><span>Horas apuradas<b>${formatHoursRep(emp.resumo.trabalhadas)}h</b></span><span>Alertas<b>${emp.resumo.pendencias}</b></span></div>${linhas}${ajustesPdf ? `<div class="observacao"><b>Ajustes manuais realizados</b><ul>${ajustesPdf}</ul></div>` : ''}<div class="observacao"><b>Observações da conferência</b></div><div class="assinaturas"><div>Responsável pela conferência</div><div>Servidor</div></div><footer>Documento auxiliar. Ajustes manuais aparecem identificados e não alteram o AFD original. Horas extras dependem da validação e autorização administrativa aplicável.</footer></body></html>`);
+  janela.document.close();
+  janela.focus();
+}
+
+/**
+ * Traduz somente inconsistências ainda ativas do dia. A função lê o resultado
+ * já calculado pelo Leitor REP e não recalcula nem altera marcações ou saldos.
+ */
+function obterAlertasAtivosDiaRep_(dia, pis) {
+  const validadoPersistido = (validacoesRep || []).some(function(item) {
+    return item.validado && normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === (dia && dia.dataOriginal);
+  });
+  if (!dia || validadoPersistido || dia.validacaoManual || dia.status === 'validado_manualmente') return [];
+  const alertas = [];
+  const batidasOriginais = String(dia.batidasOriginais || (dia.batidas || []).join(' · ') || 'nenhuma');
+  const batidasConsideradas = (dia.batidas || []).join(' · ') || 'nenhuma';
+  const adicionar = function(tipo, detalhe, gravidade) {
+    alertas.push({ tipo: tipo, detalhe: detalhe, gravidade: gravidade || 'atencao' });
+  };
+
+  if (dia.isImpar || dia.status === 'impar') {
+    adicionar('Batida ausente / quantidade ímpar', `Foram encontradas ${(dia.batidas || []).length} marcação(ões). Verificar a entrada ou a saída que não foi registrada. Batidas: ${batidasOriginais}.`, 'critico');
+  }
+  if (dia.batidasExcedentes || dia.status === 'batidas_excedentes') {
+    adicionar('Batidas excedentes', `Foram encontradas ${(dia.batidas || []).length} marcações no dia. Conferir duplicidade ou jornada fracionada. Batidas: ${batidasOriginais}.`, 'critico');
+  }
+  if (dia.colisaoReps || dia.status === 'colisao_reps') {
+    adicionar('Conflito entre relógios', `O mesmo horário aparece em REPs diferentes. Conferir a origem antes do fechamento. Batidas: ${batidasOriginais}.`, 'critico');
+  }
+  if (dia.conflitoArredondamento || dia.status === 'conflito_arredondamento') {
+    adicionar('Conflito de arredondamento', `Horários distintos passaram a coincidir após o arredondamento. Registradas: ${batidasOriginais}. Consideradas: ${batidasConsideradas}.`, 'critico');
+  }
+  if (dia.ausencia && !dia.semRegistro && dia.status === 'ausencia_com_batidas') {
+    adicionar('Marcações durante ausência', `${dia.ausencia.tipo || 'Ausência'} registrada para ${formatarPeriodoAusenciaRep_(dia.ausencia)}, mas há batidas no dia: ${batidasOriginais}.`, 'critico');
+  }
+
+  const deficitHoras = obterDeficitDiaRep_(dia);
+  const deficitTexto = deficitHoras > 0 ? minutosParaHoraRep_(Math.round(deficitHoras * 60)) + 'h' : '';
+  if (dia.semRegistro && deficitHoras > 0) {
+    adicionar('Falta / dia útil sem registro', `Nenhuma marcação foi localizada para este dia útil. Permanecem ${deficitTexto} devidas após os ajustes e compensações registrados.`, 'critico');
+  } else if (!dia.semRegistro && deficitHoras > 0) {
+    adicionar('Jornada incompleta / horas devidas', `A jornada considerada ficou abaixo da prevista. Permanecem ${deficitTexto} devidas. Batidas consideradas: ${batidasConsideradas}.`, 'atencao');
+  }
+
+  // Mantém o relatório preparado para um alerta novo que passe a ser contado
+  // pelo processamento, sem transformar estados meramente informativos em erro.
+  if (dia.pendencia && !alertas.length) {
+    adicionar(categoriaSituacaoRep(dia.status), textoSituacaoRep(dia.status), 'atencao');
+  }
+  return alertas;
+}
+
+function montarAlertasAtivosServidorRep_(emp) {
+  if (!emp) return [];
+  const itens = [];
+  if (emp.naoConciliado) {
+    itens.push({
+      pis: emp.pis,
+      nome: emp.nome,
+      data: '',
+      dataOrdem: '',
+      diaSemana: '',
+      tipo: 'Identificação não conciliada',
+      detalhe: `O identificador ${emp.pis || 'não informado'} ainda não está associado de forma confiável ao cadastro do servidor.`,
+      gravidade: 'critico'
+    });
+  }
+  (emp.dias || []).forEach(function(dia) {
+    obterAlertasAtivosDiaRep_(dia, emp.pis).forEach(function(alerta) {
+      itens.push({
+        pis: emp.pis,
+        nome: emp.nome,
+        data: dia.dataFormatada,
+        dataOrdem: dia.dataOriginal,
+        diaSemana: dia.diaSemana || '',
+        tipo: alerta.tipo,
+        detalhe: alerta.detalhe,
+        gravidade: alerta.gravidade
+      });
+    });
+  });
+  return itens;
+}
+
+/**
+ * O relatório mensal não herda o filtro visual de local/relógio da tela.
+ * Assim, "geral" representa de fato toda a competência, enquanto a tela
+ * continua livre para a conferência segmentada por local.
+ */
+function obterServidoresCompetenciaRelatorioAlertasRep_(competencia) {
+  const partes = String(competencia || '').split('-');
+  if (partes.length !== 2) return [];
+  const ano = partes[0];
+  const mes = partes[1];
+  const batidasCompetencia = (dadosRepCache.punches || []).filter(function(punch) {
+    if (!punch || punch.desconsiderada || !(punch.datetime instanceof Date) || isNaN(punch.datetime)) return false;
+    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(punch.dataReferencia || ''))
+      ? String(punch.dataReferencia).slice(0, 7)
+      : `${punch.datetime.getFullYear()}-${String(punch.datetime.getMonth() + 1).padStart(2, '0')}`;
+    return referencia === `${ano}-${mes}`;
+  });
+  return processDataRep(dadosRepCache.employees, batidasCompetencia, dadosRepCache.lotacoes);
+}
+
+function descreverPoliticaCalculoRep_() {
+  const cfg = configuracaoCalculoRepAtual;
+  if (cfg.modo === 'LEGADO') return 'Modo legado: arredondamento individual das batidas para 00, 30 ou 60 minutos.';
+  if (cfg.modo === 'EXATO') return 'Modo exato: todos os minutos registrados participam integralmente do saldo.';
+  const contagem = cfg.contagemDeficit === 'EXCEDENTE' ? 'somente o excedente é devido' : 'todo o déficit é devido';
+  return `Saldo diário: tolerância de ${cfg.toleranciaDeficitMin} min; quando ultrapassada, ${contagem}. HE: 0-${cfg.heMeiaMin - 1} min = 0; ${cfg.heMeiaMin}-${cfg.heHoraMin - 1} min = 30 min; ${cfg.heHoraMin}-59 min = 1h.`;
+}
+
+function exportarRelatorioAlertasRep_(escopo) {
+  const competencia = obterCompetenciaAtualRep_();
+  if (!competencia) {
+    mostrarToast('Selecione um ano e um mês específicos para gerar o relatório de alertas.', 'warning');
+    return;
+  }
+  const individual = escopo === 'servidor';
+  const servidoresCompetencia = obterServidoresCompetenciaRelatorioAlertasRep_(competencia);
+  const selecionado = servidoresCompetencia.find(item => item.pis === pisSelecionadoRep);
+  if (individual && !selecionado) {
+    mostrarToast('Selecione um servidor para gerar o relatório individual.', 'warning');
+    return;
+  }
+
+  const servidores = individual ? [selecionado] : servidoresCompetencia;
+  const alertas = servidores.reduce(function(saida, emp) {
+    return saida.concat(montarAlertasAtivosServidorRep_(emp));
+  }, []).sort(function(a, b) {
+    return String(a.nome).localeCompare(String(b.nome), 'pt-BR') || String(a.dataOrdem).localeCompare(String(b.dataOrdem)) || String(a.tipo).localeCompare(String(b.tipo), 'pt-BR');
+  });
+  const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const partesCompetencia = competencia.split('-');
+  const rotuloCompetencia = `${nomesMeses[Number(partesCompetencia[1]) - 1] || partesCompetencia[1]} de ${partesCompetencia[0]}`;
+  const pessoasAfetadas = new Set(alertas.map(item => item.pis)).size;
+  const contagens = alertas.reduce(function(saida, item) {
+    saida[item.tipo] = (saida[item.tipo] || 0) + 1;
+    return saida;
+  }, {});
+  const resumoTipos = Object.keys(contagens).sort(function(a, b) {
+    return contagens[b] - contagens[a] || a.localeCompare(b, 'pt-BR');
+  }).map(function(tipo) {
+    return `<span><b>${contagens[tipo]}</b>${escapeHtml(tipo)}</span>`;
+  }).join('');
+  const linhas = alertas.map(function(item) {
+    const data = item.data ? `<b>${escapeHtml(item.data)}</b><small>${escapeHtml(item.diaSemana)}</small>` : '<b>Competência</b><small>Cadastro</small>';
+    const servidor = individual ? '' : `<td class="servidor"><b>${escapeHtml(item.nome)}</b><small>${escapeHtml(item.pis || '')}</small></td>`;
+    return `<tr class="${item.gravidade === 'critico' ? 'critico' : 'atencao'}"><td class="data">${data}</td>${servidor}<td class="tipo">${escapeHtml(item.tipo)}</td><td class="detalhe">${escapeHtml(item.detalhe)}</td></tr>`;
+  }).join('');
+  const colunas = individual ? 3 : 4;
+  const corpo = linhas || `<tr><td colspan="${colunas}" class="sem-alertas"><b>Nenhum alerta ativo nesta competência.</b><span>Ocorrências validadas manualmente não integram este relatório.</span></td></tr>`;
+  const cabecalhoServidor = individual
+    ? `<div class="identificacao"><b>${escapeHtml(selecionado.nome)}</b><span>Identificador: ${escapeHtml(selecionado.pis)} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</span></div>`
+    : `<div class="identificacao"><b>Relatório geral da competência</b><span>${servidores.length} servidor(es) processado(s) no Leitor REP</span></div>`;
+  const colunaServidor = individual ? '' : '<th>Servidor</th>';
+  const politicaCalculo = descreverPoliticaCalculoRep_();
+  const assinaturas = individual
+    ? '<div class="assinaturas"><div>Responsável pela orientação</div><div>Servidor(a)</div></div>'
+    : '<div class="assinaturas uma"><div>Responsável pela conferência</div></div>';
+
+  const janela = window.open('', '_blank', 'width=920,height=1000');
+  if (!janela) {
+    alert('O navegador bloqueou a janela do relatório. Permita pop-ups para este Web App.');
+    return;
+  }
+  janela.document.open();
+  janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Alertas REP - ${escapeHtml(individual ? selecionado.nome : rotuloCompetencia)}</title><style>
+    @page{size:A4 portrait;margin:13mm 12mm 14mm}*{box-sizing:border-box}body{margin:0;background:#eef2f0;color:#19241f;font-family:"Segoe UI",Arial,sans-serif;font-size:9.5px}.folha{width:210mm;max-width:100%;min-height:297mm;margin:0 auto;padding:13mm 12mm 14mm;background:#fff}.acoes{position:fixed;z-index:5;top:12px;right:14px;border:0;border-radius:5px;padding:9px 13px;background:#087f5b;color:#fff;font-weight:700;cursor:pointer;box-shadow:0 5px 18px rgba(0,0,0,.18)}.topo{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding-bottom:8px;border-bottom:3px solid #087f5b}.marca{display:inline-block;margin-bottom:5px;padding:3px 6px;background:#087f5b;color:#fff;font-weight:800;letter-spacing:.45px}.topo h1{margin:0;font-size:17px;line-height:1.1}.topo p{margin:3px 0 0;color:#65736c}.identificacao{max-width:46%;text-align:right}.identificacao b{display:block;font-size:11px}.identificacao span{display:block;margin-top:3px;color:#65736c;line-height:1.35}.competencia{display:flex;justify-content:space-between;gap:12px;margin:9px 0 7px}.competencia b{font-size:12px}.competencia span{color:#65736c}.resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:7px}.resumo div{padding:7px 8px;border:1px solid #d7e1dc;background:#f7faf8}.resumo span{display:block;color:#65736c;font-size:7.5px;text-transform:uppercase;letter-spacing:.3px}.resumo b{display:block;margin-top:2px;color:#17251f;font-size:15px}.tipos{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px}.tipos span{display:inline-flex;gap:4px;align-items:center;padding:3px 5px;border:1px solid #dce5e1;background:#f9fbfa;color:#4f5e56;font-size:7px}.tipos b{color:#9f2525;font-size:8px}table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{padding:5px 6px;background:#1e4f3e;color:#fff;text-align:left;font-size:7px;text-transform:uppercase;letter-spacing:.35px}th:nth-child(1){width:16%}${individual ? 'th:nth-child(2){width:27%}th:nth-child(3){width:57%}' : 'th:nth-child(2){width:25%}th:nth-child(3){width:23%}th:nth-child(4){width:36%}'}td{padding:5px 6px;border:1px solid #dce4e0;vertical-align:top;line-height:1.35;overflow-wrap:anywhere}tr{break-inside:avoid}tbody tr:nth-child(even){background:#f8faf9}tbody tr.critico td:first-child{border-left:3px solid #c43737}tbody tr.atencao td:first-child{border-left:3px solid #d58a16}.data b,.servidor b{display:block}.data small,.servidor small{display:block;margin-top:2px;color:#6b7771;font-size:7px}.tipo{font-weight:700;color:#273c33}.detalhe{color:#3f4f47}.sem-alertas{text-align:center;padding:22px;color:#087f5b}.sem-alertas b,.sem-alertas span{display:block}.sem-alertas span{margin-top:4px;color:#65736c}.nota{margin-top:8px;padding:7px 8px;border-left:3px solid #087f5b;background:#f3f8f5;color:#56665e;line-height:1.45}.orientacao{height:20mm;margin-top:9px;padding:7px;border:1px solid #ccd8d2}.orientacao b{color:#53645b}.assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:38px;margin-top:17mm}.assinaturas.uma{grid-template-columns:1fr;width:45%;margin-left:auto}.assinaturas div{padding-top:4px;border-top:1px solid #65736c;text-align:center;color:#65736c}.rodape{margin-top:8px;padding-top:5px;border-top:1px solid #d9e1dd;color:#738078;font-size:7px}.rodape span{float:right}@media print{body{background:#fff}.folha{width:auto;min-height:0;margin:0;padding:0}.acoes{display:none}.orientacao{break-inside:avoid}.assinaturas{break-inside:avoid}}@media(max-width:700px){.folha{padding:18px}.topo,.competencia{display:block}.identificacao{max-width:none;margin-top:10px;text-align:left}.resumo{grid-template-columns:1fr}.acoes{position:sticky;float:right}.servidor{word-break:break-word}}
+  </style></head><body><button class="acoes" onclick="window.print()">Imprimir / salvar PDF</button><main class="folha"><header class="topo"><div><span class="marca">SETUR · DGP</span><h1>Relatório de alertas e inconsistências do ponto</h1><p>Documento de apoio para orientação e conferência mensal</p></div>${cabecalhoServidor}</header><div class="competencia"><b>Competência: ${escapeHtml(rotuloCompetencia)}</b><span>Emitido em ${new Date().toLocaleString('pt-BR')}</span></div><section class="resumo"><div><span>Alertas ativos</span><b>${alertas.length}</b></div><div><span>Servidores afetados</span><b>${pessoasAfetadas}</b></div><div><span>Validações manuais</span><b>excluídas</b></div></section>${resumoTipos ? `<div class="tipos">${resumoTipos}</div>` : ''}<table><thead><tr><th>Data</th>${colunaServidor}<th>Ocorrência</th><th>Detalhes para orientação</th></tr></thead><tbody>${corpo}</tbody></table><div class="nota"><b>Política usada no cálculo:</b> ${escapeHtml(politicaCalculo)}<br><b>Critério do relatório:</b> reúne somente alertas ativos calculados pelo Leitor REP na competência selecionada. Dias validados manualmente foram desconsiderados. O documento não altera o AFD, as marcações, os saldos ou a conferência registrada no sistema.</div>${individual ? '<div class="orientacao"><b>Orientações prestadas / ciência:</b></div>' : ''}${assinaturas}<footer class="rodape">Relatório auxiliar de conferência do espelho de ponto.<span>Página impressa pelo RHv2</span></footer></main></body></html>`);
   janela.document.close();
   janela.focus();
 }

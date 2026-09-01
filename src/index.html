@@ -500,6 +500,12 @@
                     <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="exportarRepPdf()">
                       <span data-lucide="file-down"></span> PDF do servidor
                     </button>
+                    <button id="rep-btn-alertas-servidor" class="btn btn-secondary" style="display: none;" onclick="exportarRelatorioAlertasRep_('servidor')">
+                      <span data-lucide="file-warning"></span> Alertas do servidor (PDF)
+                    </button>
+                    <button id="rep-btn-alertas-geral" class="btn btn-secondary" style="display: none;" onclick="exportarRelatorioAlertasRep_('geral')">
+                      <span data-lucide="files"></span> Alertas gerais do mês (PDF)
+                    </button>
                     <button id="rep-btn-autorizacao-he" class="btn btn-secondary" style="display: none;" onclick="exportarAutorizacaoHorasExtrasRep_()">
                       <span data-lucide="file-signature"></span> Autorização de HE
                     </button>
@@ -615,6 +621,7 @@
                     <option value="2">2 horas</option>
                   </select>
                 </div>
+                <button type="button" class="btn btn-secondary rep-configurar-calculo" onclick="abrirPoliticaCalculoRep_()" title="Definir o padrão de tolerância, atrasos e horas extras do Leitor REP"><span data-lucide="calculator"></span> Configurar cálculo</button>
                 <div style="min-width: 245px;">
                   <label class="rep-filter-label" for="rep-feriados">Feriados</label>
                   <div style="display:flex; gap:6px;">

@@ -5,6 +5,9 @@ const { spawnSync } = require('child_process');
 const raiz = path.resolve(__dirname, '..');
 const arquivoVersao = path.join(__dirname, 'Version.gs');
 const arquivoPackage = path.join(raiz, 'package.json');
+// Caminho relativo evita que espaços no diretório do projeto sejam separados
+// pelo shell usado pelo clasp no Windows.
+const arquivoClaspIgnore = 'src/.claspignore';
 const deploymentId = process.env.CLASP_DEPLOYMENT_ID || 'AKfycbxm851ClYMk27l_N_9eK4hMZbHkGqC1sTdMXGyT1rbFiLl3foMHFswran49tUk4CpYD';
 const clasp = process.platform === 'win32'
   ? path.join(raiz, 'node_modules', '.bin', 'clasp.cmd')
@@ -43,7 +46,7 @@ if (fs.existsSync(arquivoPackage)) {
 
 try {
   console.log(`Publicando V${proximaVersao}...`);
-  executar(['push']);
+  executar(['push', '--ignore', arquivoClaspIgnore]);
   executar(['deploy', '-i', deploymentId, '-d', `V${proximaVersao}`]);
   console.log(`V${proximaVersao} publicada com sucesso.`);
 } catch (erro) {

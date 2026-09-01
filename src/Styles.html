@@ -873,14 +873,23 @@ body {
 
 /* Versão enxuta do comprovante: os dois horários são a informação principal. */
 .rep-evento.rep-comprovante-afd {
-  min-width: 182px;
+  min-width: 206px;
   padding: 5px 7px 7px;
   gap: 2px;
   border-color: rgba(68, 76, 59, .58);
   box-shadow: 0 1px 0 rgba(0, 0, 0, .25);
 }
-.rep-comprovante-cabecalho,
-.rep-comprovante-local { display: none !important; }
+.rep-comprovante-cabecalho { display: none !important; }
+.rep-evento.rep-comprovante-afd .rep-comprovante-local {
+  display: block;
+  margin-top: 2px;
+  padding-top: 3px;
+  border-top: 1px dashed rgba(68, 76, 59, .32);
+  color: #596458;
+  font-size: 6.6px;
+  font-weight: 700;
+  letter-spacing: .14px;
+}
 .rep-evento.rep-comprovante-afd .rep-evento-horario { align-items: end; gap: 7px; }
 .rep-comprovante-hora { gap: 1px; }
 .rep-comprovante-hora small,
@@ -891,15 +900,25 @@ body {
   letter-spacing: .35px;
 }
 .rep-evento.rep-comprovante-afd .rep-horario-real {
-  width: 76px;
+  box-sizing: border-box;
+  width: 92px;
+  min-width: 92px;
+  max-width: 92px;
   min-height: 23px;
-  padding: 1px 3px;
+  padding: 1px 3px 1px 5px;
   border: 1px solid rgba(17, 116, 83, .58);
   border-radius: 2px;
   color: #17352a;
   background: rgba(232, 250, 239, .72);
   font-size: 13px;
   line-height: 1;
+}
+.rep-evento.rep-comprovante-afd .rep-horario-real::-webkit-calendar-picker-indicator {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  padding: 0;
+  opacity: .64;
 }
 .rep-evento.rep-comprovante-afd .rep-horario-arredondado {
   display: grid;
@@ -915,10 +934,33 @@ body {
 }
 .rep-evento.rep-comprovante-afd .rep-horario-sem-arredondamento { max-width: none; font-size: 7px; }
 .rep-evento.rep-comprovante-afd .rep-comprovante-auditoria {
-  padding-top: 3px;
-  border-top-color: rgba(68, 76, 59, .32);
+  padding-top: 1px;
+  border-top: 0;
   color: #687063;
   font-size: 6.8px;
+}
+body.dark-mode .rep-evento.rep-comprovante-afd {
+  border-color: rgba(157, 158, 137, .62);
+  color: #202924;
+  background-color: #d9d3b9;
+  background-image:
+    linear-gradient(135deg, rgba(255,255,255,.08), transparent 42%),
+    repeating-linear-gradient(0deg, rgba(41, 49, 43, .055) 0, rgba(41, 49, 43, .055) 1px, transparent 1px, transparent 4px);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, .24), 0 1px 0 rgba(255,255,255,.08) inset;
+}
+body.dark-mode .rep-evento.rep-comprovante-afd .rep-horario-real {
+  border-color: rgba(24, 105, 80, .62);
+  color: #163126;
+  background: rgba(223, 235, 218, .72);
+}
+body.dark-mode .rep-evento.rep-comprovante-afd .rep-horario-arredondado,
+body.dark-mode .rep-evento.rep-comprovante-afd .rep-horario-arredondado strong,
+body.dark-mode .rep-evento.rep-comprovante-afd .rep-horario-sem-arredondamento { color: #27362e; }
+body.dark-mode .rep-evento.rep-comprovante-afd .rep-comprovante-local { color: #46534a; }
+body.dark-mode .rep-evento.rep-comprovante-afd .rep-comprovante-auditoria { color: #5b655e; }
+@media (max-width: 980px) {
+  .rep-evento.rep-comprovante-afd { min-width: 198px; }
+  .rep-evento.rep-comprovante-afd .rep-horario-real { width: 88px; min-width: 88px; max-width: 88px; }
 }
 .rep-tabela-detalhe-wrap { overflow-x: visible; overflow-y: visible; }
 .rep-tabela-detalhe { border-collapse: separate; border-spacing: 0 6px; }
@@ -4130,6 +4172,7 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-cartao-feriado td:first-child { box-shadow: inset 3px 0 0 var(--status-leave-text); }
 .rep-status-arredondamento { display: inline-flex; align-items: center; gap: 8px; border-left: 2px solid var(--status-active-text); color: var(--status-active-text); font-weight: 700; cursor: pointer; }
 .rep-status-arredondamento.desativado { border-left-color: var(--status-warning-text); color: var(--status-warning-text); }
+.rep-status-arredondamento.saldo-diario { border-left-color: #7dd3fc; color: #7dd3fc; }
 .rep-status-arredondamento input { position: absolute; opacity: 0; pointer-events: none; }
 .rep-rounding-track { position: relative; width: 34px; height: 18px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 10px; background: color-mix(in srgb, currentColor 12%, transparent); }
 .rep-rounding-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: currentColor; transition: transform .2s ease; }
@@ -4137,6 +4180,18 @@ body.dark-mode #view-dashboard .btn-primary {
 .rep-status-arredondamento input:focus-visible + .rep-rounding-track { outline: 2px solid currentColor; outline-offset: 2px; }
 .rep-status-arredondamento:has(input:disabled) { opacity: .58; cursor: wait; }
 .rep-status-arredondamento.somente-leitura:has(input:disabled) { opacity: .78; cursor: default; }
+.rep-configurar-calculo { align-self: end; min-height: 38px; white-space: nowrap; }
+.rep-politica-calculo-modal { max-width: 760px; }
+.rep-politica-aviso { display: grid; gap: 2px; margin-bottom: 14px; padding: 11px 13px; border-left: 3px solid #7dd3fc; background: color-mix(in srgb, #38bdf8 9%, var(--bg-tertiary)); color: var(--text-secondary); font-size: 11px; }
+.rep-politica-aviso b { color: var(--text-primary); }
+.rep-politica-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; margin-top: 12px; transition: opacity .18s ease; }
+.rep-politica-grid.inativo { opacity: .42; }
+.rep-politica-com-unidade { position: relative; }
+.rep-politica-com-unidade .form-control { padding-right: 42px; }
+.rep-politica-com-unidade > span { position: absolute; top: 50%; right: 12px; color: var(--text-muted); font-size: 10px; font-weight: 700; transform: translateY(-50%); pointer-events: none; }
+.rep-politica-exemplo { display: grid; gap: 2px; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-secondary); font-size: 11px; }
+.rep-politica-exemplo b { color: var(--brand-primary); }
+@media (max-width: 640px) { .rep-politica-grid { grid-template-columns: 1fr; } }
 .config-switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; }
 .config-switch input { position: absolute; opacity: 0; pointer-events: none; }
 .config-switch-track { position: relative; width: 42px; height: 22px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-tertiary); transition: background .2s, border-color .2s; }

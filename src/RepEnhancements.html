@@ -337,7 +337,7 @@ async function salvarLancamentosLoteRep_() {
     fecharModal('modal-lancamentos-lote-rep');
     const resultados = document.getElementById('rep-results-container');
     if (resultados) resultados.style.display = 'block';
-    ['rep-btn-export', 'rep-btn-pdf', 'rep-btn-autorizacao-he', 'rep-btn-lancamento', 'rep-btn-lancamento-lote'].forEach(function(id) {
+    ['rep-btn-export', 'rep-btn-pdf', 'rep-btn-alertas-servidor', 'rep-btn-alertas-geral', 'rep-btn-autorizacao-he', 'rep-btn-lancamento', 'rep-btn-lancamento-lote'].forEach(function(id) {
       const botaoAcao = document.getElementById(id);
       if (botaoAcao) botaoAcao.style.display = 'inline-flex';
     });
