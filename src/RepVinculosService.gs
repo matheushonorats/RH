@@ -3,7 +3,9 @@ const REP_VINCULOS_ABA_ = 'Vinculos_REP';
 const REP_VINCULOS_CABECALHO_ = ['Identificador_REP', 'PIS_Oficial', 'Matricula', 'Nome', 'Lotacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
 
 function normalizarIdentificadorRep_(valor) {
-  let digitos = String(valor || '').replace(/\D/g, '');
+  const texto = String(valor || '').trim();
+  if (/^MAT:/i.test(texto)) return 'MAT:' + texto.slice(4).trim().toUpperCase();
+  let digitos = texto.replace(/\D/g, '');
   while (digitos.length > 11 && digitos.charAt(0) === '0') digitos = digitos.slice(1);
   // Alguns AFDs gravam o PIS sem seu zero inicial. O PIS/CPF utilizado no
   // cadastro possui 11 dígitos, portanto esta forma é apenas uma variação de

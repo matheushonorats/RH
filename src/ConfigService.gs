@@ -102,7 +102,7 @@ function desativarUsuario(email) {
   const emailBusca = String(email).toLowerCase().trim();
   
   // Impede que o usuário logado desative a si próprio
-  const emailAtivo = Session.getActiveUser().getEmail().toLowerCase().trim();
+  const emailAtivo = String(obterDadosUsuarioLogado().email || "").toLowerCase().trim();
   if (emailBusca === emailAtivo) {
     throw new Error("Você não pode desativar o seu próprio usuário administrador.");
   }
@@ -170,10 +170,12 @@ function garantirConfiguracaoArredondamentoRep_(aba) {
   const padroes = [
     ['ARREDONDAMENTO_REP', 'SIM', 'Modo legado: arredonda cada marcação do Leitor REP. Desativado, usa os minutos registrados.'],
     ['REGRA_SALDO_DIARIO_REP', 'NAO', 'Quando ativa, substitui o arredondamento por batida pela tolerância e pelas faixas aplicadas ao saldo total do dia.'],
+    ['ARREDONDAMENTO_SOMENTE_HE_REP', 'NAO', 'Quando ativo, preserva os minutos reais nos demais controles e arredonda as batidas somente para calcular horas extras.'],
     ['TOLERANCIA_DEFICIT_REP', '10', 'Minutos de déficit tolerados no total do dia antes de gerar horas devidas.'],
     ['CONTAGEM_DEFICIT_REP', 'INTEGRAL', 'Ao ultrapassar a tolerância: INTEGRAL conta todo o déficit; EXCEDENTE conta apenas o que superar a tolerância.'],
     ['HE_MEIA_MIN_REP', '16', 'Minuto inicial da faixa que arredonda o restante positivo do dia para 30 minutos de hora extra.'],
-    ['HE_HORA_MIN_REP', '46', 'Minuto inicial da faixa que arredonda o restante positivo do dia para uma hora extra completa.']
+    ['HE_HORA_MIN_REP', '46', 'Minuto inicial da faixa que arredonda o restante positivo do dia para uma hora extra completa.'],
+    ['COMPENSACAO_MINUTOS_EXATOS_REP', 'NAO', 'Quando ativa, a compensação usa os minutos reais das marcações, independentemente da política usada para calcular a hora extra.']
   ];
   padroes.forEach(function(registro) {
     if (chaves.indexOf(registro[0]) === -1) aba.appendRow(registro);
@@ -183,7 +185,7 @@ function garantirConfiguracaoArredondamentoRep_(aba) {
 function obterConfiguracaoCalculoRep() {
   const ss = obterPlanilha_();
   const aba = ss.getSheetByName('Configuracoes');
-  if (!aba) return { modo: 'LEGADO', arredondamentoAtivo: true, regraSaldoDiarioAtiva: false, toleranciaDeficitMin: 10, contagemDeficit: 'INTEGRAL', heMeiaMin: 16, heHoraMin: 46 };
+  if (!aba) return { modo: 'LEGADO', arredondamentoAtivo: true, regraSaldoDiarioAtiva: false, arredondamentoSomenteHeAtivo: false, compensacaoMinutosExatos: false, toleranciaDeficitMin: 10, contagemDeficit: 'INTEGRAL', heMeiaMin: 16, heHoraMin: 46 };
   garantirConfiguracaoArredondamentoRep_(aba);
   const dados = aba.getRange(2, 1, aba.getLastRow() - 1, 2).getDisplayValues();
   const mapa = {};
@@ -195,14 +197,17 @@ function obterConfiguracaoCalculoRep() {
   };
   const regraSaldoDiarioAtiva = ehAtivo(mapa.REGRA_SALDO_DIARIO_REP || 'NAO');
   const arredondamentoAtivo = ehAtivo(mapa.ARREDONDAMENTO_REP || 'SIM');
+  const arredondamentoSomenteHeAtivo = ehAtivo(mapa.ARREDONDAMENTO_SOMENTE_HE_REP || 'NAO');
   const contagemDeficit = String(mapa.CONTAGEM_DEFICIT_REP || 'INTEGRAL').toUpperCase() === 'EXCEDENTE' ? 'EXCEDENTE' : 'INTEGRAL';
   const heMeiaMin = numeroEntre(mapa.HE_MEIA_MIN_REP, 16, 1, 59);
   const heHoraMinInformada = numeroEntre(mapa.HE_HORA_MIN_REP, 46, 2, 60);
   const heHoraMin = heHoraMinInformada > heMeiaMin ? heHoraMinInformada : Math.min(60, heMeiaMin + 1);
   return {
-    modo: regraSaldoDiarioAtiva ? 'SALDO_DIARIO' : (arredondamentoAtivo ? 'LEGADO' : 'EXATO'),
+    modo: arredondamentoSomenteHeAtivo ? 'SOMENTE_HE' : (regraSaldoDiarioAtiva ? 'SALDO_DIARIO' : (arredondamentoAtivo ? 'LEGADO' : 'EXATO')),
     arredondamentoAtivo: arredondamentoAtivo,
     regraSaldoDiarioAtiva: regraSaldoDiarioAtiva,
+    arredondamentoSomenteHeAtivo: arredondamentoSomenteHeAtivo,
+    compensacaoMinutosExatos: ehAtivo(mapa.COMPENSACAO_MINUTOS_EXATOS_REP || 'NAO'),
     toleranciaDeficitMin: numeroEntre(mapa.TOLERANCIA_DEFICIT_REP, 10, 0, 59),
     contagemDeficit: contagemDeficit,
     heMeiaMin: heMeiaMin,
@@ -226,7 +231,7 @@ function salvarConfiguracaoCalculoRep(configuracao) {
     if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
     garantirConfiguracaoArredondamentoRep_(aba);
     configuracao = configuracao || {};
-    const modo = ['LEGADO', 'EXATO', 'SALDO_DIARIO'].includes(String(configuracao.modo || '').toUpperCase())
+    const modo = ['LEGADO', 'EXATO', 'SALDO_DIARIO', 'SOMENTE_HE'].includes(String(configuracao.modo || '').toUpperCase())
       ? String(configuracao.modo).toUpperCase()
       : (configuracao.regraSaldoDiarioAtiva ? 'SALDO_DIARIO' : (configuracao.arredondamentoAtivo === false ? 'EXATO' : 'LEGADO'));
     const inteiro = function(valor, nome, minimo, maximo) {
@@ -242,10 +247,12 @@ function salvarConfiguracaoCalculoRep(configuracao) {
     const valores = {
       ARREDONDAMENTO_REP: modo === 'LEGADO' ? 'SIM' : 'NAO',
       REGRA_SALDO_DIARIO_REP: modo === 'SALDO_DIARIO' ? 'SIM' : 'NAO',
+      ARREDONDAMENTO_SOMENTE_HE_REP: modo === 'SOMENTE_HE' ? 'SIM' : 'NAO',
       TOLERANCIA_DEFICIT_REP: String(tolerancia),
       CONTAGEM_DEFICIT_REP: contagem,
       HE_MEIA_MIN_REP: String(heMeia),
-      HE_HORA_MIN_REP: String(heHora)
+      HE_HORA_MIN_REP: String(heHora),
+      COMPENSACAO_MINUTOS_EXATOS_REP: configuracao.compensacaoMinutosExatos ? 'SIM' : 'NAO'
     };
     const dados = aba.getRange(2, 1, aba.getLastRow() - 1, 2).getDisplayValues();
     const antes = {};
@@ -333,6 +340,16 @@ function salvarConfiguracao(config) {
 /**
  * Reseta a senha de um usuário, exigindo novo cadastro no próximo login
  */
+function revogarSessoesUsuario_(aba, linha) {
+  const cabecalhos = aba.getRange(1, 1, 1, Math.max(5, aba.getLastColumn())).getValues()[0];
+  let coluna = cabecalhos.indexOf('SessoesRevogadasEm') + 1;
+  if (!coluna) {
+    coluna = cabecalhos.length + 1;
+    if (coluna > aba.getMaxColumns()) aba.insertColumnAfter(aba.getMaxColumns());
+    aba.getRange(1, coluna).setValue('SessoesRevogadasEm');
+  }
+  aba.getRange(linha, coluna).setValue(Date.now());
+}
 function resetarSenhaUsuario(email) {
   if (!verificarSeEhAdmin()) {
     throw new Error("Você não possui permissão para gerenciar usuários.");
@@ -348,6 +365,7 @@ function resetarSenhaUsuario(email) {
     
     for (let i = 1; i < dados.length; i++) {
       if (String(dados[i][0]).toLowerCase().trim() === emailBusca) {
+        revogarSessoesUsuario_(aba, i + 1);
         aba.getRange(i + 1, 5).setValue(""); // Limpa a coluna SenhaHash (coluna E)
         lancarLogSemLock_("RESET_SENHA", "Usuarios", "A senha do usuário foi resetada pelo Administrador.", "", "", "", emailBusca);
         return true;

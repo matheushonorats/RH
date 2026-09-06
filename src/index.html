@@ -9,6 +9,7 @@
     <script>if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
     <script>window.__MODO_LABORATORIO_ENTIDADE__ = <?!= modoLaboratorioEntidade ? 'true' : 'false' ?>;</script>
     <?!= incluir("Styles"); ?>
+    <?!= incluir("WorkspaceLayout"); ?>
   </head>
   <body class="dark-mode">
     
@@ -22,6 +23,7 @@
         </div>
         
         <!-- Formulário Padrão para gerenciadores de senha -->
+        <?!= incluir("VersionChoice"); ?>
         <form id="login-form" onsubmit="processarLogin(event)">
           <div class="form-group">
             <label class="form-label" for="login-email">E-mail Corporativo</label>
@@ -42,7 +44,7 @@
         </form>
         
         <div class="login-footer" style="margin-top: 24px; text-align: center; font-size: 11px; color: var(--text-muted);">
-          <p>Secretaria Municipal de Turismo de São Sebastião/SP<br>O login é válido por 24 horas.</p>
+          <p>Secretaria Municipal de Turismo de São Sebastião/SP<br>A sessão expira após 7 dias sem uso. Em computador compartilhado, saia da conta ao terminar.</p>
         </div>
       </div>
     </div>
@@ -491,25 +493,25 @@
                 <details class="rep-actions-menu" id="rep-actions-menu">
                   <summary class="btn btn-secondary"><span data-lucide="ellipsis"></span> Mais ações</summary>
                   <div class="rep-actions-menu-panel">
-                    <button id="rep-btn-lancamento-lote" class="btn btn-secondary" style="display: none;" onclick="abrirLancamentosLoteRep_()">
+                    <button id="rep-btn-lancamento-lote" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); abrirLancamentosLoteRep_()">
                       <span data-lucide="list-plus"></span> Ajustes de ponto em lote
                     </button>
-                    <button id="rep-btn-lancamento" class="btn btn-secondary" style="display: none;" onclick="abrirLancamentoDiretoRep_()">
+                    <button id="rep-btn-lancamento" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); abrirLancamentoDiretoRep_()">
                       <span data-lucide="plus-circle"></span> Novo lançamento
                     </button>
-                    <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="exportarRepPdf()">
+                    <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRepPdf()">
                       <span data-lucide="file-down"></span> PDF do servidor
                     </button>
-                    <button id="rep-btn-alertas-servidor" class="btn btn-secondary" style="display: none;" onclick="exportarRelatorioAlertasRep_('servidor')">
+                    <button id="rep-btn-alertas-servidor" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRelatorioAlertasRep_('servidor')">
                       <span data-lucide="file-warning"></span> Alertas do servidor (PDF)
                     </button>
-                    <button id="rep-btn-alertas-geral" class="btn btn-secondary" style="display: none;" onclick="exportarRelatorioAlertasRep_('geral')">
+                    <button id="rep-btn-alertas-geral" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRelatorioAlertasRep_('geral')">
                       <span data-lucide="files"></span> Alertas gerais do mês (PDF)
                     </button>
-                    <button id="rep-btn-autorizacao-he" class="btn btn-secondary" style="display: none;" onclick="exportarAutorizacaoHorasExtrasRep_()">
+                    <button id="rep-btn-autorizacao-he" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarAutorizacaoHorasExtrasRep_()">
                       <span data-lucide="file-signature"></span> Autorização de HE
                     </button>
-                    <button id="rep-btn-export" class="btn btn-secondary" style="display: none;" onclick="exportarRepExcel()">
+                    <button id="rep-btn-export" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRepExcel()">
                       <span data-lucide="file-spreadsheet"></span> Exportar auditoria (.xlsx)
                     </button>
                   </div>
@@ -544,13 +546,13 @@
                   <input id="rep-rounding-toggle" type="checkbox" checked onchange="alterarArredondamentoRepNoPainel_(this)">
                   <i class="rep-rounding-track" aria-hidden="true"></i>
                 </label>
-                <button type="button" class="btn btn-secondary rep-salvar-alteracoes" onclick="salvarAlteracoesPendentesRep_({ manual: true })" id="btn-rep-salvar-manual" disabled>Tudo salvo</button>
+                <button type="button" class="btn btn-secondary rep-salvar-alteracoes" onclick="salvarAlteracoesPendentesRep_({ manual: true })" id="btn-rep-salvar-manual" disabled>Nenhuma alteração pendente</button>
               </div>
 
               <div class="filters-bar rep-filters-bar">
                 <div style="flex: 2; min-width: 200px;">
                   <label class="rep-filter-label" for="rep-search-input">Servidor</label>
-                  <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar por nome ou PIS/CPF..." oninput="renderizarListaRep()">
+                  <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar por nome ou PIS/CPF..." oninput="agendarRenderizacaoListaRep_()">
                 </div>
                 <div style="width: 140px;">
                   <label class="rep-filter-label" for="rep-filter-ano">Ano</label>
@@ -634,6 +636,7 @@
                 </details>
               </div>
 
+              <section id="rep-cartao-manual-inline" class="rep-cartao-manual-inline" hidden aria-live="polite"></section>
               <div id="rep-servidores-list" style="display: flex; flex-direction: column; gap: 16px;">
                 <!-- Cards de Servidores injetados via JS -->
               </div>
@@ -657,8 +660,8 @@
                   <select id="rep-ajuste-lancamento" class="form-control"></select>
                   <small class="form-help">Use esta lista somente se o lançamento correto não tiver sido associado automaticamente.</small>
                 </div>
-                <div id="rep-ajuste-compensacao" class="rep-ajuste-compensacao" hidden>
-                  <label class="form-label" for="rep-ajuste-compensacao-horas">Compensação com horas positivas do mês</label>
+                <details id="rep-ajuste-compensacao" class="rep-ajuste-compensacao" hidden>
+                  <summary>Compensação com horas positivas do mês</summary>
                   <div id="rep-ajuste-compensacao-resumo" class="rep-compensacao-resumo"></div>
                   <div id="rep-compensacao-origens" class="rep-compensacao-origens"></div>
                   <div class="rep-compensacao-campos">
@@ -667,8 +670,8 @@
                     <button type="button" class="btn btn-secondary" onclick="limparOrigensCompensacaoRep_()">Remover compensação</button>
                   </div>
                   <input id="rep-ajuste-compensacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a compensação">
-                  <small class="form-help">Informe o tempo bruto retirado de cada dia. Exemplo: 09:00 retiradas de uma jornada contínua com 1h de intervalo aplicam 08:00 na compensação. É possível combinar vários dias. A operação não altera o AFD original.</small>
-                </div>
+                  <small class="form-help">Em cada origem, informe primeiro o limite total autorizado no documento e depois quanto será usado neste dia. O sistema soma o que já foi usado em outros dias e bloqueia qualquer excesso. A operação não altera o AFD original.</small>
+                </details>
                 <div id="rep-ajuste-validacao" class="rep-ajuste-validacao" hidden>
                   <label class="rep-validacao-check"><input type="checkbox" id="rep-ajuste-validado"> <span><b>Validar e desconsiderar este alerta</b><small>O AFD e as batidas permanecem visíveis, mas este dia deixa de contar em “Dias a conferir”. Desmarque para reabrir.</small></span></label>
                   <input id="rep-ajuste-validacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a conferência">
@@ -744,6 +747,7 @@
               <button class="tab-button active" id="btn-adm-usuarios" onclick="alternarAbaAdmin('adm-usuarios')">Gerenciar Usuários</button>
               <button class="tab-button" id="btn-adm-configs" onclick="alternarAbaAdmin('adm-configs')">Parametrizações Gerais</button>
               <button class="tab-button" id="btn-adm-logs" onclick="alternarAbaAdmin('adm-logs')">Logs de Auditoria</button>
+              <button class="tab-button" id="btn-adm-protecao" onclick="alternarAbaAdmin('adm-protecao');carregarProtecaoDados()">Proteção dos dados</button>
             </div>
 
             <!-- Sub-Aba 1: Usuários -->
@@ -841,6 +845,23 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+            <div id="adm-protecao" class="tab-panel">
+              <section class="data-protection-card">
+                <div>
+                  <span class="page-eyebrow">CÓPIA DE SEGURANÇA</span>
+                  <h3 id="protecao-dados-titulo">Verificando a base...</h3>
+                  <p id="protecao-dados-resumo">Aguarde a consulta.</p>
+                  <p id="protecao-dados-capacidade"></p>
+                </div>
+                <div class="data-protection-actions">
+                  <a id="protecao-dados-backup-link" class="btn btn-secondary" target="_blank" rel="noreferrer" hidden>Abrir última cópia</a>
+                  <a id="protecao-dados-pasta-link" class="btn btn-secondary" target="_blank" rel="noreferrer" hidden>Abrir pasta de cópias</a>
+                  <a id="protecao-dados-historico-link" class="btn btn-secondary" target="_blank" rel="noreferrer" hidden>Abrir históricos arquivados</a>
+                  <button type="button" class="btn btn-primary" onclick="criarBackupProtecaoDados(this)">Criar cópia agora</button>
+                </div>
+                <small>O sistema cria cópias completas, acompanha o espaço disponível e retira da área ativa somente dados técnicos antigos já concluídos. O histórico continua guardado; pendências nunca são removidas.</small>
+              </section>
             </div>
           </section>
           

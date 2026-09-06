@@ -3,6 +3,7 @@ const REP_ONLINE_ABA_ARQUIVOS_ = 'REP_Arquivos';
 const REP_ONLINE_ABA_APONTAMENTOS_ = 'REP_Apontamentos';
 const REP_ONLINE_ABA_JUSTIFICATIVAS_ = 'REP_Justificativas';
 const REP_ONLINE_ABA_COMPENSACOES_ = 'REP_Compensacoes';
+const REP_ONLINE_ABA_AUTORIZACOES_COMPENSACAO_ = 'REP_Autorizacoes_Compensacao';
 const REP_ONLINE_ABA_VALIDACOES_ = 'REP_Validacoes';
 const REP_ONLINE_ABA_DESCARTES_HE_ = 'REP_Descartes_HE';
 const REP_ONLINE_ABA_FERIADOS_ = 'REP_Feriados';
@@ -28,6 +29,7 @@ const REP_ONLINE_CABECALHO_JUSTIFICATIVAS_ = [
 const REP_ONLINE_CABECALHO_COMPENSACOES_ = [
   'PIS', 'Data', 'Minutos', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo', 'Origens_JSON'
 ];
+const REP_ONLINE_CABECALHO_AUTORIZACOES_COMPENSACAO_ = ['PIS', 'Data_Origem', 'Minutos_Autorizados', 'Atualizado_Em', 'Atualizado_Por', 'Ativo', 'Ordem_Documento'];
 const REP_ONLINE_CABECALHO_VALIDACOES_ = [
   'PIS', 'Data', 'Validado', 'Observacao', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'
 ];
@@ -226,7 +228,7 @@ function finalizarUploadRepOnline(dados) {
 
   const chave = normalizarChaveArquivoRepOnline_(metadados.numeroRep, metadados.nomeOriginal);
   const usuario = obterDadosUsuarioLogado();
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(20000)) throw new Error('Sistema ocupado ao concluir o envio REP. Tente novamente.');
   let pastaAntigaId = '';
   let ignoradoMaisAntigo = false;
@@ -335,6 +337,14 @@ function obterAbaCompensacoesRep_() {
   return aba;
 }
 
+function obterAbaAutorizacoesCompensacaoRep_() {
+  const aba = obterAbaRepOnline_(REP_ONLINE_ABA_AUTORIZACOES_COMPENSACAO_, REP_ONLINE_CABECALHO_AUTORIZACOES_COMPENSACAO_);
+  if (String(aba.getRange(1, 7).getValue() || '') !== 'Ordem_Documento') {
+    aba.getRange(1, 7).setValue('Ordem_Documento').setFontWeight('bold').setBackground('#1f2937').setFontColor('#ffffff');
+  }
+  return aba;
+}
+
 function obterAbaValidacoesRep_() {
   return obterAbaRepOnline_(REP_ONLINE_ABA_VALIDACOES_, REP_ONLINE_CABECALHO_VALIDACOES_);
 }
@@ -380,7 +390,7 @@ function salvarFeriadosRep(dados) {
   if (datas.length > 500) throw new Error('Quantidade de feriados acima do limite permitido.');
   const desejadas = {};
   datas.forEach(function(data) { desejadas[data] = true; });
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar os feriados. Tente novamente.');
   try {
     const aba = obterAbaFeriadosRep_();
@@ -428,7 +438,7 @@ function atualizarFeriadosRep(dados) {
   remover.forEach(function(data) { if (!adicionarSet[data]) removerSet[data] = true; });
   if (adicionar.length + remover.length > 500) throw new Error('Quantidade de alterações de feriados acima do limite permitido.');
 
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao atualizar os feriados. Tente novamente.');
   try {
     const aba = obterAbaFeriadosRep_();
@@ -475,9 +485,34 @@ function listarAjustesRep() {
     });
 }
 
+function dataCivilValidaRep_(valor) {
+  const texto = String(valor || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) return false;
+  const data = new Date(texto + 'T00:00:00Z');
+  return Number.isFinite(data.getTime()) && data.toISOString().slice(0, 10) === texto;
+}
+function validarEntradaAjustesRep_(dados) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(dados.competencia || ''))) throw new Error('Competência inválida.');
+  if (dados.ajustes != null && !Array.isArray(dados.ajustes)) throw new Error('Lista de ajustes inválida.');
+  if ((dados.ajustes || []).length > 500) throw new Error('Limite de 500 ajustes excedido. Nada foi descartado ou salvo.');
+  (dados.ajustes || []).forEach(function(item) {
+    if (!item || !['ADICIONAR', 'DESCONSIDERAR'].includes(String(item.tipo || '').toUpperCase())) throw new Error('Tipo de ajuste inválido.');
+    const origem = String(item.origemData || item.dataReferencia || item.data || '');
+    if (!dataCivilValidaRep_(origem) || origem.slice(0,7) !== dados.competencia) throw new Error('O dia de origem deve pertencer à competência informada.');
+    if (String(item.tipo).toUpperCase() === 'ADICIONAR') {
+      const referencia = String(item.dataReferencia || item.data);
+      if (!dataCivilValidaRep_(item.data) || !dataCivilValidaRep_(referencia) || referencia.slice(0,7) !== dados.competencia || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(item.hora || ''))) throw new Error('Data ou horário inválido na marcação.');
+    } else if (!String(item.eventoChave || '').trim()) throw new Error('Informe a marcação que será desconsiderada.');
+  });
+  (dados.origensSubstituidas || []).forEach(function(data) {
+    if (!dataCivilValidaRep_(data) || String(data).slice(0,7) !== dados.competencia) throw new Error('Dia de substituição inválido.');
+  });
+}
 function salvarAjustesRep(dados) {
+  if (!verificarSeEhOperador()) throw new Error('Acesso de operador necessário.');
   const usuario = obterDadosUsuarioLogado();
   dados = dados || {};
+  validarEntradaAjustesRep_(dados);
   const pis = normalizarIdentificadorRep_(dados.pis);
   const competencia = String(dados.competencia || '');
   if (!pis || !/^\d{4}-\d{2}$/.test(competencia)) throw new Error('Servidor ou competência inválida para salvar os ajustes.');
@@ -488,7 +523,7 @@ function salvarAjustesRep(dados) {
     return null;
   }).filter(Boolean);
   const origensSubstituidas = Array.from(new Set((Array.isArray(dados.origensSubstituidas) ? dados.origensSubstituidas : []).map(String).filter(function(valor) { return /^\d{4}-\d{2}-\d{2}$/.test(valor); })));
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar os ajustes. Tente novamente.');
   try {
     const aba = obterAbaAjustesRep_();
@@ -497,14 +532,17 @@ function salvarAjustesRep(dados) {
     existentes.some(function(linha, indice) { if (normalizarIdentificadorRep_(linha[0]) === pis && String(linha[1]) === competencia) { linhaAlvo = indice + 2; return true; } return false; });
     let anteriores = [];
     if (linhaAlvo > 0) {
-      try { anteriores = JSON.parse(String(existentes[linhaAlvo - 2][2] || '[]')); } catch (e) {}
+      try { anteriores = JSON.parse(String(existentes[linhaAlvo - 2][2] || '[]')); }
+      catch (e) { throw new Error('Os ajustes existentes precisam de recuperação. Nenhum registro foi sobrescrito.'); }
+      if (!Array.isArray(anteriores)) throw new Error('Os ajustes existentes possuem formato inválido. Nenhum registro foi sobrescrito.');
     }
     const origens = origensSubstituidas.length ? origensSubstituidas : ajustes.map(function(item) { return String(item.origemData || ''); }).filter(Boolean);
     const conjuntoOrigens = {};
     origens.forEach(function(origem) { conjuntoOrigens[origem] = true; });
     const preservados = (Array.isArray(anteriores) ? anteriores : []).filter(function(item) { return !conjuntoOrigens[String(item && item.origemData || '')]; });
     const recebidos = ajustes.filter(function(item) { return !origens.length || conjuntoOrigens[String(item.origemData || '')]; });
-    const ajustesFinais = preservados.concat(recebidos).slice(0, 500);
+    const ajustesFinais = preservados.concat(recebidos);
+    if (ajustesFinais.length > 500) throw new Error('Limite de 500 ajustes excedido. Os registros anteriores foram preservados.');
     const json = JSON.stringify(ajustesFinais);
     if (json.length > 30000) throw new Error('Os ajustes desta competência ultrapassaram o limite permitido.');
     const valores = [[pis, competencia, json, new Date(), usuario.nome || usuario.email || '', ajustesFinais.length ? 'Sim' : 'Não']];
@@ -521,8 +559,9 @@ function salvarAjustesRep(dados) {
  * Cada rotina continua usando sua própria validação, bloqueio e escrita idempotente.
  * Se uma operação falhar, o lote é interrompido e pode ser reenviado com segurança.
  */
-function salvarAlteracoesLoteRep(lote) {
+function salvarAlteracoesLoteRep(lote, opcoes) {
   obterDadosUsuarioLogado();
+  if (!verificarSeEhOperador()) throw new Error('Acesso de operador necessario para alterar ponto.');
   const operacoes = Array.isArray(lote) ? lote : [];
   if (!operacoes.length) return [];
   if (operacoes.length > 100) throw new Error("O lote do REP excedeu o limite de 100 alterações.");
@@ -530,22 +569,29 @@ function salvarAlteracoesLoteRep(lote) {
   const executores = {
     AJUSTES: salvarAjustesRep,
     COMPENSACAO: salvarCompensacaoRep,
+    AUTORIZACAO_COMPENSACAO: salvarAutorizacaoCompensacaoRep,
     VALIDACAO: salvarValidacaoRep,
     DESCARTE_HE: salvarDescarteHoraExtraRep
   };
   const resultados = [];
+  let interrompido = false;
   operacoes.forEach(function(operacao, indice) {
     const tipo = String(operacao && operacao.tipo || "").toUpperCase();
     const executar = executores[tipo];
-    if (typeof executar !== "function") throw new Error("Tipo de alteração REP não permitido no lote: " + tipo + ".");
     try {
+      if (interrompido) throw new Error("Aguardando a correção da alteração anterior.");
+      if (typeof executar !== "function") throw new Error("Tipo de alteração REP não permitido no lote: " + tipo + ".");
       resultados.push({
         chave: String(operacao.chave || ""),
         tipo: tipo,
+        sucesso: true,
         resultado: executar(operacao.dados || {})
       });
     } catch (erro) {
-      throw new Error("Falha na alteração " + (indice + 1) + " (" + tipo + "): " + (erro && erro.message ? erro.message : erro));
+      const mensagem = "Falha na alteração " + (indice + 1) + " (" + tipo + "): " + (erro && erro.message ? erro.message : erro);
+      if (!opcoes || !opcoes.confirmacaoIndividual) throw new Error(mensagem);
+      resultados.push({ chave: String(operacao && operacao.chave || ""), tipo: tipo, sucesso: false, erro: mensagem });
+      interrompido = true;
     }
   });
   return resultados;
@@ -567,7 +613,7 @@ function salvarConferenciaRep(dados) {
   const competencia = String(dados.competencia || '');
   const conferido = dados.conferido === true;
   if (!pis || !/^\d{4}-\d{2}$/.test(competencia)) throw new Error('Servidor ou competência inválida para a conferência.');
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a conferência. Tente novamente.');
   try {
     const aba = obterAbaConferenciasRep_();
@@ -626,7 +672,7 @@ function salvarDescarteHoraExtraRep(dados) {
   const saldoMinutos = Number(dados.saldoMinutos);
   if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para desconsiderar a hora extra.');
   if (saldoAjustado && (!Number.isInteger(saldoMinutos) || saldoMinutos < -1440 || saldoMinutos > 1440)) throw new Error('Informe um saldo válido entre -24:00 e 24:00.');
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao atualizar a hora extra. Tente novamente.');
   try {
     const aba = obterAbaDescartesHoraExtraRep_();
@@ -656,7 +702,7 @@ function salvarValidacaoRep(dados) {
   const observacao = String(dados.observacao || '').trim().slice(0, 500);
   if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para validar a conferência.');
 
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a validação. Tente novamente.');
   try {
     const aba = obterAbaValidacoesRep_();
@@ -697,26 +743,105 @@ function listarCompensacoesRep() {
     });
 }
 
-function salvarCompensacaoRep(dados) {
+function listarAutorizacoesCompensacaoRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaAutorizacoesCompensacaoRep_();
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_AUTORIZACOES_COMPENSACAO_.length).getValues()
+    .filter(function(linha) { return linha[0] && String(linha[5] || 'Sim').toLowerCase() !== 'não'; })
+    .map(function(linha) {
+      return { pis: normalizarIdentificadorRep_(linha[0]), data: linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || ''), minutos: Number(linha[2] || 0), atualizadoEm: linha[3] instanceof Date ? linha[3].toISOString() : String(linha[3] || ''), atualizadoPor: String(linha[4] || ''), ordem: Math.max(0, Number(linha[6] || 0)) };
+    });
+}
+
+function salvarAutorizacaoCompensacaoRep(dados) {
   const usuario = obterDadosUsuarioLogado();
   dados = dados || {};
   const pis = normalizarIdentificadorRep_(dados.pis);
   const data = String(dados.data || '');
   const minutos = Number(dados.minutos || 0);
+  const ordem = Math.max(0, Math.round(Number(dados.ordem || 0)));
+  if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou dia de origem inválido para a autorização.');
+  if (!Number.isInteger(minutos) || minutos < 0 || minutos > 1440) throw new Error('Informe um teto autorizado válido de até 24 horas.');
+  // Em publicações web sem um documento do Apps Script associado, getDocumentLock()
+  // pode retornar nulo. O ScriptLock continua protegendo a planilha compartilhada.
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
+  if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a autorização. Tente novamente.');
+  try {
+    const aba = obterAbaAutorizacoesCompensacaoRep_();
+    {
+      const abaCompensacoes = obterAbaCompensacoesRep_();
+      let jaUtilizado = 0;
+      if (abaCompensacoes.getLastRow() > 1) abaCompensacoes.getRange(2, 1, abaCompensacoes.getLastRow() - 1, REP_ONLINE_CABECALHO_COMPENSACOES_.length).getValues().forEach(function(linha) {
+        if (normalizarIdentificadorRep_(linha[0]) !== pis || String(linha[6] || 'Sim').toLowerCase() === 'não') return;
+        let origens = [];
+        try { origens = JSON.parse(String(linha[7] || '[]')); } catch (e) {}
+        (Array.isArray(origens) ? origens : []).forEach(function(origem) { if (String(origem && origem.data || '') === data) jaUtilizado += Math.max(0, Number(origem.minutos || 0)); });
+      });
+      if (jaUtilizado > minutos) throw new Error('Este teto é menor que as ' + jaUtilizado + ' minuto(s) já utilizadas desse dia.');
+    }
+    const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_AUTORIZACOES_COMPENSACAO_.length).getValues() : [];
+    let linhaAlvo = -1;
+    existentes.some(function(linha, indice) {
+      const dataLinha = linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || '');
+      if (normalizarIdentificadorRep_(linha[0]) === pis && dataLinha === data) { linhaAlvo = indice + 2; return true; }
+      return false;
+    });
+    const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
+    aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_AUTORIZACOES_COMPENSACAO_.length).setValues([[pis, data, minutos || '', new Date(), usuario.email || usuario.nome || '', minutos ? 'Sim' : 'Não', minutos ? ordem : '']]);
+    aba.getRange(destino, 1, 1, 2).setNumberFormat('@');
+    try { lancarLog('REP_AUTORIZACAO_COMPENSACAO', REP_ONLINE_ABA_AUTORIZACOES_COMPENSACAO_, (minutos ? 'Salvou' : 'Removeu') + ' teto de compensação em ' + data + '.', '', '', String(minutos), pis); } catch (e) {}
+    return { sucesso: true, removido: !minutos };
+  } finally { lock.releaseLock(); }
+}
+
+function salvarCompensacaoRep(dados) {
+  if (!verificarSeEhOperador()) throw new Error('Sem permissão para alterar compensações.');
+  const usuario = obterDadosUsuarioLogado();
+  dados = dados || {};
+  if (!dataCivilValidaRep_(dados.data)) throw new Error('Data de compensação inválida.');
+  if (dados.origens != null && !Array.isArray(dados.origens)) throw new Error('Origens de compensação inválidas.');
+  if ((dados.origens || []).length > 31) throw new Error('Há mais de 31 dias de origem.');
+  if ((dados.origens || []).some(function(item) { return !item || !dataCivilValidaRep_(item.data) || !Number.isInteger(Number(item.minutos)) || Number(item.minutos) <= 0 || Number(item.minutos) > 1440; })) throw new Error('Corrija as datas e os minutos das origens de compensação.');
+  const pis = normalizarIdentificadorRep_(dados.pis);
+  const data = String(dados.data || '');
+  const minutos = Number(dados.minutos || 0);
   const observacao = String(dados.observacao || '').trim().slice(0, 500);
   const origens = (Array.isArray(dados.origens) ? dados.origens : []).slice(0, 31).map(function(item) {
-    return { data: String(item && item.data || ''), minutos: Number(item && item.minutos || 0) };
+    return { data: String(item && item.data || ''), minutos: Number(item && item.minutos || 0), autorizado: Number(item && item.autorizado || 0) };
   }).filter(function(item) { return /^\d{4}-\d{2}-\d{2}$/.test(item.data) && Number.isInteger(item.minutos) && item.minutos > 0 && item.minutos <= 1440; });
   if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para a compensação.');
   if (!Number.isInteger(minutos) || minutos < 0 || minutos > 1440) throw new Error('Informe uma compensação válida de até 24 horas.');
+  if (new Set(origens.map(function(item) { return item.data; })).size !== origens.length) throw new Error('Informe cada dia de origem apenas uma vez.');
   if (origens.some(function(item) { return item.data === data || item.data.slice(0, 7) !== data.slice(0, 7); })) throw new Error('As horas devem vir de outros dias da mesma competência.');
+  if (origens.some(function(item) { return !Number.isInteger(item.autorizado) || item.autorizado <= 0 || item.autorizado > 1440 || item.minutos > item.autorizado; })) throw new Error('Informe um limite autorizado válido para cada dia de origem.');
   if (origens.length && origens.reduce(function(total, item) { return total + item.minutos; }, 0) !== minutos) throw new Error('A soma das horas de origem difere do total da compensação.');
 
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar a compensação. Tente novamente.');
   try {
     const aba = obterAbaCompensacoesRep_();
     const existentes = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_COMPENSACOES_.length).getValues() : [];
+    const limitesPersistidos = {};
+    const abaAutorizacoes = obterAbaAutorizacoesCompensacaoRep_();
+    if (abaAutorizacoes.getLastRow() > 1) abaAutorizacoes.getRange(2, 1, abaAutorizacoes.getLastRow() - 1, REP_ONLINE_CABECALHO_AUTORIZACOES_COMPENSACAO_.length).getValues().forEach(function(linha) {
+      const dataLinha = linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || '');
+      if (normalizarIdentificadorRep_(linha[0]) === pis && String(linha[5] || 'Sim').toLowerCase() !== 'não') limitesPersistidos[dataLinha] = Number(linha[2] || 0);
+    });
+    origens.forEach(function(origemNova) {
+      let usadoEmOutrosDias = 0;
+      existentes.forEach(function(linha) {
+        const dataLinha = linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || '');
+        if (normalizarIdentificadorRep_(linha[0]) !== pis || dataLinha === data || String(linha[6] || 'Sim').toLowerCase() === 'não') return;
+        let lista = [];
+        try { lista = JSON.parse(String(linha[7] || '[]')); } catch (e) {}
+        (Array.isArray(lista) ? lista : []).forEach(function(origemExistente) {
+          if (String(origemExistente && origemExistente.data || '') === origemNova.data) usadoEmOutrosDias += Math.max(0, Number(origemExistente.minutos || 0));
+        });
+      });
+      const limiteEfetivo = Number(limitesPersistidos[origemNova.data] || origemNova.autorizado || 0);
+      if (usadoEmOutrosDias + origemNova.minutos > limiteEfetivo) throw new Error('O total utilizado do dia ' + origemNova.data + ' ultrapassa o limite autorizado no documento.');
+    });
     let linhaAlvo = -1;
     existentes.some(function(linha, indice) {
       const dataLinha = linha[1] instanceof Date ? Utilities.formatDate(linha[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(linha[1] || '');
@@ -764,7 +889,10 @@ function salvarJustificativaLancamentoRep(dados) {
   if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('Servidor ou data inválida para associar o lançamento.');
   if (linhaLancamento && (!Number.isInteger(linhaLancamento) || linhaLancamento < 2)) throw new Error('Lançamento inválido.');
   if (linhaLancamento) {
-    const servidor = obterListaServidores().find(function(item) { return normalizarIdentificadorRep_(item.pis) === pis; });
+    const servidor = obterListaServidores().find(function(item) {
+      const matricula = String(item.matricula || '').trim().toUpperCase();
+      return normalizarIdentificadorRep_(item.pis) === pis || (matricula && normalizarIdentificadorRep_('MAT:' + matricula) === pis);
+    });
     const lancamento = obterListaLancamentos().find(function(item) { return Number(item.linhaPlanilha) === linhaLancamento; });
     if (!servidor || !lancamento || lancamento.identidadeConsistente === false || !ehTipoAusenciaConflitante_(lancamento.tipo)) {
       throw new Error('O lançamento selecionado não é uma ausência válida deste servidor.');
@@ -774,7 +902,7 @@ function salvarJustificativaLancamentoRep(dados) {
     }
   }
 
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao associar a ausência. Tente novamente.');
   try {
     const aba = obterAbaJustificativasRep_();
@@ -826,7 +954,7 @@ function salvarApontamentoRep(dados) {
   const texto = String(dados.texto || '').trim();
   if (!pis || !/^\d{4}-\d{2}-\d{2}$/.test(data) || !texto) throw new Error('Informe o servidor, a competência/data e o texto do apontamento.');
   if (texto.length > 2000) throw new Error('O apontamento deve possuir no máximo 2.000 caracteres.');
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao salvar o apontamento. Tente novamente.');
   try {
     const aba = obterAbaApontamentosRep_();
@@ -868,7 +996,7 @@ function definirStatusApontamentoRep(id, status) {
 
 function excluirApontamentoRep(id) {
   obterDadosUsuarioLogado();
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado ao excluir o apontamento. Tente novamente.');
   try {
     const aba = obterAbaApontamentosRep_();

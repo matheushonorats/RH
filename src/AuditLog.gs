@@ -113,7 +113,9 @@ function verificarERotacionarLogs_(ss, abaLogs) {
     const arquivo = pasta.createFile(nomeArquivo, csvConteudo, MimeType.CSV);
 
     if (arquivo && arquivo.getId()) {
-      range.clearContent();
+      // Apagar apenas o conteúdo não devolve capacidade ao arquivo: as linhas
+      // continuam reservadas e contam no limite. Regrava e reduz a aba.
+      regravarTabelaCompactada_(abaLogs, [], Math.max(9, abaLogs.getLastColumn()));
       // Usa a versão interna para não tentar adquirir lock novamente
       lancarLogInterno_(
         "ROTACAO_LOGS",

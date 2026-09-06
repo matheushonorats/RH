@@ -552,7 +552,7 @@ function construirMapaStatusServidores_(ss) {
     let statusLancamento = idxStatusLancamento !== -1 ? normalizarCabecalho_(linha[idxStatusLancamento]) : "";
     
     // Ignora anulados
-    if (tipoDoc.includes("NAO EFETIVADO") || tipoDoc.includes("ANULADO") || statusLancamento.includes("ANULAD") || statusLancamento.includes("CANCELAD")) continue;
+    if (tipoDoc.includes("NAO EFETIVADO") || tipoDoc.includes("ANULADO") || statusLancamentoInativo_(statusLancamento)) continue;
     
     let dataInicio = normalizarDataServidorObjeto_(linha[colIdxDataIni]);
     if (!dataInicio) continue;

@@ -3,23 +3,65 @@
  * Módulo de Geração de Relatórios (RelatoriosService)
  */
 
-function obterConfiguracaoAutorizacaoHorasExtras() {
+function obterConfiguracaoAutorizacaoHorasExtras(matricula) {
   obterDadosUsuarioLogado();
   const ss = obterPlanilha_();
   const aba = ss.getSheetByName('Configuracoes');
   const config = aba ? obterMapaConfiguracoes_(aba) : {};
   let descricoes = [];
   try { descricoes = JSON.parse(config.DESCRICOES_HORAS_EXTRAS || '[]'); } catch (e) {}
+  let descricoesPorServidor = {};
+  try { descricoesPorServidor = JSON.parse(config.DESCRICOES_HORAS_EXTRAS_POR_SERVIDOR || '{}'); } catch (e) {}
   const descricaoPadrao = config.DESCRICAO_PADRAO_HORAS_EXTRAS || 'Serviços extraordinários conforme registros de ponto.';
   descricoes = [descricaoPadrao].concat(Array.isArray(descricoes) ? descricoes : []).map(function(item) { return String(item || '').trim(); }).filter(function(item, indice, lista) { return item && lista.indexOf(item) === indice; });
+  const chaveServidor = String(matricula || '').trim().toUpperCase();
+  const descricaoServidor = chaveServidor && descricoesPorServidor && typeof descricoesPorServidor[chaveServidor] === 'string'
+    ? String(descricoesPorServidor[chaveServidor]).trim()
+    : '';
   return {
     setor: config.SETOR_HORAS_EXTRAS || 'TURISMO',
     secretaria: config.SECRETARIA_HORAS_EXTRAS || 'SETUR',
     secretarioNome: config.SECRETARIO_NOME || 'LEANDRO PEREIRA DA SILVA',
     secretarioCargo: config.SECRETARIO_CARGO || 'Secretário de Turismo',
     descricaoPadrao: descricaoPadrao,
+    descricaoServidor: descricaoServidor,
     descricoes: descricoes
   };
+}
+
+function salvarDescricaoAutorizacaoHorasExtrasServidor(matricula, descricao) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para salvar a descrição de horas extras.');
+  const chaveServidor = String(matricula || '').trim().toUpperCase().slice(0, 80);
+  descricao = String(descricao || '').trim().replace(/\s+/g, ' ').slice(0, 700);
+  if (!chaveServidor) throw new Error('Servidor inválido para salvar a descrição.');
+  if (!descricao) throw new Error('Informe uma descrição válida.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Configuracoes');
+    if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
+    const dados = aba.getDataRange().getValues();
+    let linha = -1;
+    let porServidor = {};
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0] || '').trim() === 'DESCRICOES_HORAS_EXTRAS_POR_SERVIDOR') {
+        linha = i + 1;
+        try { porServidor = JSON.parse(String(dados[i][1] || '{}')); } catch (e) {}
+        break;
+      }
+    }
+    if (!porServidor || Array.isArray(porServidor) || typeof porServidor !== 'object') porServidor = {};
+    porServidor[chaveServidor] = descricao;
+    const chaves = Object.keys(porServidor);
+    if (chaves.length > 500) {
+      chaves.slice(0, chaves.length - 500).forEach(function(chave) { delete porServidor[chave]; });
+    }
+    const valor = JSON.stringify(porServidor);
+    if (linha > 0) aba.getRange(linha, 2).setValue(valor);
+    else aba.appendRow(['DESCRICOES_HORAS_EXTRAS_POR_SERVIDOR', valor, 'Última descrição usada por servidor na autorização de horas extras']);
+    try { lancarLog('SALVAR_DESCRICAO_HE_SERVIDOR', 'Configuracoes', 'Salvou a descrição de serviços da autorização de horas extras para um servidor.', chaveServidor, '', descricao, ''); } catch (e) {}
+    return descricao;
+  } finally { lock.releaseLock(); }
 }
 
 function salvarDescricaoAutorizacaoHorasExtras(descricao) {

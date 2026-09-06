@@ -105,6 +105,30 @@ function verificarSessao(token) {
 
   const usuario = registro.usuario;
   if (!usuario || !usuario.email || !usuario.ativo) throw new Error("Sua conta de usuário está inativa no sistema.");
+  const abaUsuariosAtual = obterPlanilha_().getSheetByName("Usuarios");
+  const dadosUsuariosAtuais = abaUsuariosAtual ? abaUsuariosAtual.getDataRange().getValues() : [];
+  const cadastroAtual = dadosUsuariosAtuais.slice(1).find(function(linha) {
+    return String(linha[0] || "").trim().toLowerCase() === String(usuario.email).trim().toLowerCase();
+  });
+  if (!cadastroAtual || String(cadastroAtual[3]).trim() !== "Sim") {
+    cache.remove("rh_sessao_" + token);
+    props.deleteProperty(chavePersistente);
+    throw new Error("Sua conta foi desativada. Entre em contato com o administrador.");
+  }
+  usuario.nome = String(cadastroAtual[1] || "");
+  const indiceRevogacao = (dadosUsuariosAtuais[0] || []).indexOf('SessoesRevogadasEm');
+  const revogadoEm = indiceRevogacao >= 0 ? Number(cadastroAtual[indiceRevogacao] || 0) : 0;
+  if (revogadoEm && Number(registro.criadoEm || 0) <= revogadoEm) {
+    cache.remove("rh_sessao_" + token);
+    props.deleteProperty(chavePersistente);
+    throw new Error("O acesso foi redefinido pelo administrador. Entre novamente.");
+  }
+  usuario.papel = String(cadastroAtual[2] || "").trim();
+  if (!cache.get('rh_protecao_gatilho_verificado')) {
+    try { garantirGatilhoManutencaoSistema_(); }
+    catch (e) { Logger.log('Proteção automática ainda não pôde ser configurada: ' + e.toString()); }
+    cache.put('rh_protecao_gatilho_verificado', 'sim', 21600);
+  }
 
   const agora = Date.now();
   const renovarPersistencia = agora - Number(registro.ultimoAcessoEm || 0) >= 15 * 60 * 1000;
@@ -154,7 +178,9 @@ function obterFuncoesApiPermitidas_() {
     obterDadosCompletos: obterDadosCompletos,
     obterConfiguracaoAutorizacaoHorasExtras: obterConfiguracaoAutorizacaoHorasExtras,
     salvarDescricaoAutorizacaoHorasExtras: salvarDescricaoAutorizacaoHorasExtras,
+    salvarDescricaoAutorizacaoHorasExtrasServidor: salvarDescricaoAutorizacaoHorasExtrasServidor,
     gerenciarDescricaoAutorizacaoHorasExtras: gerenciarDescricaoAutorizacaoHorasExtras,
+    excluirLancamento: excluirLancamento,
     obterListaServidores: obterListaServidores,
     salvarPenalidadePeriodoFerias: salvarPenalidadePeriodoFerias,
     salvarPenalidadeAbonosServidor: salvarPenalidadeAbonosServidor,
@@ -222,6 +248,8 @@ function obterFuncoesApiPermitidas_() {
     resetarSenhaUsuario: resetarSenhaUsuario,
     desativarUsuario: desativarUsuario,
     obterListaConfiguracoes: obterListaConfiguracoes,
+    obterStatusProtecaoDados: obterStatusProtecaoDados,
+    criarBackupAgoraProtecaoDados: criarBackupAgoraProtecaoDados,
     obterConfiguracaoCalculoRep: obterConfiguracaoCalculoRep,
     salvarConfiguracaoCalculoRep: salvarConfiguracaoCalculoRep,
     salvarConfiguracao: salvarConfiguracao,
@@ -254,8 +282,12 @@ function registrarAlteracaoDados_() {
 
 function obterVersaoDados() {
   obterDadosUsuarioLogado();
-  const props = PropertiesService.getScriptProperties();
-  return props.getProperty("RH_VERSAO_DADOS") || registrarAlteracaoDados_();
+  try {
+    return 'base-' + String(DriveApp.getFileById(obterPlanilha_().getId()).getLastUpdated().getTime());
+  } catch (e) {
+    const props = PropertiesService.getScriptProperties();
+    return props.getProperty("RH_VERSAO_DADOS") || registrarAlteracaoDados_();
+  }
 }
 
 /**

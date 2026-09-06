@@ -7,11 +7,17 @@ const MANUTENCAO_SISTEMA = {
   pastaArquivo: 'SETUR_RH_Arquivos_Historicos',
   diasMemoriaBruta: 180,
   diasInsightsFinalizados: 365,
-  linhasMinimasAba: 100,
-  versaoGatilho: 'manutencao-diaria-v1'
+  diasFilaConcluida: 90,
+  linhasMinimasAba: 200,
+  folgaLinhasOperacionais: 300,
+  versaoGatilho: 'manutencao-diaria-v3-capacidade'
 };
 
 function garantirGatilhoManutencaoSistema_() {
+  if (typeof betaConectadaProducao_ === 'function') {
+    ScriptApp.getProjectTriggers().filter(function(gatilho) { return gatilho.getHandlerFunction() === 'executarManutencaoAutomaticaSistema'; }).forEach(function(gatilho) { ScriptApp.deleteTrigger(gatilho); });
+    return;
+  }
   const props = PropertiesService.getScriptProperties();
   const existentes = ScriptApp.getProjectTriggers().filter(function(gatilho) {
     return gatilho.getHandlerFunction() === 'executarManutencaoAutomaticaSistema';
@@ -27,6 +33,7 @@ function garantirGatilhoManutencaoSistema_() {
 }
 
 function executarManutencaoAutomaticaSistema() {
+  if (typeof betaConectadaProducao_ === 'function') return;
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return;
 
@@ -34,8 +41,13 @@ function executarManutencaoAutomaticaSistema() {
   try {
     _usuarioSessaoAtual = { email: 'rotina.interna@setur', nome: 'Manutenção Automática', papel: 'Administrador', ativo: true };
     const ss = obterPlanilha_();
+    const integridade = verificarIntegridadeEstruturalRh_(ss);
+    if (!integridade.integra) throw new Error('Manutenção cancelada para proteger os dados: ' + integridade.erros.join(' '));
+    const backup = executarBackupAutomaticoDados_(false);
     const memoria = manterMemoriaEntidade_(ss);
     const insights = manterInsightsEntidade_(ss);
+    const fila = manterFilaSincronizacao_(ss);
+    const compactacao = compactarLinhasNaoUtilizadas_(ss);
     const capacidade = monitorarCapacidadePlanilha_(ss);
 
     lancarLogSemLock_(
@@ -44,15 +56,63 @@ function executarManutencaoAutomaticaSistema() {
       'Manutenção das tabelas auxiliares concluída.',
       'Linhas arquivadas',
       '',
-      'IA_Memoria: ' + memoria.arquivadas + '; IA_Insights: ' + insights.arquivadas + '; células alocadas: ' + capacidade.percentualAlocado + '%.',
+      'Backup: ' + (backup.arquivoId || 'já atualizado') + '; IA_Memoria: ' + memoria.arquivadas + '; IA_Insights: ' + insights.arquivadas + '; fila concluída: ' + fila.arquivadas + '; linhas reservadas liberadas: ' + compactacao.linhasLiberadas + '; células alocadas: ' + capacidade.percentualAlocado + '%.',
       'ROTINA_AUTOMATICA'
     );
   } catch (e) {
+    try {
+      PropertiesService.getScriptProperties().setProperty('RH_BACKUP_ULTIMO_ERRO', String(e && e.message ? e.message : e).slice(0, 1000));
+    } catch (ignorado) {}
     Logger.log('Erro na manutenção automática: ' + e.toString());
   } finally {
     _usuarioSessaoAtual = usuarioAnterior;
     lock.releaseLock();
   }
+}
+
+/**
+ * Tira da planilha ativa apenas operações antigas já concluídas ou canceladas.
+ * Pendências e erros nunca são arquivados, independentemente da idade.
+ */
+function manterFilaSincronizacao_(ss) {
+  const aba = ss.getSheetByName('Fila_Sincronizacao');
+  if (!aba || aba.getLastRow() <= 1) return { arquivadas: 0 };
+  const colunas = Math.max(CABECALHO_FILA_SINCRONIZACAO.length, aba.getLastColumn());
+  const cabecalho = aba.getRange(1, 1, 1, colunas).getDisplayValues()[0];
+  const valores = aba.getRange(2, 1, aba.getLastRow() - 1, colunas).getValues();
+  const limite = new Date(Date.now() - MANUTENCAO_SISTEMA.diasFilaConcluida * 86400000);
+  const arquivar = [];
+  const manter = [];
+  valores.forEach(function(linha) {
+    const status = String(linha[7] || '').toUpperCase();
+    const dataFinal = normalizarDataManutencao_(linha[17] || linha[2]);
+    if ((status === 'CONCLUIDA' || status === 'CANCELADA') && dataFinal && dataFinal < limite) arquivar.push(linha);
+    else manter.push(linha);
+  });
+  if (!arquivar.length) return { arquivadas: 0 };
+  const arquivo = arquivarTabelaCsv_(cabecalho, arquivar, 'Fila_Sincronizacao');
+  regravarTabelaCompactada_(aba, manter, colunas);
+  return { arquivadas: arquivar.length, arquivoId: arquivo.getId() };
+}
+
+/**
+ * O limite do Google conta também linhas vazias que ficaram reservadas. Esta
+ * rotina remove somente a sobra abaixo do último dado, mantendo uma folga para
+ * novos lançamentos. Não altera células preenchidas, fórmulas ou cabeçalhos.
+ */
+function compactarLinhasNaoUtilizadas_(ss) {
+  let linhasLiberadas = 0;
+  const detalhes = [];
+  ss.getSheets().forEach(function(aba) {
+    const ultimaUsada = Math.max(1, aba.getLastRow());
+    const desejadas = Math.max(MANUTENCAO_SISTEMA.linhasMinimasAba, ultimaUsada + MANUTENCAO_SISTEMA.folgaLinhasOperacionais);
+    const excesso = aba.getMaxRows() - desejadas;
+    if (excesso < 100) return;
+    aba.deleteRows(desejadas + 1, excesso);
+    linhasLiberadas += excesso;
+    detalhes.push({ aba: aba.getName(), linhas: excesso });
+  });
+  return { linhasLiberadas: linhasLiberadas, detalhes: detalhes };
 }
 
 function obterDiagnosticoCapacidadePlanilha_(ss) {

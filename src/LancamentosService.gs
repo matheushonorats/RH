@@ -28,7 +28,7 @@ function obterIndicesColunasLancamentos_(cabecalho) {
     anexo3:          indiceCabecalho_(cabecalho, ["ANEXO 3", "ANEXO3"]),
     despacho:        indiceCabecalho_(cabecalho, ["DESPACHO INDIVIDUAL", "DESPACHO"]),
     observacao:      indiceCabecalho_(cabecalho, ["OBSERVACAO INDIVIDUAL", "OBSERVACAO", "OBSERVACOES"]),
-    status:          indiceCabecalho_(cabecalho, ["STATUS", "SITUACAO DO LANCAMENTO", "SITUACAO LANCAMENTO"]),
+    status:          indiceCabecalho_(cabecalho, ["STATUS", "SITUACAO", "SITUACAO DO LANCAMENTO", "SITUACAO LANCAMENTO"]),
     idProtocolo:     indiceCabecalho_(cabecalho, ["ID_PROTOCOLO", "ID PROTOCOLO"]),
     criadoPor:       indiceCabecalho_(cabecalho, ["CRIADO POR"]),
     criadoEm:        indiceCabecalho_(cabecalho, ["CRIADO EM"]),
@@ -42,7 +42,12 @@ function ehLancamentoAnulado_(linha, idx) {
   if (!linha || !idx) return false;
   const tipo = idx.tipo !== -1 ? normalizarCabecalho_(linha[idx.tipo]) : "";
   const status = idx.status !== undefined && idx.status !== -1 ? normalizarCabecalho_(linha[idx.status]) : "";
-  return tipo.includes("ANULAD") || tipo.includes("NAO EFETIVAD") || status.includes("ANULAD") || status.includes("CANCELAD") || status.includes("NAO EFETIVAD");
+  return tipo.includes("ANULAD") || tipo.includes("NAO EFETIVAD") || statusLancamentoInativo_(status);
+}
+
+function statusLancamentoInativo_(status) {
+  const texto = normalizarCabecalho_(status);
+  return texto.includes("ANULAD") || texto.includes("CANCELAD") || texto.includes("EXCLUID") || texto.includes("NAO EFETIVAD");
 }
 
 /**
@@ -76,7 +81,7 @@ function ehTipoAusenciaConflitante_(tipo) {
 }
 
 function criarIntervaloAusenciaLancamento_(lancamento) {
-  if (!lancamento || String(lancamento.status || '').toLowerCase() === 'anulado') return null;
+  if (!lancamento || statusLancamentoInativo_(lancamento.status)) return null;
   if (lancamento.identidadeConsistente === false) return null;
   if (!ehTipoAusenciaConflitante_(lancamento.tipo)) return null;
   const matricula = normalizarChaveMatricula_(lancamento.matricula);
@@ -316,6 +321,7 @@ function verificarAusenciasLotacaoLancamento(dadosLanc) {
 /** Ensures persistence columns are available on legacy spreadsheets. */
 function garantirColunasPersistenciaLancamentos_(aba) {
   const colunas = [
+    { nome: "Status", alternativas: ["STATUS", "SITUACAO", "SITUACAO DO LANCAMENTO", "SITUACAO LANCAMENTO"] },
     { nome: "Dias_Pecunia", alternativas: ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"] },
     { nome: "Reserva_Credito_Futuro", alternativas: ["RESERVA CREDITO FUTURO", "RESERVA DE CREDITO FUTURO"] },
     { nome: "ID_Operacao", alternativas: ["ID OPERACAO", "ID DA OPERACAO"] }
@@ -415,6 +421,45 @@ function obterHistoricoServidor(matricula) {
 }
 
 /**
+ * Exclusão administrativa segura: preserva a linha e sua auditoria, mas a
+ * torna Anulada para que ela não bloqueie férias, cotas ou conflitos futuros.
+ */
+function excluirLancamento(linhaPlanilha) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para excluir lançamentos de RH.');
+  const linha = Number(linhaPlanilha);
+  if (!Number.isInteger(linha) || linha < 2) throw new Error('Lançamento inválido para exclusão.');
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (e) {
+    throw new Error('Sistema ocupado no momento. Tente novamente em alguns segundos.');
+  }
+  try {
+    const ss = obterPlanilha_();
+    const aba = ss.getSheetByName('Lançamentos');
+    if (!aba || linha > aba.getLastRow()) throw new Error('Lançamento não encontrado.');
+    garantirColunasPersistenciaLancamentos_(aba);
+    const cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
+    const idx = obterIndicesColunasLancamentos_(cabecalho);
+    if (idx.tipo === -1 || idx.status === -1) throw new Error('A planilha não possui as colunas necessárias para excluir o lançamento com segurança.');
+    const valores = aba.getRange(linha, 1, 1, cabecalho.length).getValues()[0];
+    const tipo = String(valores[idx.tipo] || '').trim();
+    if (!tipo) throw new Error('Lançamento não encontrado.');
+    if (ehLancamentoAnulado_(valores, idx)) return { sucesso: true, jaExcluido: true };
+    const antes = JSON.stringify(valores);
+    valores[idx.status] = 'Anulado';
+    if (idx.editadoPor !== -1) valores[idx.editadoPor] = String(Session.getActiveUser().getEmail() || '').toLowerCase().trim();
+    if (idx.editadoEm !== -1) valores[idx.editadoEm] = new Date();
+    aba.getRange(linha, 1, 1, cabecalho.length).setValues([valores]);
+    lancarLogSemLock_('EXCLUIR_LANCAMENTO', 'Lançamentos', 'Excluiu administrativamente o lançamento de ' + tipo + '.', 'Lançamento', antes, JSON.stringify(valores), '');
+    CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
+    return { sucesso: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * Salva um novo lançamento ou atualiza um existente (thread-safe e com escrita em lote)
  */
 function salvarLancamento(dadosLanc) {
@@ -492,10 +537,12 @@ function salvarLancamento(dadosLanc) {
     
     let linhaEdit = -1;
     let valorAntes = "";
+    let reativarLancamento = false;
     
     if (dadosLanc.linhaPlanilha && dadosLanc.linhaPlanilha > 1) {
       linhaEdit = parseInt(dadosLanc.linhaPlanilha);
       valorAntes = JSON.stringify(dados[linhaEdit - 1]);
+      reativarLancamento = Boolean(dadosLanc.reativar) && ehLancamentoAnulado_(dados[linhaEdit - 1], idx);
     }
 
     const conflitosPeriodo = encontrarConflitosCandidatoLancamento_(dadosLanc, mapearLinhasLancamentosParaConflitos_(dados, idx));
@@ -662,6 +709,9 @@ function salvarLancamento(dadosLanc) {
     if (idx.observacao !== -1) valoresLinha[idx.observacao] = dadosLanc.observacao || "";
     if (idx.idProtocolo !== -1) valoresLinha[idx.idProtocolo] = dadosLanc.idProtocolo || (linhaEdit !== -1 ? dados[linhaEdit - 1][idx.idProtocolo] : "");
     if (idx.idOperacao !== -1 && idOperacao) valoresLinha[idx.idOperacao] = idOperacao;
+    // Um lançamento anulado permanece no histórico, mas ao ser aberto para
+    // correção e salvo novamente pelo usuário volta a ser um lançamento ativo.
+    if (idx.status !== -1 && (linhaEdit === -1 || reativarLancamento)) valoresLinha[idx.status] = "Ativo";
     
     if (linhaEdit !== -1) {
       // MODO EDIÇÃO: Atualiza auditoria e grava a linha inteira em lote
@@ -688,7 +738,7 @@ function salvarLancamento(dadosLanc) {
     const propsEntidade = PropertiesService.getScriptProperties();
     propsEntidade.deleteProperty('ENTIDADE_ULTIMO_INSIGHT');
     propsEntidade.deleteProperty('ENTIDADE_BRIEFING_DIARIO');
-    return { sucesso: true, duplicadoIgnorado: false };
+    return { sucesso: true, duplicadoIgnorado: false, reativado: reativarLancamento };
   } finally {
     // Garante que o script lock seja liberado
     lock.releaseLock();

@@ -9,4 +9,6 @@ yarn-error.log*
 Thumbs.db
 Exemplos_REP/
 src/tmp/
+src/.tmp/
+src/work/
 src/output/

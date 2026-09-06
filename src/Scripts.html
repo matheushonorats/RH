@@ -193,8 +193,9 @@ const SyncQueue = {
         // Processa o próximo da fila
         if (self.fila.length > 0) {
           setTimeout(() => self.processar(), 500);
-        } else {
-          // Fila vazia: sincroniza dados frescos do servidor em background e atualiza a view atual
+        } else if (currentView !== 'pre-leitura-rep') {
+          // No REP, o recarregamento integral durante a digitação causava travamentos.
+          // O monitor de versão buscará mudanças reais da base sem interromper o trabalho.
           sincronizarEmSegundoPlano(currentView);
         }
       })
@@ -767,6 +768,7 @@ window.addEventListener('online', () => {
   mostrarToast('Conexão restaurada. Sincronizando...', 'success');
   SyncQueue.atualizarUI();
   SyncQueue.processar();
+  if (typeof salvarAlteracoesPendentesRep_ === 'function') salvarAlteracoesPendentesRep_({ automatico: true });
   sincronizarEmSegundoPlano();
 });
 
@@ -796,7 +798,15 @@ function iniciarPolling() {
           AppState.versaoDados = versao;
           return;
         }
-        if (versao && versao !== AppState.versaoDados) sincronizarEmSegundoPlano(currentView);
+        if (versao && versao !== AppState.versaoDados) {
+          const editorRepAtivo = currentView === 'pre-leitura-rep' && (
+            document.getElementById('modal-lancamentos-lote-rep')?.dataset.dirty === 'sim' ||
+            document.activeElement?.closest?.('#view-pre-leitura-rep input, #view-pre-leitura-rep textarea, #view-pre-leitura-rep select')
+          );
+          if (editorRepAtivo) return;
+          if (currentView === 'pre-leitura-rep' && typeof sincronizarAlteracoesRepSegundoPlano_ === 'function') sincronizarAlteracoesRepSegundoPlano_(versao);
+          else sincronizarEmSegundoPlano(currentView);
+        }
       })
       .withFailureHandler(function(erro) { console.warn('Não foi possível consultar mudanças compartilhadas:', mensagemErro(erro)); })
       .obterVersaoDados();
@@ -1012,6 +1022,21 @@ async function navegarPara(idView) {
   return true;
 }
 
+/** Fecha o menu contextual do REP ao escolher uma ação, clicar fora ou pressionar Esc. */
+function fecharMenuAcoesRep_() {
+  const menu = document.getElementById('rep-actions-menu');
+  if (menu) menu.removeAttribute('open');
+}
+
+document.addEventListener('click', function(evento) {
+  const menu = document.getElementById('rep-actions-menu');
+  if (menu && menu.open && !menu.contains(evento.target)) fecharMenuAcoesRep_();
+});
+
+document.addEventListener('keydown', function(evento) {
+  if (evento.key === 'Escape') fecharMenuAcoesRep_();
+});
+
 /** LÓGICA DE LOGIN CUSTOMIZADO */
 
 let stepLogin = 1;
@@ -1175,6 +1200,7 @@ function inicializarUsuario(temCache) {
   try {
     AppState.usuarioLogado = JSON.parse(userJson);
     SyncQueue.restaurar();
+    if (typeof restaurarFilaRep_ === 'function') restaurarFilaRep_();
     SyncQueue.atualizarUI();
   } catch(e) {
     mostrarLogin();
@@ -1452,14 +1478,16 @@ function atualizarDataHoraCabecalho_() {
   const dataLabel = document.getElementById('current-date-label');
   const horaLabel = document.getElementById('current-time-label');
   if (dataLabel) {
-    dataLabel.innerText = new Intl.DateTimeFormat('pt-BR', {
+    if (!window.formatadorDataCabecalhoRep_) window.formatadorDataCabecalhoRep_ = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long', day: '2-digit', month: 'long'
-    }).format(agora);
+    });
+    dataLabel.innerText = window.formatadorDataCabecalhoRep_.format(agora);
   }
   if (horaLabel) {
-    const hora = new Intl.DateTimeFormat('pt-BR', {
+    if (!window.formatadorHoraCabecalhoRep_) window.formatadorHoraCabecalhoRep_ = new Intl.DateTimeFormat('pt-BR', {
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-    }).format(agora);
+    });
+    const hora = window.formatadorHoraCabecalhoRep_.format(agora);
     horaLabel.innerText = hora;
     horaLabel.setAttribute('datetime', agora.toISOString());
   }
@@ -1522,7 +1550,34 @@ const LOADER_FRASES_REP_ = [
   'Transformando TXT em algo que humanos entendem.', 'Quase lá: até a burocracia tem fim.',
   'Procurando horas extras debaixo do tapete.', 'Ajustando a lupa da conferência.',
   'Se aparecer uma batida fantasma, eu aviso.', 'Mantendo o AFD original bem protegido.',
-  'Fazendo contas que o Excel não precisará refazer.', 'Preparando tudo para o fechamento mensal.'
+  'Fazendo contas que o Excel não precisará refazer.', 'Preparando tudo para o fechamento mensal.',
+  'Pedindo licença para a planilha respirar.', 'Alinhando vírgulas que estavam de folga.',
+  'O café do setor ainda não chegou, mas os dados chegaram.', 'Desempacotando batidas com cuidado de porcelana.',
+  'Consultando o oráculo do horário de almoço.', 'Separando o que é atraso do que é aventura.',
+  'Colocando cada minuto em seu devido lugar.', 'Fazendo o REP confessar seus segredos.',
+  'A burocracia está em modo cooperativo hoje.', 'Cruzando os dedos e as marcações.',
+  'Dando uma polida nos números.', 'Procurando o intervalo que sumiu misteriosamente.',
+  'A fila andou. Não foi milagre, foi processamento.', 'Desenrolando o novelo das batidas.',
+  'Mantendo as horas extras longe de boatos.', 'Lendo o AFD sem franzir a testa.',
+  'Atenção: pequenos fantasmas de ponto em inspeção.', 'Convencendo os minutos a ficarem em ordem.',
+  'Guardando cada registro como se fosse uma figurinha rara.', 'O relógio bateu, nós anotamos.',
+  'Atualizando a paciência e os dados.', 'Fazendo uma auditoria com capa invisível.',
+  'Procurando o par perfeito de entrada e saída.', 'A matemática do ponto está aquecendo.',
+  'Tudo sob controle, inclusive os minutos teimosos.', 'Organizando o caos com uma prancheta imaginária.',
+  'O sistema está em conversa séria com o AFD.', 'Hora extra localizada: ela estava se escondendo.',
+  'Checando se ninguém saiu antes de entrar.', 'Transformando carimbos em informação útil.',
+  'Um minuto de cada vez, mas sem demorar um minuto inteiro.', 'Passando pente-fino sem arrancar cabelo.',
+  'Ajustando engrenagens digitais.', 'O fantasma pediu mais cinco segundos.',
+  'Fazendo a ponte entre o relógio e a realidade.', 'Nenhuma batida ficará sem companhia.',
+  'Classificando o que o relógio quis dizer.', 'Reunindo os horários para uma conversa civilizada.',
+  'Os números estão entrando em fila indiana.', 'Validando tudo com olhar de águia e café.',
+  'Organizando o expediente sem usar fita adesiva.', 'O REP está cooperando. Anote a data.',
+  'Quase pronto: só falta convencer o último minuto.', 'A contagem regressiva é emocional, mas funciona.',
+  'Em busca da jornada perfeitamente encaixada.', 'Protegendo o histórico como um tesouro municipal.',
+  'Carregando com responsabilidade e uma pitada de humor.', 'O sistema prometeu não inventar horas hoje.',
+  'Cada batida está recebendo seu crachá.', 'Respire: os dados estão a caminho.',
+  'A planilha piscou. Acho que foi um cumprimento.', 'Preparando uma conferência digna de detetive.',
+  'Fazendo o relógio explicar essa história direitinho.', 'Os minutos já estão quase todos no lugar.'
 ];
 
 function atualizarProgressoLoader_(percentual, texto) {
@@ -1591,11 +1646,12 @@ function iniciarFrasesLoaderRep_() {
   clearTimeout(loaderFraseTimer_);
   loaderFrasesExibidas_ = 0;
   const frase = document.getElementById('loader-frase');
-  const disponiveis = LOADER_FRASES_REP_.slice().sort(() => Math.random() - .5).slice(0, 3);
+  const disponiveis = LOADER_FRASES_REP_.slice().sort(() => Math.random() - .5);
   function proxima() {
     if (!frase || loaderFrasesExibidas_ >= disponiveis.length) return;
-    frase.textContent = disponiveis[loaderFrasesExibidas_++];
-    if (loaderFrasesExibidas_ < disponiveis.length) loaderFraseTimer_ = setTimeout(proxima, 30000);
+    const nome = obterPrimeiroNome(AppState.usuarioLogado?.nome || '') || 'você';
+    frase.textContent = disponiveis[loaderFrasesExibidas_++].replaceAll('{nome}', nome).replaceAll('REP', 'sistema').replaceAll('AFD', 'arquivo de ponto').replaceAll('hashes', 'informações técnicas').replaceAll('TXT', 'arquivo');
+    if (loaderFrasesExibidas_ < disponiveis.length) loaderFraseTimer_ = setTimeout(proxima, 6000);
   }
   proxima();
 }
@@ -1942,7 +1998,7 @@ function montarAusenciasSimultaneasPainelDashboard_(servidores, lancamentos) {
   const ausencias = lancamentos.reduce(function(saida, l) {
     const tipo = normalizarTextoPainelDashboard_(l.tipo);
     const status = normalizarTextoPainelDashboard_(l.status);
-    if (status.includes('ANULAD') || tipo.includes('NAO EFETIVAD') || !/(FERIAS|LICENCA|ABON|ATESTADO|AFAST|FALTA)/.test(tipo)) return saida;
+    if (/(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(status) || tipo.includes('NAO EFETIVAD') || !/(FERIAS|LICENCA|ABON|ATESTADO|AFAST|FALTA)/.test(tipo)) return saida;
     const inicio = dataPainelDashboard_(l.dataInicio);
     if (!inicio) return saida;
     const dias = Math.max(1, Number(l.dias || l.diasFerias || 1));
@@ -2003,7 +2059,7 @@ function montarCenasPainelDashboard_(insight) {
   const sem1Doc = lancamentos.filter(function(l) {
     const status = normalizarTextoPainelDashboard_(l.status);
     const tipo = normalizarTextoPainelDashboard_(l.tipo);
-    if (status.includes('ANULAD') || tipo.includes('NAO EFETIVAD') || String(l.idoc || '').trim()) return false;
+    if (/(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(status) || tipo.includes('NAO EFETIVAD') || String(l.idoc || '').trim()) return false;
     const data = dataPainelDashboard_(l.dataSolicitacao);
     return !data || ((Date.now() - data.getTime()) / 86400000) <= 365;
   });
@@ -2804,7 +2860,8 @@ function abrirFichaServidor(matricula) {
               AppState.lancamentos.push(l);
             }
 
-            if (!l.tipo.toLowerCase().includes("não efetivado") && !l.tipo.toLowerCase().includes("anulado")) {
+            const historicoInativo = /(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(normalizarTextoRep_(l.status || l.tipo));
+            if (!historicoInativo) {
               if (l.dataInicio && l.dataInicio.includes(anoAtual)) {
                 if (l.tipo.toLowerCase().includes("abonada eleitoral")) {
                 } else if (l.tipo.toLowerCase().includes("natalícia") || l.tipo.toLowerCase().includes("natalicia")) {
@@ -2817,7 +2874,7 @@ function abrirFichaServidor(matricula) {
 
             let statusClass = "badge-neutral";
             let statusText = "Ativo";
-            if (l.tipo.toLowerCase().includes("não efetivado") || l.tipo.toLowerCase().includes("anulado")) {
+            if (historicoInativo) {
               statusClass = "badge-inativo";
               statusText = "Anulado";
             }
@@ -2915,7 +2972,7 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
   let html = "";
   lancamentos.forEach(l => {
     let badgeClass = "badge-ativo";
-    if (l.status === "Anulado") {
+    if (/(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(normalizarTextoRep_(l.status || l.tipo))) {
       badgeClass = "badge-inativo";
     }
     
@@ -2954,6 +3011,9 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
           <button class="btn-action" data-action="editar-lanc" data-linha="${l.linhaPlanilha}" title="Editar Tudo">
             <span data-lucide="edit-2" style="width: 14px; height: 14px;"></span>
           </button>
+          ${!/(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(normalizarTextoRep_(l.status || l.tipo)) ? `<button class="btn-action" data-action="excluir-lanc" data-linha="${l.linhaPlanilha}" title="Excluir lançamento" style="color: var(--danger);">
+            <span data-lucide="trash-2" style="width: 14px; height: 14px;"></span>
+          </button>` : ''}
         </div>
       </td>
     </tr>`;
@@ -2966,11 +3026,31 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
       const action = this.dataset.action;
       if (action === 'ver-anexos') visualizarAnexos(this.dataset.a1, this.dataset.a2, this.dataset.a3);
       else if (action === 'editar-lanc') abrirModalLancamento(parseInt(this.dataset.linha));
+      else if (action === 'excluir-lanc') excluirLancamentoInterface_(parseInt(this.dataset.linha));
       else if (action === 'view-lanc') abrirViewLancamento(parseInt(this.dataset.linha));
       else if (action === 'quick-1doc') abrirModalQuick1Doc(parseInt(this.dataset.linha), this.dataset.nome, this.dataset.idoc);
     });
   });
   renderizarIcones();
+}
+
+async function excluirLancamentoInterface_(linhaPlanilha) {
+  const lancamento = (AppState.lancamentos || []).find(function(item) { return Number(item.linhaPlanilha) === Number(linhaPlanilha); });
+  if (!lancamento) return mostrarToast('Lançamento não encontrado para exclusão.', 'error');
+  const confirmou = await abrirConfirm('Excluir este lançamento? Ele será marcado como anulado, continuará no histórico e deixará de bloquear férias, saldos e novos períodos.');
+  if (!confirmou) return;
+  try {
+    exibirLoader(true, 'Excluindo lançamento com segurança...');
+    await chamarBackendPromessa_('excluirLancamento', [linhaPlanilha]);
+    const lista = await chamarBackendPromessa_('obterListaLancamentos', []);
+    AppState.lancamentos = Array.isArray(lista) ? lista : [];
+    filtrarTabelaLancamentos();
+    mostrarToast('Lançamento excluído com segurança e mantido no histórico como anulado.', 'success');
+  } catch (erro) {
+    mostrarToast('Não foi possível excluir o lançamento: ' + mensagemErro(erro), 'error');
+  } finally {
+    exibirLoader(false);
+  }
 }
 
 /**
@@ -3262,6 +3342,11 @@ function abrirModalLancamento(linhaPlanilha) {
       }
       return;
     }
+    const statusLancamento = normalizarTextoRep_(l.status || '');
+    if (/(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(statusLancamento)) {
+      titulo.innerText = "Corrigir Lançamento Anulado";
+      mostrarToast('Este lançamento está anulado. Ao salvar a correção, ele será reativado automaticamente.', 'info');
+    }
     
     document.getElementById('lanc-tipo').value = l.tipo;
       document.getElementById('lanc-idoc').value = l.idoc;
@@ -3418,6 +3503,11 @@ async function salvarDadosLancamento(event) {
   
   const idocInput = document.getElementById('lanc-idoc').value.trim();
   const linhaAtual = parseInt(document.getElementById('lanc-linha').value) || -1;
+  const lancamentoEmEdicao = linhaAtual > 1 && AppState.lancamentos
+    ? AppState.lancamentos.find(l => Number(l.linhaPlanilha) === linhaAtual)
+    : null;
+  const statusLancamentoEmEdicao = normalizarTextoRep_(lancamentoEmEdicao?.status || '');
+  const lancamentoEmEdicaoInativo = Boolean(lancamentoEmEdicao) && /(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(statusLancamentoEmEdicao);
   const tipoDoc = document.getElementById('lanc-tipo').value;
   const servidorLancamento = (AppState.servidores || []).find(item => String(item.matricula) === String(matricula));
   const situacaoLancamento = normalizarTextoRep_(servidorLancamento?.situacao || '');
@@ -3458,9 +3548,7 @@ async function salvarDadosLancamento(event) {
     if (tipoDoc === "Férias" || tipoDoc === "Férias (1/3 Pecúnia)") {
       const servidorSaldo = AppState.servidores.find(s => s.matricula === matricula);
       const totalSolicitado = diasInput + diasPecuniaInput;
-      const lancamentoEditado = linhaAtual > 1 && AppState.lancamentos
-        ? AppState.lancamentos.find(l => l.linhaPlanilha === linhaAtual)
-        : null;
+      const lancamentoEditado = lancamentoEmEdicao;
       const dataInicioFerias = dataInicioInput ? new Date(`${dataInicioInput}T00:00:00`) : null;
       const saldoAtual = parseInt(servidorSaldo && servidorSaldo.saldoHoje, 10) || 0;
       const creditosQueLiberamAteASaida = (servidorSaldo?.periodosFerias || []).reduce(function(total, periodo) {
@@ -3475,7 +3563,7 @@ async function salvarDadosLancamento(event) {
       const inicioAnterior = lancamentoEditado?.dataInicio ? new Date(`${String(lancamentoEditado.dataInicio).split('T')[0]}T00:00:00`) : null;
       const lancamentoAnteriorJaConsiderado = !inicioAnterior || !dataInicioFerias || inicioAnterior <= dataInicioFerias;
       const saldoRecomposto = saldoNaData
-        + (lancamentoEditado && lancamentoAnteriorJaConsiderado
+        + (lancamentoEditado && !lancamentoEmEdicaoInativo && lancamentoAnteriorJaConsiderado
           ? (parseInt(lancamentoEditado.diasDebitados, 10) || parseInt(lancamentoEditado.dias, 10) || 0)
           : 0);
 
@@ -3544,6 +3632,7 @@ async function salvarDadosLancamento(event) {
   const dados = {
     operacaoId: operacaoId,
     linhaPlanilha: document.getElementById('lanc-linha').value,
+    reativar: lancamentoEmEdicaoInativo,
     tipo: tipoDoc,
     idoc: document.getElementById('lanc-idoc').value.trim(),
     matricula: matricula,
@@ -4747,7 +4836,7 @@ function renderizarTabelaConfiguracoes() {
   let html = "";
   
   AppState.configs.forEach(c => {
-    const arredondamentoRep = c.chave === 'ARREDONDAMENTO_REP';
+    const arredondamentoRep = ['ARREDONDAMENTO_REP', 'COMPENSACAO_MINUTOS_EXATOS_REP'].includes(c.chave);
     const ativo = !['NAO', 'NÃO', '0', 'FALSE', 'DESATIVADO'].includes(String(c.valor || '').trim().toUpperCase());
     const controle = arredondamentoRep
       ? `<label class="config-switch"><input type="checkbox" id="cfg-val-${c.linhaPlanilha}" ${ativo ? 'checked' : ''} onchange="this.closest('.config-switch').querySelector('b').textContent=this.checked?'Ativado':'Desativado'"><span class="config-switch-track"></span><b>${ativo ? 'Ativado' : 'Desativado'}</b></label>`
@@ -4772,7 +4861,7 @@ function editarValorConfiguracao(linha, chave) {
   backendApi()
     .withSuccessHandler(async function() {
       mostrarToast(`Parâmetro ${chave} atualizado com sucesso!`, 'success');
-      const chavesCalculoRep = ['ARREDONDAMENTO_REP', 'REGRA_SALDO_DIARIO_REP', 'TOLERANCIA_DEFICIT_REP', 'CONTAGEM_DEFICIT_REP', 'HE_MEIA_MIN_REP', 'HE_HORA_MIN_REP'];
+      const chavesCalculoRep = ['ARREDONDAMENTO_REP', 'REGRA_SALDO_DIARIO_REP', 'ARREDONDAMENTO_SOMENTE_HE_REP', 'TOLERANCIA_DEFICIT_REP', 'CONTAGEM_DEFICIT_REP', 'HE_MEIA_MIN_REP', 'HE_HORA_MIN_REP', 'COMPENSACAO_MINUTOS_EXATOS_REP'];
       if (chavesCalculoRep.includes(chave)) {
         try {
           const configuracao = await chamarBackendPromessa_('obterConfiguracaoCalculoRep', []);
@@ -5360,29 +5449,12 @@ function toggleChatEntidade() {
     solicitarBriefingDiarioEntidade(true);
   }
 
-  fantasma.classList.remove('has-notification', 'chat-open', 'enter-left', 'enter-right');
-
-  // Se a Entidade já está visível por ter uma mensagem não lida, abrir o chat
-  // diretamente. A saída e a segunda entrada davam a impressão de dois fantasmas.
-  if (jaEstavaVisivelComMensagem) {
-    fantasma.classList.remove('leaving', 'exit-left', 'exit-right');
-    fantasma.style.display = 'grid';
-    fantasma.classList.add('chat-open');
-    setTimeout(concluirAberturaChat_, 180);
-    return;
-  }
-
-  fantasma.classList.add('leaving', Math.random() < 0.5 ? 'exit-left' : 'exit-right');
-
-  setTimeout(function() {
-    if (tokenAbertura !== entidadeAberturaToken) return;
-    fantasma.classList.remove('roaming', 'leaving', 'exit-left', 'exit-right');
-    fantasma.style.removeProperty('left');
-    fantasma.style.removeProperty('top');
-    fantasma.style.display = 'grid';
-    fantasma.classList.add('enter-right', 'chat-open');
-    setTimeout(concluirAberturaChat_, 560);
-  }, 640);
+  fantasma.classList.remove('has-notification', 'roaming', 'leaving', 'exit-left', 'exit-right', 'enter-left', 'enter-right');
+  fantasma.style.removeProperty('left');
+  fantasma.style.removeProperty('top');
+  fantasma.style.display = 'grid';
+  fantasma.classList.add('chat-open');
+  requestAnimationFrame(function() { setTimeout(concluirAberturaChat_, jaEstavaVisivelComMensagem ? 120 : 260); });
 }
 
 function solicitarBriefingDiarioEntidade(exibirNoChat = false, forcarAtualizacao = false, notificar = true) {
@@ -5459,18 +5531,51 @@ function fecharChatEntidade() {
   document.getElementById('entidade-chat-window').style.display = 'none';
   const fantasma = document.getElementById('entidade-fab');
   if (!fantasma) return;
-  entidadeFantasmaSaindo = true;
-  fantasma.classList.remove('chat-open', 'enter-left', 'enter-right');
-  fantasma.classList.add('leaving', Math.random() < 0.5 ? 'exit-left' : 'exit-right');
-  setTimeout(function() {
-    fantasma.style.display = 'none';
-    fantasma.classList.remove('leaving', 'exit-left', 'exit-right');
-    entidadeFantasmaSaindo = false;
-    iniciarFantasmaErrante_(true);
-    if (document.getElementById('sync-detailed-status')?.classList.contains('show')) {
-      requestAnimationFrame(mostrarFalaEntidadeStatus_);
+  entidadeFantasmaSaindo = false;
+  fantasma.classList.remove('chat-open', 'enter-left', 'enter-right', 'leaving', 'exit-left', 'exit-right', 'roaming');
+  fantasma.style.removeProperty('left');
+  fantasma.style.removeProperty('top');
+  fantasma.style.display = 'grid';
+}
+
+async function carregarProtecaoDados() {
+  const titulo = document.getElementById('protecao-dados-titulo');
+  const resumo = document.getElementById('protecao-dados-resumo');
+  const capacidade = document.getElementById('protecao-dados-capacidade');
+  if (!titulo || !resumo) return;
+  titulo.textContent = 'Verificando a base...';
+  try {
+    const status = await chamarBackendPromessa_('obterStatusProtecaoDados', []);
+    titulo.textContent = status.integra ? 'Base íntegra' : 'Atenção necessária';
+    const data = status.ultimaCopiaEm ? new Date(status.ultimaCopiaEm).toLocaleString('pt-BR') : 'ainda não criada';
+    resumo.textContent = status.integra ? 'Última cópia completa: ' + data + '.' : (status.erros || []).join(' ');
+    if (capacidade && status.capacidade) {
+      const usado = Number(status.capacidade.percentual || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+      capacidade.textContent = 'Espaço da base em uso: ' + usado + '%. O sistema libera automaticamente linhas vazias e arquiva históricos técnicos antigos antes que o limite se torne um problema.';
     }
-  }, 680);
+    const backup = document.getElementById('protecao-dados-backup-link');
+    const pasta = document.getElementById('protecao-dados-pasta-link');
+    const historico = document.getElementById('protecao-dados-historico-link');
+    if (backup) { backup.hidden = !status.ultimaCopiaUrl; backup.href = status.ultimaCopiaUrl || '#'; }
+    if (pasta) { pasta.hidden = !status.pastaUrl; pasta.href = status.pastaUrl || '#'; }
+    if (historico) { historico.hidden = !status.pastaHistoricoUrl; historico.href = status.pastaHistoricoUrl || '#'; }
+    if (status.ultimoErro) mostrarToast('A última proteção automática informou: ' + status.ultimoErro, 'warning');
+  } catch (erro) {
+    titulo.textContent = 'Não foi possível conferir agora';
+    resumo.textContent = mensagemErro(erro);
+    if (capacidade) capacidade.textContent = '';
+  }
+}
+
+async function criarBackupProtecaoDados(botao) {
+  if (!iniciarOperacaoInterface('backup-dados', botao, 'Criando cópia...')) return;
+  try {
+    await chamarBackendPromessa_('criarBackupAgoraProtecaoDados', []);
+    mostrarToast('Cópia completa criada e confirmada no Drive.', 'success');
+    await carregarProtecaoDados();
+  } catch (erro) {
+    mostrarToast('Não foi possível criar a cópia: ' + mensagemErro(erro), 'error');
+  } finally { finalizarOperacaoInterface('backup-dados', botao); }
 }
 
 function tocarSomNotificacao() {
@@ -5672,7 +5777,7 @@ function obterPosicaoBaseFantasma_() {
   const retanguloConteudo = areaConteudo ? areaConteudo.getBoundingClientRect() : area;
   const paddingEsquerdo = areaConteudo ? parseFloat(getComputedStyle(areaConteudo).paddingLeft || 0) : 0;
   return {
-    x: Math.max(4, retanguloConteudo.left + Math.max(4, (paddingEsquerdo - 34) / 2)),
+    x: Math.max(4, window.innerWidth - 62),
     y: area.top + Math.max(0, (area.height - 34) / 2)
   };
 }
@@ -5791,17 +5896,11 @@ function iniciarFantasmaErrante_(entrarDaBorda) {
   if (!fantasma || entidadeChatAberto || entidadeChatAbrindo || entidadeFantasmaSaindo) return;
   pararFantasmaErrante_();
   fantasma.classList.remove('chat-open', 'has-notification', 'passeando', 'leaving', 'exit-left', 'exit-right', 'enter-left', 'enter-right');
-  fantasma.classList.add('roaming');
+  restaurarFantasmaNoWidget_();
+  fantasma.classList.remove('roaming');
+  fantasma.style.removeProperty('left');
+  fantasma.style.removeProperty('top');
   fantasma.style.display = 'grid';
-  const base = obterPosicaoBaseFantasma_();
-  if (entrarDaBorda || !fantasma.style.left) {
-    fantasma.style.left = '-42px';
-    fantasma.style.top = Math.round(base ? base.y : window.innerHeight - 42) + 'px';
-    requestAnimationFrame(function() { requestAnimationFrame(posicionarFantasmaNaBase_); });
-  } else {
-    posicionarFantasmaNaBase_();
-  }
-  agendarProximaAtividadeFantasma_();
 }
 
 window.addEventListener('resize', function() {
@@ -5939,7 +6038,7 @@ function montarContextoEntidade(mensagemUsuario = '') {
 
   const pendencias1Doc = lancamentos
     .filter(l => {
-      if (String(l.status || '').toLowerCase() === 'anulado') return false;
+      if (/(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(normalizarTextoRep_(l.status || l.tipo))) return false;
       if (String(l.idoc || '').trim()) return false;
       const partes = String(l.dataSolicitacao || '').split('/');
       if (partes.length !== 3) return true;
@@ -6162,6 +6261,7 @@ let apontamentosRep = [];
 let apontamentoRepAtual = null;
 let justificativasLancamentoRep = [];
 let compensacoesRep = [];
+let autorizacoesCompensacaoRep = [];
 let validacoesRep = [];
 let descartesHoraExtraRep = [];
 let feriadosCompartilhadosRep = [];
@@ -6173,7 +6273,7 @@ let repOnlineCarregado = false;
 let repOnlineCarregando = false;
 let arredondamentoRepAtivo = true;
 let configuracaoCalculoRepAtual = {
-  modo: 'LEGADO', arredondamentoAtivo: true, regraSaldoDiarioAtiva: false,
+  modo: 'LEGADO', arredondamentoAtivo: true, regraSaldoDiarioAtiva: false, arredondamentoSomenteHeAtivo: false, compensacaoMinutosExatos: false,
   toleranciaDeficitMin: 10, contagemDeficit: 'INTEGRAL', heMeiaMin: 16, heHoraMin: 46
 };
 const ITENS_POR_PAGINA_REP = 250;
@@ -6342,9 +6442,11 @@ async function carregarModuloRepOnline(forcar) {
     }
     exibirLoader(true, 'Preparando a leitura compartilhada dos AFDs...');
     atualizarProgressoLoader_(3, 'Consultando arquivos e ajustes compartilhados...');
-    const resultados = await Promise.all([
+    // A lista de AFDs é aguardada separadamente para que os indicadores
+    // individuais apareçam enquanto as demais consultas terminam.
+    const promessaArquivosEntrada = chamarBackendPromessa_('listarArquivosPastaEntradaRep', []);
+    const promessasComplementares = [
       chamarBackendPromessa_('obterInfoPastaEntradaRep', []),
-      chamarBackendPromessa_('listarArquivosPastaEntradaRep', []),
       chamarBackendPromessa_('listarApontamentosRep', []),
       chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
       chamarBackendPromessa_('listarCompensacoesRep', []),
@@ -6354,19 +6456,24 @@ async function carregarModuloRepOnline(forcar) {
       chamarBackendPromessa_('listarAjustesRep', []),
       chamarBackendPromessa_('listarConferenciasRep', []),
       chamarBackendPromessa_('obterConfiguracaoCalculoRep', [])
-    ]);
-    infoPastaEntradaRep = resultados[0] || null;
-    const arquivosEntrada = Array.isArray(resultados[1]) ? resultados[1] : [];
+    ];
+    const arquivosRecebidos = await promessaArquivosEntrada;
+    const arquivosEntrada = Array.isArray(arquivosRecebidos) ? arquivosRecebidos : [];
     iniciarProgressoAfdsLoader_(arquivosEntrada);
-    apontamentosRep = Array.isArray(resultados[2]) ? resultados[2] : [];
-    justificativasLancamentoRep = Array.isArray(resultados[3]) ? resultados[3] : [];
-    compensacoesRep = Array.isArray(resultados[4]) ? resultados[4] : [];
-    validacoesRep = Array.isArray(resultados[5]) ? resultados[5] : [];
-    descartesHoraExtraRep = Array.isArray(resultados[6]) ? resultados[6] : [];
-    feriadosCompartilhadosRep = Array.isArray(resultados[7]) ? resultados[7] : [];
-    ajustesCompartilhadosRep = Array.isArray(resultados[8]) ? resultados[8] : [];
-    conferenciasRep = Array.isArray(resultados[9]) ? resultados[9] : [];
-    aplicarConfiguracaoCalculoRep_(resultados[10] || { arredondamentoAtivo: true });
+    atualizarProgressoLoader_(5, arquivosEntrada.length
+      ? `${arquivosEntrada.length} AFD(s) encontrado(s). Carregando dados complementares...`
+      : 'Nenhum AFD encontrado. Carregando dados complementares...');
+    const resultados = await Promise.all(promessasComplementares);
+    infoPastaEntradaRep = resultados[0] || null;
+    apontamentosRep = Array.isArray(resultados[1]) ? resultados[1] : [];
+    justificativasLancamentoRep = Array.isArray(resultados[2]) ? resultados[2] : [];
+    compensacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
+    validacoesRep = Array.isArray(resultados[4]) ? resultados[4] : [];
+    descartesHoraExtraRep = Array.isArray(resultados[5]) ? resultados[5] : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados[6]) ? resultados[6] : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados[7]) ? resultados[7] : [];
+    conferenciasRep = Array.isArray(resultados[8]) ? resultados[8] : [];
+    aplicarConfiguracaoCalculoRep_(resultados[9] || { arredondamentoAtivo: true });
     atualizarCampoFeriadosCompartilhadosRep_();
     repOnlineCarregado = true;
     falhasIntegridadeRep = [];
@@ -6376,20 +6483,7 @@ async function carregarModuloRepOnline(forcar) {
     if (detalhePasta) detalhePasta.textContent = `Verificação iniciada em ${new Date().toLocaleString('pt-BR')}. Comparando tamanho e SHA-256 de cada arquivo.`;
     if (arquivosEntrada.length) {
       limparEstadoLeituraRep_();
-      const arquivos = [];
-      for (let i = 0; i < arquivosEntrada.length; i++) {
-        atualizarProgressoLoader_(8 + ((i / Math.max(1, arquivosEntrada.length)) * 52), `Verificando ${i + 1}/${arquivosEntrada.length}: ${arquivosEntrada[i].nome}`);
-        atualizarProgressoAfdLoader_(i, 'carregando', arquivosEntrada[i].nome);
-        try {
-          arquivos.push(await baixarArquivoPastaEntradaRep_(arquivosEntrada[i], i + 1, arquivosEntrada.length));
-          atualizarProgressoAfdLoader_(i, 'concluido', arquivosEntrada[i].nome);
-          atualizarProgressoLoader_(8 + (((i + 1) / Math.max(1, arquivosEntrada.length)) * 52), `AFD ${i + 1}/${arquivosEntrada.length} verificado: ${arquivosEntrada[i].nome}`);
-        }
-        catch (erro) {
-          atualizarProgressoAfdLoader_(i, 'falhou', arquivosEntrada[i].nome);
-          falhasIntegridadeRep.push({ nome: arquivosEntrada[i].nome, arquivoId: arquivosEntrada[i].id, motivo: mensagemErro(erro), tamanho: arquivosEntrada[i].tamanho });
-        }
-      }
+      const arquivos = await baixarArquivosEntradaEmParaleloRep_(arquivosEntrada);
       if (arquivos.length) {
         atualizarProgressoLoader_(62, 'Integridade confirmada. Interpretando os registros...');
         await processarArquivosRep(arquivos, { origemOnline: true, silencioso: true, origemPastaDrive: true, progressoBase: 62, progressoFaixa: 34 });
@@ -6424,7 +6518,9 @@ async function carregarModuloRepOnline(forcar) {
 }
 
 function normalizarPisRep(valor) {
-  let digitos = String(valor || '').replace(/\D/g, '');
+  const texto = String(valor || '').trim();
+  if (/^MAT:/i.test(texto)) return 'MAT:' + texto.slice(4).trim().toUpperCase();
+  let digitos = texto.replace(/\D/g, '');
   // O AFD legado reserva 12 posições para um PIS de 11 dígitos e pode
   // preenchê-lo com zero à esquerda. Alguns relógios omitem esse primeiro
   // zero: para a conciliação, 10 dígitos representam o mesmo PIS de 11
@@ -6432,6 +6528,60 @@ function normalizarPisRep(valor) {
   while (digitos.length > 11 && digitos.charAt(0) === '0') digitos = digitos.slice(1);
   if (digitos.length === 10) digitos = `0${digitos}`;
   return digitos;
+}
+
+let repAtualizacaoLeveEmAndamento_ = false;
+async function sincronizarAlteracoesRepSegundoPlano_(versaoDetectada) {
+  if (repAtualizacaoLeveEmAndamento_ || repTemAlteracoesPendentes_()) return false;
+  repAtualizacaoLeveEmAndamento_ = true;
+  atualizarTextoSync('Atualizando alterações compartilhadas do REP...', true, 'spinner');
+  try {
+    const resultados = await Promise.all([
+      chamarBackendPromessa_('listarApontamentosRep', []),
+      chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
+      chamarBackendPromessa_('listarCompensacoesRep', []),
+      chamarBackendPromessa_('listarValidacoesRep', []),
+      chamarBackendPromessa_('listarDescartesHoraExtraRep', []),
+      chamarBackendPromessa_('listarFeriadosRep', []),
+      chamarBackendPromessa_('listarAjustesRep', []),
+      chamarBackendPromessa_('listarConferenciasRep', []),
+      chamarBackendPromessa_('obterConfiguracaoCalculoRep', [])
+    ]);
+    apontamentosRep = Array.isArray(resultados[0]) ? resultados[0] : [];
+    justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
+    compensacoesRep = Array.isArray(resultados[2]) ? resultados[2] : [];
+    validacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
+    descartesHoraExtraRep = Array.isArray(resultados[4]) ? resultados[4] : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados[5]) ? resultados[5] : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados[6]) ? resultados[6] : [];
+    conferenciasRep = Array.isArray(resultados[7]) ? resultados[7] : [];
+    aplicarConfiguracaoCalculoRep_(resultados[8] || { arredondamentoAtivo: true });
+    atualizarCampoFeriadosCompartilhadosRep_();
+    aplicarAjustesCompartilhadosRep_();
+    AppState.versaoDados = String(versaoDetectada || AppState.versaoDados || '');
+    if (typeof agendarReprocessamentoRepLeve_ === 'function') agendarReprocessamentoRepLeve_(220);
+    else setTimeout(function() { atualizarProcessamentoRep({ notificarEntidade: false }); }, 220);
+    atualizarTextoSync('Alterações compartilhadas atualizadas', true, 'check');
+    setTimeout(function() { atualizarTextoSync('', false); }, 2400);
+    return true;
+  } catch (erro) {
+    console.warn('Não foi possível atualizar as alterações do REP:', mensagemErro(erro));
+    return false;
+  } finally {
+    repAtualizacaoLeveEmAndamento_ = false;
+  }
+}
+
+function obterIdentificadorCartaoManualRep_(servidor) {
+  const matricula = String(servidor && servidor.matricula || '').trim();
+  return matricula ? normalizarPisRep('MAT:' + matricula) : '';
+}
+
+function obterServidorPorIdentificadorRep_(identificador) {
+  const chave = normalizarPisRep(identificador);
+  return (AppState.servidores || []).find(function(servidor) {
+    return normalizarPisRep(servidor.pis) === chave || obterIdentificadorCartaoManualRep_(servidor) === chave;
+  }) || null;
 }
 
 function aplicarCadastroAtualAoRep_() {
@@ -6443,13 +6593,15 @@ function aplicarCadastroAtualAoRep_() {
   const identificadoresCarregados = new Set(dadosRepCache.punches.map(evento => normalizarPisRep(evento.pis)).filter(Boolean));
   (AppState.servidores || []).forEach(servidor => {
     const pis = normalizarPisRep(servidor.pis);
-    if (!pis || !servidor.nome) return;
-    if (identificadoresCarregados.has(pis)) encontrouCorrespondencia = true;
+    const identificadorManual = obterIdentificadorCartaoManualRep_(servidor);
+    const identificador = identificadoresCarregados.has(pis) ? pis : (identificadoresCarregados.has(identificadorManual) ? identificadorManual : '');
+    if (!identificador || !servidor.nome) return;
+    encontrouCorrespondencia = true;
     const nome = String(servidor.nome).trim();
     const lotacao = String(servidor.lotacao || 'Não informada').trim() || 'Não informada';
-    if (dadosRepCache.employees.get(pis) !== nome || dadosRepCache.lotacoes.get(pis) !== lotacao) alterou = true;
-    dadosRepCache.employees.set(pis, nome);
-    dadosRepCache.lotacoes.set(pis, lotacao);
+    if (dadosRepCache.employees.get(identificador) !== nome || dadosRepCache.lotacoes.get(identificador) !== lotacao) alterou = true;
+    dadosRepCache.employees.set(identificador, nome);
+    dadosRepCache.lotacoes.set(identificador, lotacao);
   });
   return alterou || encontrouCorrespondencia;
 }
@@ -6656,7 +6808,7 @@ function horarioConsideradoRep_(dateObj) {
 function normalizarConfiguracaoCalculoRep_(configuracao) {
   configuracao = configuracao || {};
   let modo = String(configuracao.modo || '').toUpperCase();
-  if (!['LEGADO', 'EXATO', 'SALDO_DIARIO'].includes(modo)) {
+  if (!['LEGADO', 'EXATO', 'SALDO_DIARIO', 'SOMENTE_HE'].includes(modo)) {
     modo = configuracao.regraSaldoDiarioAtiva ? 'SALDO_DIARIO' : (configuracao.arredondamentoAtivo === false ? 'EXATO' : 'LEGADO');
   }
   const limitar = function(valor, padrao, minimo, maximo) {
@@ -6670,6 +6822,8 @@ function normalizarConfiguracaoCalculoRep_(configuracao) {
     modo: modo,
     arredondamentoAtivo: modo === 'LEGADO',
     regraSaldoDiarioAtiva: modo === 'SALDO_DIARIO',
+    arredondamentoSomenteHeAtivo: modo === 'SOMENTE_HE',
+    compensacaoMinutosExatos: Boolean(configuracao.compensacaoMinutosExatos),
     toleranciaDeficitMin: limitar(configuracao.toleranciaDeficitMin, 10, 0, 59),
     contagemDeficit: String(configuracao.contagemDeficit || '').toUpperCase() === 'EXCEDENTE' ? 'EXCEDENTE' : 'INTEGRAL',
     heMeiaMin: heMeiaMin,
@@ -6684,9 +6838,9 @@ function aplicarConfiguracaoCalculoRep_(configuracao) {
   const texto = indicador && indicador.querySelector('.rep-rounding-text');
   const toggle = document.getElementById('rep-rounding-toggle');
   const podeAlterar = ['Administrador', 'Admin'].includes(String(AppState.usuarioLogado?.papel || ''));
-  const rotulos = { LEGADO: 'Arredondamento por batida', EXATO: 'Minutos exatos', SALDO_DIARIO: 'Regra por saldo diário' };
+  const rotulos = { LEGADO: 'Arredondamento por batida', EXATO: 'Minutos exatos', SALDO_DIARIO: 'Regra por saldo diário', SOMENTE_HE: 'Arredondamento somente da HE' };
   if (indicador) {
-    if (texto) texto.textContent = rotulos[configuracaoCalculoRepAtual.modo];
+    if (texto) texto.textContent = rotulos[configuracaoCalculoRepAtual.modo] + (configuracaoCalculoRepAtual.compensacaoMinutosExatos ? ' · compensação exata' : '');
     indicador.classList.toggle('desativado', configuracaoCalculoRepAtual.modo === 'EXATO');
     indicador.classList.toggle('saldo-diario', configuracaoCalculoRepAtual.modo === 'SALDO_DIARIO');
     indicador.classList.toggle('somente-leitura', !podeAlterar);
@@ -6694,7 +6848,10 @@ function aplicarConfiguracaoCalculoRep_(configuracao) {
       ? 'Cada batida segue o arredondamento institucional legado.'
       : (configuracaoCalculoRepAtual.modo === 'EXATO'
         ? 'Os cálculos usam os minutos exatos registrados.'
-        : `O saldo total do dia usa ${configuracaoCalculoRepAtual.toleranciaDeficitMin} min de tolerância e faixas configuráveis de HE.`))
+        : (configuracaoCalculoRepAtual.modo === 'SALDO_DIARIO'
+          ? `O saldo total do dia usa ${configuracaoCalculoRepAtual.toleranciaDeficitMin} min de tolerância e faixas configuráveis de HE.`
+          : 'Horas trabalhadas, déficits, intervalos e alertas usam os minutos reais; somente a HE usa as batidas arredondadas.')))
+      + (configuracaoCalculoRepAtual.compensacaoMinutosExatos ? ' A compensação usa os minutos reais, em saldo paralelo.' : ' A compensação acompanha o saldo calculado por esta política.')
       + (podeAlterar ? ' Use “Configurar cálculo” para alterar.' : ' Somente administradores podem alterar.');
   }
   if (toggle) {
@@ -6735,7 +6892,7 @@ function garantirModalPoliticaCalculoRep_() {
   modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'modal-politica-calculo-rep';
-  modal.innerHTML = `<div class="modal-content rep-politica-calculo-modal"><div class="modal-header"><div><h3 class="modal-title">Política de cálculo do Leitor REP</h3><small>Configuração global, aplicada a todos os computadores.</small></div><button class="modal-close" onclick="fecharModal('modal-politica-calculo-rep')"><span data-lucide="x"></span></button></div><div class="modal-body"><div class="rep-politica-aviso"><b>As marcações originais nunca são alteradas.</b><span>A política modifica apenas os horários considerados, saldos, alertas e totalizações futuras do Leitor REP.</span></div><div class="form-group"><label for="rep-politica-modo">Modo de cálculo</label><select id="rep-politica-modo" class="form-control" onchange="atualizarCamposPoliticaCalculoRep_()"><option value="LEGADO">Legado — arredondar cada batida</option><option value="EXATO">Minutos exatos — sem arredondamento</option><option value="SALDO_DIARIO">Saldo diário — tolerância e faixas configuráveis</option></select></div><div id="rep-politica-campos-diarios" class="rep-politica-grid"><div class="form-group"><label for="rep-politica-tolerancia">Tolerância de déficit no dia</label><div class="rep-politica-com-unidade"><input id="rep-politica-tolerancia" type="number" min="0" max="59" step="1" class="form-control"><span>min</span></div></div><div class="form-group"><label for="rep-politica-contagem">Ao ultrapassar a tolerância</label><select id="rep-politica-contagem" class="form-control"><option value="INTEGRAL">Contar o déficit inteiro</option><option value="EXCEDENTE">Contar somente o excedente</option></select></div><div class="form-group"><label for="rep-politica-he-meia">Meia hora extra a partir de</label><div class="rep-politica-com-unidade"><input id="rep-politica-he-meia" type="number" min="1" max="59" step="1" class="form-control"><span>min</span></div></div><div class="form-group"><label for="rep-politica-he-hora">Hora extra cheia a partir de</label><div class="rep-politica-com-unidade"><input id="rep-politica-he-hora" type="number" min="2" max="60" step="1" class="form-control"><span>min</span></div></div></div><div id="rep-politica-exemplo" class="rep-politica-exemplo"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal('modal-politica-calculo-rep')">Cancelar</button><button type="button" class="btn btn-primary" id="rep-politica-salvar" onclick="salvarPoliticaCalculoRep_()"><span data-lucide="save"></span> Salvar e recalcular</button></div></div>`;
+  modal.innerHTML = `<div class="modal-content rep-politica-calculo-modal"><div class="modal-header"><div><h3 class="modal-title">Política de cálculo do Leitor REP</h3><small>Configuração global, aplicada a todos os computadores.</small></div><button class="modal-close" onclick="fecharModal('modal-politica-calculo-rep')"><span data-lucide="x"></span></button></div><div class="modal-body"><div class="rep-politica-aviso"><b>As marcações originais nunca são alteradas.</b><span>A política modifica apenas os horários considerados, saldos, alertas e totalizações futuras do Leitor REP.</span></div><div class="form-group"><label for="rep-politica-modo">Modo de cálculo</label><select id="rep-politica-modo" class="form-control" onchange="atualizarCamposPoliticaCalculoRep_()"><option value="LEGADO">Legado — arredondar cada batida</option><option value="EXATO">Minutos exatos — sem arredondamento</option><option value="SALDO_DIARIO">Saldo diário — tolerância e faixas configuráveis</option><option value="SOMENTE_HE">Arredondar somente horas extras</option></select></div><label class="rep-politica-compensacao"><input id="rep-politica-compensacao-exata" type="checkbox"><span><b>Compensação por minutos exatos</b><small>Usa os horários realmente registrados para os débitos e créditos da compensação, mesmo quando a HE é arredondada.</small></span></label><div id="rep-politica-campos-diarios" class="rep-politica-grid"><div class="form-group"><label for="rep-politica-tolerancia">Tolerância de déficit no dia</label><div class="rep-politica-com-unidade"><input id="rep-politica-tolerancia" type="number" min="0" max="59" step="1" class="form-control"><span>min</span></div></div><div class="form-group"><label for="rep-politica-contagem">Ao ultrapassar a tolerância</label><select id="rep-politica-contagem" class="form-control"><option value="INTEGRAL">Contar o déficit inteiro</option><option value="EXCEDENTE">Contar somente o excedente</option></select></div><div class="form-group"><label for="rep-politica-he-meia">Meia hora extra a partir de</label><div class="rep-politica-com-unidade"><input id="rep-politica-he-meia" type="number" min="1" max="59" step="1" class="form-control"><span>min</span></div></div><div class="form-group"><label for="rep-politica-he-hora">Hora extra cheia a partir de</label><div class="rep-politica-com-unidade"><input id="rep-politica-he-hora" type="number" min="2" max="60" step="1" class="form-control"><span>min</span></div></div></div><div id="rep-politica-exemplo" class="rep-politica-exemplo"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal('modal-politica-calculo-rep')">Cancelar</button><button type="button" class="btn btn-primary" id="rep-politica-salvar" onclick="salvarPoliticaCalculoRep_()"><span data-lucide="save"></span> Salvar e recalcular</button></div></div>`;
   document.body.appendChild(modal);
   return modal;
 }
@@ -6749,7 +6906,8 @@ function atualizarCamposPoliticaCalculoRep_() {
   if (!exemplo) return;
   if (modo === 'LEGADO') exemplo.innerHTML = '<b>Modo atual preservado</b><span>Cada marcação é levada para 00, 30 ou 60 minutos antes do cálculo da jornada.</span>';
   else if (modo === 'EXATO') exemplo.innerHTML = '<b>Sem tolerância automática</b><span>Cada minuto registrado entra integralmente no saldo positivo ou negativo.</span>';
-  else exemplo.innerHTML = '<b>Fechamento sobre o total do dia</b><span>As batidas permanecem exatas; a tolerância é aplicada ao déficit diário e as faixas ao saldo positivo diário.</span>';
+  else if (modo === 'SALDO_DIARIO') exemplo.innerHTML = '<b>Fechamento sobre o total do dia</b><span>As batidas permanecem exatas; a tolerância é aplicada ao déficit diário e as faixas ao saldo positivo diário.</span>';
+  else exemplo.innerHTML = '<b>Arredondamento exclusivo da HE</b><span>Horas trabalhadas, atrasos, déficits, intervalos, alertas e VR usam minutos reais. Somente o crédito de HE é obtido pelas batidas arredondadas.</span>';
 }
 
 function abrirPoliticaCalculoRep_() {
@@ -6762,6 +6920,7 @@ function abrirPoliticaCalculoRep_() {
   document.getElementById('rep-politica-contagem').value = cfg.contagemDeficit;
   document.getElementById('rep-politica-he-meia').value = cfg.heMeiaMin;
   document.getElementById('rep-politica-he-hora').value = cfg.heHoraMin;
+  document.getElementById('rep-politica-compensacao-exata').checked = Boolean(cfg.compensacaoMinutosExatos);
   atualizarCamposPoliticaCalculoRep_();
   abrirModal('modal-politica-calculo-rep');
   renderizarIcones();
@@ -6774,13 +6933,14 @@ async function salvarPoliticaCalculoRep_() {
     toleranciaDeficitMin: Number(document.getElementById('rep-politica-tolerancia').value),
     contagemDeficit: document.getElementById('rep-politica-contagem').value,
     heMeiaMin: Number(document.getElementById('rep-politica-he-meia').value),
-    heHoraMin: Number(document.getElementById('rep-politica-he-hora').value)
+    heHoraMin: Number(document.getElementById('rep-politica-he-hora').value),
+    compensacaoMinutosExatos: Boolean(document.getElementById('rep-politica-compensacao-exata').checked)
   };
   if (nova.modo === 'SALDO_DIARIO') {
     if (!Number.isInteger(nova.toleranciaDeficitMin) || nova.toleranciaDeficitMin < 0 || nova.toleranciaDeficitMin > 59) return mostrarToast('Informe uma tolerância entre 0 e 59 minutos.', 'warning');
     if (!Number.isInteger(nova.heMeiaMin) || !Number.isInteger(nova.heHoraMin) || nova.heMeiaMin < 1 || nova.heHoraMin > 60 || nova.heHoraMin <= nova.heMeiaMin) return mostrarToast('As faixas de hora extra são inválidas. O limite da hora cheia deve ser maior que o da meia hora.', 'warning');
   } else {
-    Object.assign(nova, configuracaoAnterior, { modo: nova.modo });
+    Object.assign(nova, configuracaoAnterior, { modo: nova.modo, compensacaoMinutosExatos: nova.compensacaoMinutosExatos });
   }
   if (!window.confirm('Salvar esta política global e recalcular a competência atualmente aberta?')) return;
   const botao = document.getElementById('rep-politica-salvar');
@@ -6808,6 +6968,43 @@ function toDateStringRep(dateObj) {
 
 function getHoursDiffRep(start, end) {
   return (end - start) / (1000 * 60 * 60);
+}
+
+/** Jornada paralela usada apenas quando a compensação deve preservar cada minuto real. */
+function calcularSaldoExatoCompensacaoRep_(eventos, diaExtra, jornadaReferencia, horasIntervaloSemBatida) {
+  const batidas = (eventos || []).map(function(evento) { return evento.original; });
+  if (!batidas.length || batidas.length % 2 !== 0 || batidas.length > 6) return null;
+  let total = 0;
+  for (let i = 0; i < batidas.length; i += 2) total += getHoursDiffRep(batidas[i], batidas[i + 1]);
+  const tempoBruto = getHoursDiffRep(batidas[0], batidas[batidas.length - 1]);
+  if (batidas.length === 2 && tempoBruto >= 7) {
+    total = Math.max(0, total - Math.min(tempoBruto, horasIntervaloSemBatida));
+  } else if (batidas.length >= 4 && tempoBruto > 6) {
+    let intervalo = 0;
+    for (let i = 1; i < batidas.length - 1; i += 2) intervalo += getHoursDiffRep(batidas[i], batidas[i + 1]);
+    total = Math.max(0, total - Math.max(0, 1 - intervalo));
+  }
+  return {
+    total: total,
+    saldo: diaExtra ? total : total - jornadaReferencia
+  };
+}
+
+/** Jornada arredondada usada exclusivamente para definir o crédito de HE. */
+function calcularSaldoArredondadoSomenteHeRep_(eventos, diaExtra, jornadaReferencia, horasIntervaloSemBatida) {
+  const batidas = (eventos || []).map(function(evento) { return roundTimeRep(evento.original); });
+  if (!batidas.length || batidas.length % 2 !== 0 || batidas.length > 6) return null;
+  let total = 0;
+  for (let i = 0; i < batidas.length; i += 2) total += getHoursDiffRep(batidas[i], batidas[i + 1]);
+  const tempoBruto = getHoursDiffRep(batidas[0], batidas[batidas.length - 1]);
+  if (batidas.length === 2 && tempoBruto >= 7) {
+    total = Math.max(0, total - Math.min(tempoBruto, horasIntervaloSemBatida));
+  } else if (batidas.length >= 4 && tempoBruto > 6) {
+    let intervalo = 0;
+    for (let i = 1; i < batidas.length - 1; i += 2) intervalo += getHoursDiffRep(batidas[i], batidas[i + 1]);
+    total = Math.max(0, total - Math.max(0, 1 - intervalo));
+  }
+  return { total: total, saldo: diaExtra ? total : total - jornadaReferencia };
 }
 
 /** Aplica tolerância/faixas somente ao saldo final do dia, em minutos inteiros. */
@@ -6967,7 +7164,7 @@ function dataLancamentoParaIsoRep_(valor) {
 }
 
 function ehLancamentoAusenciaRep_(lancamento) {
-  if (!lancamento || normalizarTextoRep_(lancamento.status).includes('ANULAD')) return false;
+  if (!lancamento || /(ANULAD|CANCELAD|EXCLUID|NAO EFETIVAD)/.test(normalizarTextoRep_(lancamento.status))) return false;
   const tipo = normalizarTextoRep_(lancamento.tipo);
   if (!tipo || tipo.includes('NAO EFETIVAD') || tipo.includes('HORA EXTRA') || tipo.includes('ESTAGIO PROBATORIO') || tipo.includes('AVALIACAO')) return false;
   return /(FERIAS|LICENCA|ABON|AFAST|ATESTADO|FALTA)/.test(tipo);
@@ -6975,7 +7172,7 @@ function ehLancamentoAusenciaRep_(lancamento) {
 
 function obterServidorCadastroRep_(emp) {
   const pis = normalizarPisRep(emp && emp.pis);
-  const porPis = (AppState.servidores || []).find(item => normalizarPisRep(item.pis) === pis);
+  const porPis = obterServidorPorIdentificadorRep_(pis);
   if (porPis) return porPis;
   const nome = normalizarTextoRep_(emp && emp.nome);
   const porNome = (AppState.servidores || []).filter(item => normalizarTextoRep_(item.nome) === nome);
@@ -7077,6 +7274,9 @@ function aplicarDescartesHoraExtraRep_(emp, dias, modo) {
       dia.horaExtraDesconsiderada = { horas: saldoOriginal, atualizadoPor: String(registro.atualizadoPor || ''), atualizadoEm: String(registro.atualizadoEm || '') };
     }
     dia.extraDia = saldoNovo;
+    // Um ajuste manual de saldo é uma decisão administrativa explícita e,
+    // por isso, também passa a ser a base da compensação exata nesse dia.
+    dia.saldoCompensacaoExatoDia = saldoNovo;
     dia.temHoraExtra = saldoNovo > 0;
     dia.jornadaIncompleta = !dia.diaExtra && saldoNovo < 0;
     dia.temValeRefeicao = Boolean(dia.diaExtra && saldoNovo >= 6);
@@ -7123,17 +7323,22 @@ function obterJornadaReferenciaRep_() {
 }
 
 function aplicarCompensacoesRep_(emp, dias) {
+  const usarMinutosExatos = Boolean(configuracaoCalculoRepAtual.compensacaoMinutosExatos);
   const saldoPorDia = new Map();
   const saldoInicialPorDia = new Map();
+  const saldoAdministrativoInicialPorDia = new Map();
   (dias || []).forEach(dia => {
-    if (!dia.pendencia && Number.isFinite(dia.extraDia) && dia.extraDia > 0) {
-      const liquido = Math.max(0, Math.round(dia.extraDia * 60));
+    const saldoBase = usarMinutosExatos ? Number(dia.saldoCompensacaoExatoDia) : Number(dia.extraDia);
+    if (!dia.pendencia && Number.isFinite(saldoBase) && saldoBase > 0 && Number.isFinite(dia.extraDia)) {
+      const liquido = Math.max(0, Math.round(saldoBase * 60));
+      const administrativo = Math.max(0, Math.round(Number(dia.extraDia) * 60));
       // Em dia nao util, toda a jornada e extra. Quando o intervalo foi
       // presumido, a retirada pode ser informada pelo tempo bruto (ex.: 9h),
       // mantendo a aplicacao liquida ja calculada (ex.: 8h).
-      const intervaloBruto = dia.diaExtra ? Math.max(0, Math.round(Number(dia.descontoIntervalo || 0) * 60)) : 0;
-      saldoPorDia.set(dia.dataOriginal, { liquido, bruto: liquido + intervaloBruto });
+      const intervaloBruto = !usarMinutosExatos && dia.diaExtra ? Math.max(0, Math.round(Number(dia.descontoIntervalo || 0) * 60)) : 0;
+      saldoPorDia.set(dia.dataOriginal, { liquido, bruto: liquido + intervaloBruto, administrativo });
       saldoInicialPorDia.set(dia.dataOriginal, liquido);
+      saldoAdministrativoInicialPorDia.set(dia.dataOriginal, administrativo);
     }
   });
   let disponivel = Array.from(saldoPorDia.values()).reduce((total, saldo) => total + saldo.liquido, 0);
@@ -7141,17 +7346,19 @@ function aplicarCompensacoesRep_(emp, dias) {
   let retiradoTotal = 0;
   const jornadaReferenciaMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
   const retirarDaOrigem = function(data, solicitadoBruto, limiteLiquido) {
-    const saldo = saldoPorDia.get(data) || { liquido: 0, bruto: 0 };
+    const saldo = saldoPorDia.get(data) || { liquido: 0, bruto: 0, administrativo: 0 };
     const temLimite = Number.isFinite(Number(limiteLiquido));
     const limite = temLimite ? Math.max(0, Math.round(Number(limiteLiquido) || 0)) : saldo.liquido;
     let bruto = Math.min(saldo.bruto, Math.max(0, Math.round(solicitadoBruto || 0)));
     let liquido = Math.min(saldo.liquido, bruto, limite);
+    const administrativo = Math.min(saldo.administrativo, liquido);
     saldo.bruto = Math.max(0, saldo.bruto - bruto);
     saldo.liquido = Math.max(0, saldo.liquido - liquido);
+    saldo.administrativo = Math.max(0, saldo.administrativo - administrativo);
     if (!saldo.liquido) saldo.bruto = 0;
     if (!saldo.bruto) saldo.liquido = 0;
     saldoPorDia.set(data, saldo);
-    return { bruto, liquido };
+    return { bruto, liquido, administrativo };
   };
   const alocarAutomaticamente = function(total, dataDestino) {
     let restante = Math.max(0, Math.round(total || 0));
@@ -7159,7 +7366,7 @@ function aplicarCompensacoesRep_(emp, dias) {
     Array.from(saldoPorDia.keys()).sort().forEach(dataOrigem => {
       if (!restante || dataOrigem === dataDestino) return;
       const aplicado = retirarDaOrigem(dataOrigem, restante, restante);
-      if (aplicado.liquido) origens.push({ data: dataOrigem, minutos: aplicado.bruto, minutosLiquidos: aplicado.liquido });
+      if (aplicado.liquido) origens.push({ data: dataOrigem, minutos: aplicado.bruto, minutosLiquidos: aplicado.liquido, minutosAdministrativos: aplicado.administrativo });
       restante -= aplicado.liquido;
     });
     return origens;
@@ -7171,11 +7378,12 @@ function aplicarCompensacoesRep_(emp, dias) {
     const dia = (dias || []).find(item => item.dataOriginal === registro.data);
     if (!dia || dia.ausencia || dia.diaExtra || dia.pendencia) return;
     const diaSemRegistroCompensavel = Boolean(dia.semRegistro);
-    const jornadaIncompletaCompensavel = Boolean(dia.jornadaIncompleta && Number.isFinite(dia.extraDia) && dia.extraDia < 0);
+    const saldoDeficitBase = usarMinutosExatos ? Number(dia.saldoCompensacaoExatoDia) : Number(dia.extraDia);
+    const jornadaIncompletaCompensavel = Boolean(Number.isFinite(saldoDeficitBase) && saldoDeficitBase < 0);
     if (!diaSemRegistroCompensavel && !jornadaIncompletaCompensavel) return;
     const deficit = diaSemRegistroCompensavel
       ? jornadaReferenciaMinutos
-      : Math.max(0, Math.round(Math.abs(dia.extraDia) * 60));
+      : Math.max(0, Math.round(Math.abs(saldoDeficitBase) * 60));
     const contavaComoPendencia = Boolean(dia.jornadaIncompleta || dia.pendencia);
     const solicitado = Math.max(0, Math.round(Number(registro.minutos) || 0));
     let restante = Math.min(deficit, solicitado);
@@ -7186,7 +7394,7 @@ function aplicarCompensacoesRep_(emp, dias) {
       origensInformadas.forEach(origem => {
         if (!brutoPermitido || origem.data === registro.data) return;
         const aplicadoOrigem = retirarDaOrigem(origem.data, Math.min(Number(origem.minutos), brutoPermitido), restante);
-        if (aplicadoOrigem.bruto) origensAplicadas.push({ data: origem.data, minutos: aplicadoOrigem.bruto, minutosLiquidos: aplicadoOrigem.liquido });
+        if (aplicadoOrigem.bruto) origensAplicadas.push({ data: origem.data, minutos: aplicadoOrigem.bruto, minutosLiquidos: aplicadoOrigem.liquido, minutosAdministrativos: aplicadoOrigem.administrativo });
         brutoPermitido -= aplicadoOrigem.bruto;
         restante -= aplicadoOrigem.liquido;
       });
@@ -7196,11 +7404,14 @@ function aplicarCompensacoesRep_(emp, dias) {
     }
     const aplicado = origensAplicadas.reduce((total, origem) => total + origem.minutosLiquidos, 0);
     const retirado = origensAplicadas.reduce((total, origem) => total + origem.minutos, 0);
+    const retiradoAdministrativo = origensAplicadas.reduce((total, origem) => total + Number(origem.minutosAdministrativos || 0), 0);
     dia.compensacao = {
       minutos: solicitado, minutosAplicados: aplicado, deficit,
       observacao: String(registro.observacao || ''), atualizadoPor: String(registro.atualizadoPor || ''),
       origens: origensInformadas, origensAplicadas,
-      origemLegada: !origensInformadas.length
+      origemLegada: !origensInformadas.length,
+      minutosExatos: usarMinutosExatos,
+      minutosAdministrativosRetirados: retiradoAdministrativo
     };
     if (!aplicado) return;
     retiradoTotal += retirado;
@@ -7208,7 +7419,7 @@ function aplicarCompensacoesRep_(emp, dias) {
     // O saldo exibido no destino também precisa refletir a compensação.
     // Dias sem registro partem do débito integral da jornada; nos demais,
     // parte-se do saldo negativo já apurado ou ajustado manualmente.
-    const saldoAntesCompensacao = diaSemRegistroCompensavel ? -(deficit / 60) : Number(dia.extraDia || 0);
+    const saldoAntesCompensacao = diaSemRegistroCompensavel ? -(deficit / 60) : Number(saldoDeficitBase || 0);
     dia.saldoAntesCompensacao = saldoAntesCompensacao;
     dia.extraDia = Math.min(0, saldoAntesCompensacao + (aplicado / 60));
     if (aplicado >= deficit) {
@@ -7233,10 +7444,27 @@ function aplicarCompensacoesRep_(emp, dias) {
     const saldoInicial = saldoInicialPorDia.get(dia.dataOriginal);
     const saldoRestante = (saldoPorDia.get(dia.dataOriginal) || {}).liquido || 0;
     const minutosUsados = Math.max(0, saldoInicial - saldoRestante);
+    const saldoAdministrativoInicial = saldoAdministrativoInicialPorDia.get(dia.dataOriginal) || 0;
+    let saldoAdministrativoRestante = (saldoPorDia.get(dia.dataOriginal) || {}).administrativo || 0;
+    // Na política por saldo diário, a HE deve ser reenquadrada depois que os
+    // minutos reais forem usados. Ex.: 46 min = 1h; usando 20 min, restam
+    // 26 min reais, que voltam à faixa administrativa de 30 min.
+    if (usarMinutosExatos && configuracaoCalculoRepAtual.modo === 'SALDO_DIARIO') {
+      saldoAdministrativoRestante = Math.max(0, Math.round(aplicarPoliticaSaldoDiarioRep_(saldoRestante / 60) * 60));
+    } else if (usarMinutosExatos && configuracaoCalculoRepAtual.modo !== 'EXATO') {
+      // O controle paralelo pode usar minutos reais, mas a HE exibida e levada
+      // à autorização continua obedecendo ao arredondamento administrativo.
+      const horasInteirasRestantes = Math.floor(Math.max(0, saldoRestante) / 60);
+      const restoRestante = Math.max(0, saldoRestante) % 60;
+      const minutosArredondados = restoRestante <= 15 ? 0 : (restoRestante <= 45 ? 30 : 60);
+      saldoAdministrativoRestante = Math.min(saldoAdministrativoInicial, horasInteirasRestantes * 60 + minutosArredondados);
+    }
+    const minutosAdministrativosUsados = Math.max(0, saldoAdministrativoInicial - saldoAdministrativoRestante);
     if (!minutosUsados) return;
-    dia.horaExtraAntesCompensacao = saldoInicial / 60;
+    dia.horaExtraAntesCompensacao = saldoAdministrativoInicial / 60;
     dia.minutosCompensadosComoOrigem = minutosUsados;
-    dia.extraDia = saldoRestante / 60;
+    dia.minutosAdministrativosCompensadosComoOrigem = minutosAdministrativosUsados;
+    dia.extraDia = saldoAdministrativoRestante / 60;
     dia.temHoraExtra = dia.extraDia > 0;
     // Para o REP, a hora retirada para compensação também deixa de compor a
     // jornada que dá direito ao VR. Ex.: 6h em dia não útil - 1h retirada =
@@ -7245,10 +7473,13 @@ function aplicarCompensacoesRep_(emp, dias) {
   });
 
   // HE e VR refletem o saldo depois das retiradas de compensação.
-  emp.resumo.horasExtras = Math.max(0, Number(emp.resumo.horasExtras || 0) - (aplicadoTotal / 60));
+  const administrativoRetiradoTotal = (dias || []).reduce((total, dia) => total + Number(dia.minutosAdministrativosCompensadosComoOrigem || 0), 0);
+  emp.resumo.horasExtras = Math.max(0, Number(emp.resumo.horasExtras || 0) - (administrativoRetiradoTotal / 60));
   emp.resumo.valeRefeicao = (dias || []).filter(dia => Boolean(dia.temValeRefeicao)).length;
   emp.resumo.horasCompensadas = aplicadoTotal / 60;
   emp.resumo.horasRetiradasCompensacao = retiradoTotal / 60;
+  emp.resumo.horasAdministrativasRetiradasCompensacao = administrativoRetiradoTotal / 60;
+  emp.resumo.compensacaoMinutosExatos = usarMinutosExatos;
   emp.resumo.saldoDisponivelCompensacao = disponivel / 60;
   emp.resumo.origensSaldoCompensacao = Array.from(saldoPorDia.entries()).map(([data, saldo]) => ({ data, minutos: saldo.liquido, minutosBrutos: saldo.bruto })).filter(item => item.minutos > 0).sort((a, b) => a.data.localeCompare(b.data));
 }
@@ -7277,6 +7508,7 @@ function obterDeficitDiaRep_(dia) {
   if (!dia || dia.diaExtra || dia.ausencia || dia.validacaoManual || dia.pendencia) return 0;
   let deficitMinutos = 0;
   if (dia.semRegistro) deficitMinutos = Math.round(obterJornadaReferenciaRep_() * 60);
+  else if (configuracaoCalculoRepAtual.compensacaoMinutosExatos && Number.isFinite(dia.saldoCompensacaoExatoDia) && dia.saldoCompensacaoExatoDia < 0) deficitMinutos = Math.round(Math.abs(dia.saldoCompensacaoExatoDia) * 60);
   else if (Number.isFinite(dia.extraDia) && dia.extraDia < 0) deficitMinutos = Math.round(Math.abs(dia.extraDia) * 60) + Math.max(0, Math.round(Number(dia.compensacao?.minutosAplicados || 0)));
   const compensado = Math.max(0, Math.round(Number(dia.compensacao?.minutosAplicados || 0)));
   return Math.max(0, deficitMinutos - compensado) / 60;
@@ -7342,7 +7574,7 @@ function processDataRep(employees, punches, lotacoes) {
       const eventos = diaSeguro.eventos.sort((a, b) => a.original - b.original);
       const batidas = eventos.map(evento => evento.arredondada);
       const isImpar = batidas.length % 2 !== 0;
-      const batidasExcedentes = batidas.length > 4;
+      const batidasExcedentes = batidas.length > 6;
       const conflitoArredondamento = arredondamentoRepAtivo && new Set(batidas.map(d => d.getTime())).size !== batidas.length;
       const chavesMomento = new Map();
       eventos.forEach(evento => {
@@ -7366,6 +7598,8 @@ function processDataRep(employees, punches, lotacoes) {
       let intervaloConsiderado = 0;
       let descontoIntervalo = 0;
       let jornadaIncompleta = false;
+      let saldoControleDia = null;
+      let calculoHeSomente = null;
       if (!isImpar && !batidasExcedentes && !conflitoArredondamento && !colisaoReps) {
         totalDia = 0;
         for (let i = 0; i < batidas.length; i += 2) totalDia += getHoursDiffRep(batidas[i], batidas[i + 1]);
@@ -7381,14 +7615,19 @@ function processDataRep(employees, punches, lotacoes) {
           totalDia = Math.max(0, totalDia - descontoIntervalo);
         }
         const saldoBrutoDia = diaExtra ? totalDia : totalDia - jornadaReferencia;
-        saldoDia = aplicarPoliticaSaldoDiarioRep_(saldoBrutoDia);
+        saldoControleDia = aplicarPoliticaSaldoDiarioRep_(saldoBrutoDia);
+        saldoDia = saldoControleDia;
+        if (configuracaoCalculoRepAtual.modo === 'SOMENTE_HE' && saldoBrutoDia >= 0) {
+          calculoHeSomente = calcularSaldoArredondadoSomenteHeRep_(eventos, diaExtra, jornadaReferencia, horasIntervaloSemBatida);
+          saldoDia = calculoHeSomente ? Math.max(0, calculoHeSomente.saldo) : 0;
+        }
         elegivelValeRefeicao = diaExtra && totalDia >= 6;
         empSeguro.resumo.trabalhadas += totalDia;
         empSeguro.resumo.saldo += saldoDia;
         empSeguro.resumo.extras += saldoDia;
         if (saldoDia > 0) empSeguro.resumo.horasExtras += saldoDia;
         if (elegivelValeRefeicao) empSeguro.resumo.valeRefeicao++;
-        jornadaIncompleta = !diaExtra && saldoDia < 0;
+        jornadaIncompleta = !diaExtra && saldoControleDia < 0;
         if (jornadaIncompleta) empSeguro.resumo.pendencias++;
       } else {
         empSeguro.resumo.pendencias++;
@@ -7404,6 +7643,9 @@ function processDataRep(employees, punches, lotacoes) {
       else if (diaExtra) status = 'extra_dia_nao_util';
       else if (saldoDia > 0) status = 'saldo_positivo';
       else if (jornadaIncompleta) status = 'jornada_incompleta';
+      const calculoExatoCompensacao = !isImpar && !batidasExcedentes && !colisaoReps
+        ? calcularSaldoExatoCompensacaoRep_(eventos, diaExtra, jornadaReferencia, horasIntervaloSemBatida)
+        : null;
       dias.push({
         dataOriginal: diaSeguro.data,
         dataFormatada: diaSeguro.data.split('-').reverse().join('/'),
@@ -7419,8 +7661,13 @@ function processDataRep(employees, punches, lotacoes) {
           dataReferencia: evento.dataReferencia || '', ajusteOrigemData: evento.ajusteOrigemData || ''
         })),
         totalDia, saldoDia, extraDia: saldoDia,
+        saldoControleDia: saldoControleDia,
         saldoBrutoDia: Number.isFinite(totalDia) ? (diaExtra ? totalDia : totalDia - jornadaReferencia) : null,
+        saldoArredondadoSomenteHeDia: calculoHeSomente ? calculoHeSomente.saldo : null,
+        totalCompensacaoExatoDia: calculoExatoCompensacao ? calculoExatoCompensacao.total : null,
+        saldoCompensacaoExatoDia: calculoExatoCompensacao ? calculoExatoCompensacao.saldo : null,
         regraSaldoDiarioAplicada: configuracaoCalculoRepAtual.modo === 'SALDO_DIARIO',
+        arredondamentoSomenteHeAplicado: configuracaoCalculoRepAtual.modo === 'SOMENTE_HE',
         relogios: Array.from(diaSeguro.relogios).join(', '),
         reps: Array.from(diaSeguro.reps).join(', '),
         fontes: Array.from(diaSeguro.fontes).join(', '),
@@ -7915,7 +8162,7 @@ function aplicarAjustesCompartilhadosRep_() {
   });
   (ajustesCompartilhadosRep || []).forEach(registro => {
     const pis = normalizarPisRep(registro.pis);
-    const servidor = (AppState.servidores || []).find(item => normalizarPisRep(item.pis) === pis);
+    const servidor = obterServidorPorIdentificadorRep_(pis);
     if (servidor) {
       dadosRepCache.employees.set(pis, servidor.nome || 'Servidor');
       dadosRepCache.lotacoes.set(pis, String(servidor.lotacao || 'Não informada').trim() || 'Não informada');
@@ -7978,15 +8225,74 @@ const repAlteracoesPendentes_ = new Map();
 let repTemporizadorSalvamento_ = null;
 let repSalvamentoEmAndamento_ = null;
 let repSequenciaAlteracao_ = 0;
+let repUltimoEstadoSincronizacao_ = 'idle';
+let repUltimoErroSincronizacao_ = '';
+let repUltimaConfirmacaoSincronizacao_ = 0;
+
+function obterChaveFilaRep_() {
+  try {
+    const usuario = JSON.parse(localStorage.getItem('rh_user') || '{}');
+    const email = String(usuario.email || '').toLowerCase().trim();
+    return email ? 'rh_rep_queue_v1_' + encodeURIComponent(email) : '';
+  } catch (e) { return ''; }
+}
+
+let repFalhaPersistenciaFila_ = false;
+function persistirFilaRep_() {
+  try {
+    const chave = obterChaveFilaRep_();
+    if (!chave) throw new Error('Usuário da fila não identificado.');
+    const itens = Array.from(repAlteracoesPendentes_.values());
+    if (itens.length) localStorage.setItem(chave, JSON.stringify(itens));
+    else localStorage.removeItem(chave);
+    repFalhaPersistenciaFila_ = false;
+    return true;
+  } catch (e) {
+    if (!repFalhaPersistenciaFila_ && repAlteracoesPendentes_.size) mostrarToast('Não foi possível guardar as pendências neste navegador. Não feche nem atualize esta aba até confirmar o envio para a nuvem.', 'error');
+    repFalhaPersistenciaFila_ = true;
+    repUltimoEstadoSincronizacao_ = 'error';
+    repUltimoErroSincronizacao_ = 'Pendências apenas na memória desta aba: mantenha-a aberta e tente salvar na nuvem.';
+    console.warn('Não foi possível preservar a fila do REP:', e);
+    return false;
+  }
+}
+
+function restaurarFilaRep_() {
+  try {
+    const chave = obterChaveFilaRep_();
+    if (!chave) return;
+    const itens = JSON.parse(localStorage.getItem(chave) || '[]');
+    repAlteracoesPendentes_.clear();
+    (Array.isArray(itens) ? itens : []).forEach(function(item) {
+      if (!item || !item.chave || !item.tipo) return;
+      item.sequencia = Number(item.sequencia || ++repSequenciaAlteracao_);
+      repSequenciaAlteracao_ = Math.max(repSequenciaAlteracao_, item.sequencia);
+      repAlteracoesPendentes_.set(String(item.chave), item);
+    });
+    if (repAlteracoesPendentes_.size) {
+      repUltimoEstadoSincronizacao_ = 'pending';
+      clearTimeout(repTemporizadorSalvamento_);
+      repTemporizadorSalvamento_ = setTimeout(function() { salvarAlteracoesPendentesRep_({ automatico: true }); }, 1800);
+    }
+    atualizarEstadoSalvamentoRep_();
+  } catch (e) { console.warn('Não foi possível restaurar a fila do REP:', e); }
+}
 
 function atualizarEstadoSalvamentoRep_() {
   const botao = document.getElementById('btn-rep-salvar-manual');
-  if (!botao) return;
   const quantidade = repAlteracoesPendentes_.size;
-  botao.disabled = quantidade === 0 && !repSalvamentoEmAndamento_;
-  botao.textContent = repSalvamentoEmAndamento_
-    ? 'Salvando...'
-    : (quantidade ? `Salvar ${quantidade} alteração${quantidade === 1 ? '' : 'ões'}` : 'Tudo salvo');
+  if (botao) {
+    const enviando = repUltimoEstadoSincronizacao_ === 'sending' || Boolean(repSalvamentoEmAndamento_);
+    botao.disabled = quantidade === 0 && !enviando;
+    botao.dataset.estado = repUltimoEstadoSincronizacao_;
+    botao.textContent = enviando
+      ? `Enviando ${Math.max(1, quantidade)}...`
+      : (repUltimoEstadoSincronizacao_ === 'error'
+        ? `Reenviar ${quantidade} pendente${quantidade === 1 ? '' : 's'}`
+        : (quantidade ? `${quantidade} aguardando envio` : (repUltimaConfirmacaoSincronizacao_ ? `Nuvem confirmada ${new Date(repUltimaConfirmacaoSincronizacao_).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Nenhuma alteração pendente')));
+    botao.title = repUltimoErroSincronizacao_ || botao.textContent;
+  }
+  if (typeof atualizarMonitorSincronizacaoBeta_ === 'function') atualizarMonitorSincronizacaoBeta_();
 }
 
 function repTemAlteracoesPendentes_() {
@@ -8011,6 +8317,9 @@ function enfileirarAlteracaoRep_(tipo, dados, chave) {
     dados: dados || {},
     sequencia: ++repSequenciaAlteracao_
   });
+  repUltimoEstadoSincronizacao_ = 'pending';
+  repUltimoErroSincronizacao_ = '';
+  persistirFilaRep_();
   clearTimeout(repTemporizadorSalvamento_);
   repTemporizadorSalvamento_ = setTimeout(function() {
     salvarAlteracoesPendentesRep_({ automatico: true });
@@ -8034,18 +8343,36 @@ async function salvarAlteracoesPendentesRep_(opcoes) {
 
   const lote = Array.from(repAlteracoesPendentes_.values());
   let loteSalvo = false;
+  repUltimoEstadoSincronizacao_ = 'sending';
+  repUltimoErroSincronizacao_ = '';
+  atualizarEstadoSalvamentoRep_();
   repSalvamentoEmAndamento_ = (async function() {
     atualizarEstadoSalvamentoRep_();
     try {
-      const resultados = await chamarBackendPromessa_('salvarAlteracoesLoteRep', [lote]);
+      const resultados = await chamarBackendComRetryTemporario_('salvarAlteracoesLoteRep', [lote, { confirmacaoIndividual: true }], 'Sincronização do REP ocupada');
+      if (!Array.isArray(resultados)) throw new Error('Resposta de salvamento inválida. A fila foi preservada.');
+      const confirmados = new Set(resultados.filter(r => r.sucesso !== false).map(r => r.chave));
       lote.forEach(item => {
+        if (!confirmados.has(item.chave)) return;
         const atual = repAlteracoesPendentes_.get(item.chave);
         if (atual && atual.sequencia === item.sequencia) repAlteracoesPendentes_.delete(item.chave);
       });
+      persistirFilaRep_();
+      const falha = resultados.find(r => r.sucesso === false);
+      if (falha || lote.some(item => !confirmados.has(item.chave))) {
+        throw new Error(falha ? falha.erro : 'Nem todas as alterações foram confirmadas pelo servidor.');
+      }
       loteSalvo = true;
+      repUltimoEstadoSincronizacao_ = repAlteracoesPendentes_.size ? 'pending' : 'confirmed';
+      repUltimaConfirmacaoSincronizacao_ = Date.now();
+      repUltimoErroSincronizacao_ = '';
+      persistirFilaRep_();
       if (opcoes.manual) mostrarToast(`${resultados.length} alteração(ões) do REP salvas.`, 'success');
       return true;
     } catch (erro) {
+      repUltimoEstadoSincronizacao_ = 'error';
+      repUltimoErroSincronizacao_ = mensagemErro(erro);
+      persistirFilaRep_();
       mostrarToast('As alterações continuam pendentes: ' + mensagemErro(erro), 'error');
       return false;
     } finally {
@@ -8135,6 +8462,7 @@ function renderizarAuditoriaArquivosRep() {
   </details>`;
 }
 
+let repContextoProcessamento_ = '';
 function atualizarProcessamentoRep(opcoes) {
   if (!dadosRepCache || !dadosRepCache.punches) return;
   opcoes = opcoes || {};
@@ -8142,8 +8470,12 @@ function atualizarProcessamentoRep(opcoes) {
   const anoSel = document.getElementById('rep-filter-ano') ? document.getElementById('rep-filter-ano').value : 'all';
   const mesSel = document.getElementById('rep-filter-mes') ? document.getElementById('rep-filter-mes').value : 'all';
   const localSel = document.getElementById('rep-filter-local') ? document.getElementById('rep-filter-local').value : 'all';
+  const contexto = JSON.stringify([anoSel, mesSel, localSel, configuracaoCalculoRepAtual, obterJornadaReferenciaRep_(), document.getElementById('rep-intervalo-presumido-horas')?.value]);
+  const pessoas = repContextoProcessamento_ === contexto && Array.isArray(opcoes.pessoas) && opcoes.pessoas.length
+    ? new Set(opcoes.pessoas.map(normalizarPisRep)) : null;
 
   const punchesFiltrados = dadosRepCache.punches.filter(p => {
+    if (pessoas && !pessoas.has(normalizarPisRep(p.pis))) return false;
     if (p.desconsiderada) return false;
     const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
     const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
@@ -8155,10 +8487,14 @@ function atualizarProcessamentoRep(opcoes) {
     return true;
   });
 
-  dadosRepProcessados = processDataRep(dadosRepCache.employees, punchesFiltrados, dadosRepCache.lotacoes);
-  paginaRepAtual = 1;
+  const recalculados = processDataRep(dadosRepCache.employees, punchesFiltrados, dadosRepCache.lotacoes);
+  dadosRepProcessados = pessoas
+    ? dadosRepProcessados.filter(p => !pessoas.has(normalizarPisRep(p.pis))).concat(recalculados).sort((a,b) => a.nome.localeCompare(b.nome))
+    : recalculados;
+  repContextoProcessamento_ = contexto;
+  if (!pessoas) paginaRepAtual = 1;
   updateDashboardRep();
-  renderizarAuditoriaArquivosRep();
+  if (!pessoas) renderizarAuditoriaArquivosRep();
   renderizarListaRep();
   // Filtros, feriados e ajustes recalculam a tela sem emitir um novo som.
   // A notificação proativa é reservada ao término de uma nova carga de arquivos.
@@ -8267,21 +8603,9 @@ function observarPreLeituraRepEntidade_(notificar) {
   if (fingerprint === entidadeUltimoFingerprintRep) return;
   entidadeUltimoFingerprintRep = fingerprint;
 
-  const totalProblemasArquivo = Number(resumo.auditoriaArquivos.marcacoesInvalidas || 0) + Number(resumo.auditoriaArquivos.quebrasNsr || 0);
-  if (!resumo.alertas && !resumo.naoConciliados && !totalProblemasArquivo) return;
   if (!notificar || entidadeFingerprintsRepNotificados.has(fingerprint)) return;
   entidadeFingerprintsRepNotificados.add(fingerprint);
-
-  const prioridades = resumo.casosPrioritarios.slice(0, 3).map(function(item) {
-    const motivos = [];
-    if (item.naoConciliado) motivos.push('identificador não conciliado');
-    if (item.quantidadeAlertas) motivos.push(item.quantidadeAlertas + ' alerta(s) de marcação');
-    return item.nome + ' — ' + motivos.join(' e ');
-  });
-  let mensagem = 'Carregamento do REP concluído para ' + resumo.recorte.rotulo + ': ' + resumo.alertas + ' alerta(s) e ' + resumo.naoConciliados + ' servidor(es) não conciliado(s).';
-  if (prioridades.length) mensagem += '\nPrioridades:\n• ' + prioridades.join('\n• ');
-  if (totalProblemasArquivo) mensagem += '\nTambém encontrei ' + resumo.auditoriaArquivos.marcacoesInvalidas + ' marcação(ões) inválida(s) e ' + resumo.auditoriaArquivos.quebrasNsr + ' quebra(s) de NSR nos arquivos.';
-  mensagem += '\nRecomendo conferir esses casos antes de usar o espelho como apoio administrativo.';
+  const mensagem = 'Leitor REP carregado. A conferência está pronta para ' + resumo.recorte.rotulo + '.';
 
   if (entidadeChatAberto) {
     addMensagemEntidade(mensagem, false);
@@ -8290,7 +8614,6 @@ function observarPreLeituraRepEntidade_(notificar) {
     entidadeMensagemTemporariaRep = mensagem;
     exibirBadgeNotificacao();
   }
-  exibirInsightStatus(mensagem);
 }
 
 async function aplicarFeriadosRep() {
@@ -8384,18 +8707,35 @@ function abrirAjusteDiaRep(pis, data) {
     ? registroCompensacao.origens
     : (dia.compensacao?.origensAplicadas || []);
   const valoresOrigem = new Map(origensRegistradas.map(item => [item.data, Number(item.minutos || 0)]));
+  const usadosOutrosDestinos = new Map();
+  const autorizacoesConhecidas = new Map();
+  (autorizacoesCompensacaoRep || []).filter(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && String(item.data || '').slice(0, 7) === data.slice(0, 7)).forEach(item => {
+    autorizacoesConhecidas.set(item.data, Math.max(autorizacoesConhecidas.get(item.data) || 0, Number(item.minutos || 0)));
+  });
+  (compensacoesRep || []).filter(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data !== data).forEach(item => {
+    (Array.isArray(item.origens) ? item.origens : []).forEach(origem => {
+      usadosOutrosDestinos.set(origem.data, (usadosOutrosDestinos.get(origem.data) || 0) + Math.max(0, Number(origem.minutos || 0)));
+      if (Number(origem.autorizado) > 0) autorizacoesConhecidas.set(origem.data, Math.max(autorizacoesConhecidas.get(origem.data) || 0, Number(origem.autorizado)));
+    });
+  });
+  origensRegistradas.forEach(origem => {
+    if (Number(origem.autorizado) > 0) autorizacoesConhecidas.set(origem.data, Math.max(autorizacoesConhecidas.get(origem.data) || 0, Number(origem.autorizado)));
+  });
+  const ordemDocumento = new Map((autorizacoesCompensacaoRep || []).filter(item => normalizarPisRep(item.pis) === normalizarPisRep(pis)).map(item => [item.data, Number(item.ordem || 9999)]));
   const datasOrigem = Array.from(new Set([...saldosOrigem.keys(), ...valoresOrigem.keys()]))
     .filter(dataOrigem => dataOrigem !== data && dataOrigem.slice(0, 7) === data.slice(0, 7))
-    .sort();
+    .sort((a, b) => (Number(ordemDocumento.get(a) || 9999) - Number(ordemDocumento.get(b) || 9999)) || a.localeCompare(b));
   const containerOrigens = document.getElementById('rep-compensacao-origens');
   containerOrigens.innerHTML = datasOrigem.map(dataOrigem => {
     const saldo = saldosOrigem.get(dataOrigem) || { liquido: 0, bruto: 0 };
     const capacidadeLiquida = Math.max(0, Math.round(Number(saldo.liquido || 0)));
     const capacidadeBruta = Math.max(capacidadeLiquida, Math.round(Number(saldo.bruto || 0)));
     const valor = Math.min(capacidadeBruta, Math.max(0, Math.round(Number(valoresOrigem.get(dataOrigem) || 0))));
+    const usadoOutros = Math.max(0, Math.round(Number(usadosOutrosDestinos.get(dataOrigem) || 0)));
+    const autorizado = Math.max(valor + usadoOutros, Math.round(Number(autorizacoesConhecidas.get(dataOrigem) || 0)));
     const diaOrigem = emp.dias.find(item => item.dataOriginal === dataOrigem);
     const detalheIntervalo = capacidadeBruta > capacidadeLiquida ? ` · aplica ${minutosParaHoraRep_(capacidadeLiquida)}h após o intervalo` : '';
-    return `<label class="rep-compensacao-origem"><span><strong>${escapeHtml(dataOrigem.split('-').reverse().join('/'))}${diaOrigem?.diaSemana ? ` · ${escapeHtml(diaOrigem.diaSemana)}` : ''}</strong><small>Disponível para retirar: ${minutosParaHoraRep_(capacidadeBruta)}h${detalheIntervalo}</small></span><small>Retirar deste dia</small><input type="text" class="form-control rep-compensacao-origem-valor" data-data="${dataOrigem}" data-maximo="${capacidadeBruta}" data-liquido-maximo="${capacidadeLiquida}" value="${valor ? minutosParaHoraRep_(valor) : ''}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalOrigensCompensacaoRep_()"></label>`;
+    return `<label class="rep-compensacao-origem"><span><strong>${escapeHtml(dataOrigem.split('-').reverse().join('/'))}${diaOrigem?.diaSemana ? ` · ${escapeHtml(diaOrigem.diaSemana)}` : ''}</strong><small>Saldo: ${minutosParaHoraRep_(capacidadeBruta)}h${detalheIntervalo} · já usado em outros dias: ${minutosParaHoraRep_(usadoOutros)}h</small></span><small>Autorizado no documento</small><input type="text" class="form-control rep-compensacao-origem-autorizado" data-data="${dataOrigem}" data-usado-outros="${usadoOutros}" value="${autorizado ? minutosParaHoraRep_(autorizado) : ''}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalOrigensCompensacaoRep_()"><small>Usar neste dia</small><input type="text" class="form-control rep-compensacao-origem-valor" data-data="${dataOrigem}" data-maximo="${capacidadeBruta}" data-liquido-maximo="${capacidadeLiquida}" value="${valor ? minutosParaHoraRep_(valor) : ''}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalOrigensCompensacaoRep_()"></label>`;
   }).join('') || '<span class="form-help">Não há dias com saldo positivo disponível nesta competência.</span>';
   const disponivelMinutos = Array.from(saldosOrigem.values()).reduce((total, saldo) => total + Math.max(0, Number(saldo.liquido || 0)), 0);
   const podeCompensar = deficitMinutos > 0 && !dia.ausencia && !dia.pendencia && (dia.jornadaIncompleta || diaSemRegistroCompensavel || dia.compensacao);
@@ -8405,6 +8745,7 @@ function abrirAjusteDiaRep(pis, data) {
   ajusteRepAtual.maximoCompensavel = deficitMinutos;
   const blocoCompensacao = document.getElementById('rep-ajuste-compensacao');
   blocoCompensacao.hidden = !(podeCompensar && (disponivelMinutos > 0 || registroCompensacao));
+  blocoCompensacao.open = false;
   blocoCompensacao.dataset.maximo = String(deficitMinutos);
   atualizarTotalOrigensCompensacaoRep_();
   document.getElementById('rep-ajuste-compensacao-observacao').value = registroCompensacao?.observacao || '';
@@ -8419,6 +8760,27 @@ function abrirAjusteDiaRep(pis, data) {
   document.getElementById('rep-ajuste-validacao-observacao').value = registroValidacao?.observacao || '';
   document.getElementById('rep-ajuste-justificativa').value = '';
   abrirModal('modal-ajuste-rep');
+  carregarTetosAutorizadosNoAjusteRep_(pis, data);
+}
+
+async function carregarTetosAutorizadosNoAjusteRep_(pis, data) {
+  try {
+    autorizacoesCompensacaoRep = await chamarBackendPromessa_('listarAutorizacoesCompensacaoRep', []);
+    if (!ajusteRepAtual || normalizarPisRep(ajusteRepAtual.pis) !== normalizarPisRep(pis) || ajusteRepAtual.data !== data) return;
+    document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-autorizado').forEach(input => {
+      const registro = (autorizacoesCompensacaoRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === input.dataset.data);
+      if (registro && !input.value.trim()) input.value = minutosParaHoraRep_(Number(registro.minutos || 0));
+    });
+    const container = document.getElementById('rep-compensacao-origens');
+    if (container) Array.from(container.querySelectorAll('.rep-compensacao-origem')).sort((a, b) => {
+      const dataA = a.querySelector('.rep-compensacao-origem-autorizado')?.dataset.data || '';
+      const dataB = b.querySelector('.rep-compensacao-origem-autorizado')?.dataset.data || '';
+      const regA = (autorizacoesCompensacaoRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === dataA);
+      const regB = (autorizacoesCompensacaoRep || []).find(item => normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === dataB);
+      return (Number(regA?.ordem || 9999) - Number(regB?.ordem || 9999)) || dataA.localeCompare(dataB);
+    }).forEach(elemento => container.appendChild(elemento));
+    atualizarTotalOrigensCompensacaoRep_();
+  } catch (erro) { console.warn('Tetos autorizados não puderam ser carregados:', mensagemErro(erro)); }
 }
 
 function preencherCompensacaoMaximaRep_() {
@@ -8427,7 +8789,11 @@ function preencherCompensacaoMaximaRep_() {
   document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-valor').forEach(input => {
     const maximoBruto = Math.max(0, Number(input.dataset.maximo || 0));
     const maximoLiquido = Math.max(0, Number(input.dataset.liquidoMaximo || maximoBruto));
-    const valor = restante >= maximoLiquido ? maximoBruto : Math.min(restante, maximoBruto);
+    const autorizadoInput = input.closest('.rep-compensacao-origem')?.querySelector('.rep-compensacao-origem-autorizado');
+    const autorizado = horaParaMinutosRep_(autorizadoInput?.value.trim() || '') || 0;
+    const usadoOutros = Math.max(0, Number(autorizadoInput?.dataset.usadoOutros || 0));
+    const limiteDocumento = Math.max(0, autorizado - usadoOutros);
+    const valor = Math.min(limiteDocumento, restante >= maximoLiquido ? maximoBruto : Math.min(restante, maximoBruto));
     input.value = valor ? minutosParaHoraRep_(valor) : '';
     restante -= Math.min(valor, maximoLiquido);
   });
@@ -8448,8 +8814,11 @@ function obterOrigensCompensacaoFormularioRep_() {
     if (!texto || texto === '00:00') return;
     const minutos = horaParaMinutosRep_(texto);
     const maximo = Math.max(0, Number(input.dataset.maximo || 0));
-    if (minutos === null || minutos <= 0 || minutos > maximo) { invalida = true; return; }
-    origens.push({ data: input.dataset.data, minutos });
+    const autorizadoInput = input.closest('.rep-compensacao-origem')?.querySelector('.rep-compensacao-origem-autorizado');
+    const autorizado = horaParaMinutosRep_(autorizadoInput?.value.trim() || '');
+    const usadoOutros = Math.max(0, Number(autorizadoInput?.dataset.usadoOutros || 0));
+    if (minutos === null || minutos <= 0 || minutos > maximo || autorizado === null || autorizado <= 0 || minutos + usadoOutros > autorizado) { invalida = true; return; }
+    origens.push({ data: input.dataset.data, minutos, autorizado });
     totalBruto += minutos;
   });
   const deficit = Math.max(0, Number(document.getElementById('rep-ajuste-compensacao')?.dataset.maximo || 0));
@@ -8496,6 +8865,8 @@ async function salvarAjustesDiaRep() {
   let origensCompensacao = (() => {
     try { return JSON.parse(ajusteRepAtual.compensacaoOrigensOriginal || '[]'); } catch (e) { return []; }
   })();
+  let autorizacoesFormulario = [];
+  let erroAutorizacaoFormulario = '';
   if (blocoCompensacao && !blocoCompensacao.hidden) {
     const resultadoOrigens = obterOrigensCompensacaoFormularioRep_();
     if (resultadoOrigens.invalida) return mostrarToast('Revise as horas retiradas: cada origem deve respeitar o saldo disponivel daquele dia.', 'warning');
@@ -8505,14 +8876,28 @@ async function salvarAjustesDiaRep() {
     if (minutosCompensacao === null) return mostrarToast('Informe a compensação no formato HH:MM.', 'warning');
     if (resultadoOrigens.minutosLiquidos > Number(ajusteRepAtual.maximoCompensavel || 0)) return mostrarToast(`A aplicação líquida não pode ultrapassar o débito de ${minutosParaHoraRep_(ajusteRepAtual.maximoCompensavel)}h deste dia.`, 'warning');
     observacaoCompensacao = document.getElementById('rep-ajuste-compensacao-observacao').value.trim();
+    autorizacoesFormulario = Array.from(document.querySelectorAll('#rep-compensacao-origens .rep-compensacao-origem-autorizado')).map((input, indice) => {
+      const texto = input.value.trim();
+      const minutos = texto ? horaParaMinutosRep_(texto) : 0;
+      const valorInput = input.closest('.rep-compensacao-origem')?.querySelector('.rep-compensacao-origem-valor');
+      const capacidade = Math.max(0, Number(valorInput?.dataset.maximo || 0));
+      const usadoOutros = Math.max(0, Number(input.dataset.usadoOutros || 0));
+      if (minutos === null || minutos < usadoOutros || minutos > capacidade + usadoOutros) erroAutorizacaoFormulario = 'Revise o teto autorizado para ' + input.dataset.data.split('-').reverse().join('/') + '.';
+      return { data: input.dataset.data, minutos, ordem: indice + 1 };
+    });
   }
+  if (erroAutorizacaoFormulario) return mostrarToast(erroAutorizacaoFormulario, 'warning');
   if (linhaLancamento && minutosCompensacao > 0) return mostrarToast('Escolha entre associar uma ausência do RH ou compensar o dia com horas positivas.', 'warning');
-  const origensNormalizadas = JSON.stringify((origensCompensacao || []).map(item => ({ data: String(item.data || ''), minutos: Number(item.minutos || 0) })).sort((a, b) => a.data.localeCompare(b.data)));
+  const origensNormalizadas = JSON.stringify((origensCompensacao || []).map(item => ({ data: String(item.data || ''), minutos: Number(item.minutos || 0), autorizado: Number(item.autorizado || 0) })).sort((a, b) => a.data.localeCompare(b.data)));
   let origensOriginaisNormalizadas = '[]';
   try {
-    origensOriginaisNormalizadas = JSON.stringify((JSON.parse(ajusteRepAtual.compensacaoOrigensOriginal || '[]') || []).map(item => ({ data: String(item.data || ''), minutos: Number(item.minutos || 0) })).sort((a, b) => a.data.localeCompare(b.data)));
+    origensOriginaisNormalizadas = JSON.stringify((JSON.parse(ajusteRepAtual.compensacaoOrigensOriginal || '[]') || []).map(item => ({ data: String(item.data || ''), minutos: Number(item.minutos || 0), autorizado: Number(item.autorizado || 0) })).sort((a, b) => a.data.localeCompare(b.data)));
   } catch (e) {}
   const alterouCompensacao = minutosCompensacao !== Number(ajusteRepAtual.compensacaoOriginal || 0) || observacaoCompensacao !== String(ajusteRepAtual.compensacaoObservacaoOriginal || '') || origensNormalizadas !== origensOriginaisNormalizadas;
+  const alterouAutorizacoes = autorizacoesFormulario.some(item => {
+    const existente = (autorizacoesCompensacaoRep || []).find(registro => normalizarPisRep(registro.pis) === normalizarPisRep(ajusteRepAtual.pis) && registro.data === item.data);
+    return Number(existente?.minutos || 0) !== item.minutos || (item.minutos > 0 && Number(existente?.ordem || 0) !== item.ordem);
+  });
   const blocoValidacao = document.getElementById('rep-ajuste-validacao');
   const validado = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validado').checked : Boolean(ajusteRepAtual.validadoOriginal);
   const observacaoValidacao = blocoValidacao && !blocoValidacao.hidden ? document.getElementById('rep-ajuste-validacao-observacao').value.trim() : String(ajusteRepAtual.validacaoObservacaoOriginal || '');
@@ -8562,7 +8947,7 @@ async function salvarAjustesDiaRep() {
     });
     alteracoes++;
   });
-  if (!alteracoes && !alterouLancamento && !alterouCompensacao && !alterouValidacao) return mostrarToast('Nenhuma alteração foi informada.', 'warning');
+  if (!alteracoes && !alterouLancamento && !alterouCompensacao && !alterouAutorizacoes && !alterouValidacao) return mostrarToast('Nenhuma alteração foi informada.', 'warning');
   if (alterouLancamento) {
     try {
       exibirLoader(true, 'Salvando associação da ausência...');
@@ -8578,10 +8963,28 @@ async function salvarAjustesDiaRep() {
       return mostrarToast('Não foi possível associar a ausência: ' + mensagemErro(erro), 'error');
     }
   }
+  if (alterouAutorizacoes) {
+    autorizacoesFormulario.forEach(function(item) {
+      const existente = (autorizacoesCompensacaoRep || []).find(function(registro) { return normalizarPisRep(registro.pis) === normalizarPisRep(ajusteRepAtual.pis) && registro.data === item.data; });
+      if (Number(existente?.minutos || 0) === item.minutos && (!item.minutos || Number(existente?.ordem || 0) === item.ordem)) return;
+      enfileirarAlteracaoRep_('AUTORIZACAO_COMPENSACAO', { pis: ajusteRepAtual.pis, data: item.data, minutos: item.minutos, ordem: item.ordem }, `AUTORIZACAO_COMPENSACAO|${normalizarPisRep(ajusteRepAtual.pis)}|${item.data}`);
+      autorizacoesCompensacaoRep = (autorizacoesCompensacaoRep || []).filter(function(registro) { return !(normalizarPisRep(registro.pis) === normalizarPisRep(ajusteRepAtual.pis) && registro.data === item.data); });
+      if (item.minutos) autorizacoesCompensacaoRep.push({ pis: ajusteRepAtual.pis, data: item.data, minutos: item.minutos, ordem: item.ordem });
+    });
+  }
   if (alterouCompensacao) {
     try {
       exibirLoader(true, 'Salvando compensação de jornada...');
       const dadosCompensacao = { pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao, origens: origensCompensacao };
+      (origensCompensacao || []).forEach(function(origem) {
+        const existente = (autorizacoesCompensacaoRep || []).find(function(item) { return normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === origem.data; });
+        if (!existente || Number(existente.minutos || 0) !== Number(origem.autorizado || 0)) {
+          const ordem = autorizacoesFormulario.findIndex(function(item) { return item.data === origem.data; }) + 1;
+          enfileirarAlteracaoRep_('AUTORIZACAO_COMPENSACAO', { pis: ajusteRepAtual.pis, data: origem.data, minutos: Number(origem.autorizado || 0), ordem: ordem || Number(existente?.ordem || 0) }, `AUTORIZACAO_COMPENSACAO|${normalizarPisRep(ajusteRepAtual.pis)}|${origem.data}`);
+          autorizacoesCompensacaoRep = (autorizacoesCompensacaoRep || []).filter(function(item) { return !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === origem.data); });
+          autorizacoesCompensacaoRep.push({ pis: ajusteRepAtual.pis, data: origem.data, minutos: Number(origem.autorizado || 0), ordem: ordem || Number(existente?.ordem || 0) });
+        }
+      });
       enfileirarAlteracaoRep_('COMPENSACAO', dadosCompensacao, `COMPENSACAO|${normalizarPisRep(ajusteRepAtual.pis)}|${ajusteRepAtual.data}`);
       compensacoesRep = (compensacoesRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(ajusteRepAtual.pis) && item.data === ajusteRepAtual.data));
       if (minutosCompensacao) compensacoesRep.push({ pis: ajusteRepAtual.pis, data: ajusteRepAtual.data, minutos: minutosCompensacao, observacao: observacaoCompensacao, origens: origensCompensacao });
@@ -8629,8 +9032,9 @@ async function salvarAjustesDiaRep() {
   dadosRepCache.punches.push(...novos);
   if (alteracoes) aplicarAjustesCompartilhadosRep_();
   fecharModal('modal-ajuste-rep');
-  atualizarProcessamentoRep();
   exibirLoader(false);
+  if (typeof agendarReprocessamentoRepLeve_ === 'function') agendarReprocessamentoRepLeve_(260);
+  else setTimeout(function() { atualizarProcessamentoRep({ notificarEntidade: false }); }, 260);
   mostrarToast(alterouValidacao && !alteracoes && !alterouLancamento && !alterouCompensacao ? (validado ? 'Alerta validado e retirado da conferência.' : 'Alerta reaberto para conferência.') : (alterouCompensacao && !alteracoes && !alterouLancamento ? 'Compensação de jornada salva.' : 'Ajuste aplicado sem alterar o AFD original.'), 'success');
 }
 
@@ -9207,11 +9611,13 @@ function primeiroNomeRep_(valor) {
   return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
 }
 
-async function alternarConferenciaServidorRep(pis) {
+async function alternarConferenciaServidorRep(pis, botao) {
   const competencia = obterCompetenciaAtualRep_();
   if (!competencia) return mostrarToast('Selecione um ano e um mês específicos para marcar a conferência.', 'warning');
   const atual = obterConferenciaServidorRep_(pis);
+  if (!iniciarOperacaoInterface('conferencia-rep-' + normalizarPisRep(pis), botao, atual ? 'Reabrindo...' : 'Conferindo...')) return;
   try {
+    await new Promise(function(resolve) { requestAnimationFrame(resolve); });
     exibirLoader(true, atual ? 'Reabrindo conferência...' : 'Marcando como conferido...');
     const resultado = await chamarBackendPromessa_('salvarConferenciaRep', [{ pis, competencia, conferido: !atual }]);
     conferenciasRep = (conferenciasRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.competencia === competencia));
@@ -9220,7 +9626,10 @@ async function alternarConferenciaServidorRep(pis) {
     mostrarToast(atual ? 'Servidor marcado novamente como pendente de conferência.' : `Conferência registrada por ${primeiroNomeRep_(resultado?.conferidoPor || AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email)}.`, 'success');
   } catch (erro) {
     mostrarToast('Não foi possível atualizar a conferência: ' + mensagemErro(erro), 'error');
-  } finally { exibirLoader(false); }
+  } finally {
+    exibirLoader(false);
+    finalizarOperacaoInterface('conferencia-rep-' + normalizarPisRep(pis), botao);
+  }
 }
 
 function salvarSaldoDiretoRep_(pis, data, campo) {
@@ -9264,7 +9673,71 @@ function alternarValidacaoRapidaRep_(pis, data) {
   mostrarToast(validar ? 'Alerta validado.' : 'Alerta reaberto.', 'success');
 }
 
-function renderizarPainelRep(servidores, container) {
+function obterCadastroServidorRep_(pis) {
+  return obterServidorPorIdentificadorRep_(pis);
+}
+
+/** Índices somente de visualização; não alteram cálculos nem dados persistidos. */
+function criarContextoVisualRep_(servidores) {
+  const cadastroPorPis = new Map();
+  (AppState.servidores || []).forEach(function(servidor) {
+    const pis = normalizarPisRep(servidor.pis);
+    if (pis && !cadastroPorPis.has(pis)) cadastroPorPis.set(pis, servidor);
+    const identificadorManual = obterIdentificadorCartaoManualRep_(servidor);
+    if (identificadorManual && !cadastroPorPis.has(identificadorManual)) cadastroPorPis.set(identificadorManual, servidor);
+  });
+  const conferenciaPorPis = new Map();
+  const competencia = obterCompetenciaAtualRep_();
+  if (competencia) (conferenciasRep || []).forEach(function(item) {
+    if (!item.conferido || item.competencia !== competencia) return;
+    const pis = normalizarPisRep(item.pis);
+    if (pis && !conferenciaPorPis.has(pis)) conferenciaPorPis.set(pis, item);
+  });
+  const apontamentosAgrupados = new Map();
+  (apontamentosRep || []).forEach(function(item) {
+    const pis = normalizarPisRep(item.pis);
+    if (!pis) return;
+    if (!apontamentosAgrupados.has(pis)) apontamentosAgrupados.set(pis, []);
+    apontamentosAgrupados.get(pis).push(item);
+  });
+  const apontamentosPorPis = new Map();
+  (servidores || []).forEach(function(emp) {
+    const pis = normalizarPisRep(emp.pis);
+    const registros = apontamentosAgrupados.get(pis) || [];
+    if (competencia) {
+      apontamentosPorPis.set(pis, registros.filter(function(item) { return String(item.data || '').slice(0, 7) === competencia; }));
+      return;
+    }
+    const datas = new Set((emp.dias || []).map(function(dia) { return dia.dataOriginal; }));
+    apontamentosPorPis.set(pis, registros.filter(function(item) {
+      return item.escopo === 'SERVIDOR' || datas.has(String(item.data || ''));
+    }));
+  });
+  return { cadastroPorPis, conferenciaPorPis, apontamentosPorPis };
+}
+
+function obterVinculoVisualRep_(servidor, compacto) {
+  const situacaoOriginal = String(servidor && servidor.situacao || '').trim();
+  const situacao = situacaoOriginal.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  let classe = 'nao-informado';
+  let rotulo = compacto ? 'N/I' : 'Vínculo não informado';
+  let icone = 'circle-help';
+  if (situacao === 'COMISSIONADO') {
+    classe = 'comissionado'; rotulo = compacto ? 'COM' : 'Comissionado'; icone = 'briefcase-business';
+  } else if (situacao === 'ESTATUTARIO') {
+    classe = 'estatutario'; rotulo = compacto ? 'EST' : 'Estatutário'; icone = 'shield-check';
+  } else if (situacao === 'ESTAGIARIO') {
+    classe = 'estagiario'; rotulo = compacto ? 'ESTÁG.' : 'Estagiário'; icone = 'graduation-cap';
+  } else if (situacao === 'PEAD') {
+    classe = 'pead'; rotulo = 'PEAD'; icone = 'badge';
+  } else if (situacaoOriginal) {
+    classe = 'outro'; rotulo = compacto ? situacaoOriginal.slice(0, 7).toUpperCase() : situacaoOriginal; icone = 'contact-round';
+  }
+  return `<span class="rep-vinculo-funcional ${classe}" title="Situação funcional: ${escapeHtml(situacaoOriginal || 'não informada')}"><span data-lucide="${icone}"></span>${escapeHtml(rotulo)}</span>`;
+}
+
+function renderizarPainelRep(servidores, container, contextoVisual) {
+  contextoVisual = contextoVisual || criarContextoVisualRep_(servidores);
   const listaAnterior = container.querySelector('.rep-pessoas');
   if (listaAnterior) rolagemPessoasRep = listaAnterior.scrollTop;
   if (!servidores.some(emp => emp.pis === pisSelecionadoRep)) {
@@ -9272,21 +9745,24 @@ function renderizarPainelRep(servidores, container) {
     filtroDiasRepAtual = 'todos';
   }
   const selecionado = servidores.find(emp => emp.pis === pisSelecionadoRep);
-  const cadastroSelecionado = (AppState.servidores || []).find(servidor => normalizarPisRep(servidor.pis) === normalizarPisRep(selecionado.pis));
+  const cadastroSelecionado = contextoVisual.cadastroPorPis.get(normalizarPisRep(selecionado.pis)) || null;
   const controleVinculo = cadastroSelecionado
     ? `<span class="rep-vinculo-confirmado">Cadastro associado</span><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Gerenciar vínculo / unir outro</button>`
     : `<button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button>`;
   const resumo = servidores.map(emp => {
-    const abertos = obterApontamentosServidorPeriodoRep_(emp.pis, emp.dias).filter(item => item.status !== 'CONCLUIDO').length;
-    const conferencia = obterConferenciaServidorRep_(emp.pis);
+    const pisNormalizado = normalizarPisRep(emp.pis);
+    const cadastroEmp = contextoVisual.cadastroPorPis.get(pisNormalizado) || null;
+    const abertos = (contextoVisual.apontamentosPorPis.get(pisNormalizado) || []).filter(item => item.status !== 'CONCLUIDO').length;
+    const conferencia = contextoVisual.conferenciaPorPis.get(pisNormalizado) || null;
     const rotuloConferencia = conferencia ? `Conferido por ${primeiroNomeRep_(conferencia.conferidoPor)}` : 'Marcar como conferido';
     return `<div class="rep-pessoa-item ${emp.pis === pisSelecionadoRep ? 'active' : ''} ${conferencia ? 'conferido' : ''}" onclick="selecionarServidorRep('${emp.pis}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); selecionarServidorRep('${emp.pis}'); }" role="button" tabindex="0">
-      <span><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
-      <span class="rep-pessoa-metricas"><b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><small><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador apontamento ${abertos ? 'tem-apontamento' : ''}" title="Apontamentos abertos">${abertos} AP</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small><button type="button" class="rep-conferencia-servidor ${conferencia ? 'conferido' : ''}" onclick="event.stopPropagation(); alternarConferenciaServidorRep('${emp.pis}')" title="${conferencia ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferencia ? 'circle-check-big' : 'circle'}"></span>${escapeHtml(rotuloConferencia)}</button></span>
+      <span class="rep-pessoa-identidade"><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
+      <span class="rep-pessoa-metricas"><small>${obterVinculoVisualRep_(cadastroEmp, true)}<b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador apontamento ${abertos ? 'tem-apontamento' : ''}" title="Apontamentos abertos">${abertos} AP</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small><button type="button" class="rep-conferencia-servidor ${conferencia ? 'conferido' : ''}" onclick="event.stopPropagation(); alternarConferenciaServidorRep('${emp.pis}', this)" title="${conferencia ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferencia ? 'circle-check-big' : 'circle'}"></span>${escapeHtml(rotuloConferencia)}</button></span>
     </div>`;
   }).join('');
 
-  const apontamentosSelecionado = obterApontamentosServidorPeriodoRep_(selecionado.pis, selecionado.dias);
+  const conferenciaSelecionado = obterConferenciaServidorRep_(selecionado.pis);
+  const apontamentosSelecionado = contextoVisual.apontamentosPorPis.get(normalizarPisRep(selecionado.pis)) || [];
   const apontamentosAbertos = apontamentosSelecionado.filter(item => item.status !== 'CONCLUIDO');
   const apontamentosConcluidos = apontamentosSelecionado.length - apontamentosAbertos.length;
   const apontamentosServidor = apontamentosSelecionado.filter(item => item.escopo === 'SERVIDOR');
@@ -9301,7 +9777,7 @@ function renderizarPainelRep(servidores, container) {
       return `${origem.data.split('-').reverse().join('/')} (${minutosParaHoraRep_(bruto)}h retiradas${bruto !== liquido ? ` → ${minutosParaHoraRep_(liquido)}h aplicadas` : ''})`;
     }).join(' + ');
     const infoCompensacao = dia.compensacao ? `<div class="rep-compensacao-dia ${dia.status === 'jornada_compensada' ? 'completa' : 'parcial'}"><span>${dia.status === 'jornada_compensada' ? 'Jornada compensada' : 'Compensação parcial'}</span><strong>${minutosParaHoraRep_(dia.compensacao.minutosAplicados)}h aplicadas de ${minutosParaHoraRep_(dia.compensacao.deficit)}h devidas</strong><small>Origem: ${escapeHtml(origensCompensacaoTexto || 'registro antigo sem detalhamento')}${dia.compensacao.observacao ? ` · ${escapeHtml(dia.compensacao.observacao)}` : ''}</small></div>` : '';
-    const infoOrigemCompensacao = dia.minutosCompensadosComoOrigem ? `<div class="rep-compensacao-origem"><span>HE usada em compensação</span><strong>${minutosParaHoraRep_(dia.minutosCompensadosComoOrigem)}h retiradas deste dia</strong><small>Saldo de HE antes da retirada: ${formatHoursRep(dia.horaExtraAntesCompensacao)}h</small></div>` : '';
+    const infoOrigemCompensacao = dia.minutosCompensadosComoOrigem ? `<div class="rep-compensacao-origem"><span>${configuracaoCalculoRepAtual.compensacaoMinutosExatos ? 'Minutos reais usados em compensação' : 'HE usada em compensação'}</span><strong>${minutosParaHoraRep_(dia.minutosCompensadosComoOrigem)}h retiradas deste dia</strong><small>Saldo administrativo de HE antes: ${formatHoursRep(dia.horaExtraAntesCompensacao)}h${configuracaoCalculoRepAtual.compensacaoMinutosExatos ? ` · impacto na HE: ${minutosParaHoraRep_(dia.minutosAdministrativosCompensadosComoOrigem || 0)}h` : ''}</small></div>` : '';
     const infoValidacao = dia.validacaoManual ? `<div class="rep-validacao-dia"><span>Alerta validado manualmente</span><strong>${escapeHtml(textoSituacaoRep(dia.statusAntesValidacao || ''))}</strong><small>${dia.validacaoManual.observacao ? escapeHtml(dia.validacaoManual.observacao) + ' · ' : ''}Use “Ajustar” para reabrir</small></div>` : '';
     const infoDescarteHe = dia.horaExtraDesconsiderada ? `<div class="rep-descarte-he-dia"><span>Hora extra desconsiderada neste dia</span><strong>${formatHoursRep(dia.horaExtraDesconsiderada.horas)}h não contabilizadas</strong><small>${dia.horaExtraDesconsiderada.atualizadoPor ? `Por ${escapeHtml(primeiroNomeRep_(dia.horaExtraDesconsiderada.atualizadoPor))}` : 'Decisão manual da conferência'}</small></div>` : '';
     const eventos = dia.semRegistro ? `<span class="rep-sem-registro">${escapeHtml(textoSituacaoRep(dia.status))}</span>` : (dia.batidasDetalhadas || []).map(evento => `<div class="rep-evento rep-comprovante-afd" draggable="true" data-event-id="${escapeHtml(evento.eventId || '')}" title="Local: ${escapeHtml(evento.local || 'não informado')} · Arraste esta marcação para o dia correto" ondragstart="iniciarArrasteMarcacaoRep_(event,this.dataset.eventId,'${dia.dataOriginal}')" ondragend="finalizarArrasteMarcacaoRep_(event)">
@@ -9323,8 +9799,8 @@ function renderizarPainelRep(servidores, container) {
       : `<div class="rep-saldo-celula"><span>${!Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : saldoValor + 'h')}</span><span class="rep-sinalizadores rep-sinalizadores-saldo">${sinalizadoresSaldo}</span></div>`;
     const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
     return `<tr class="${classesDia}" data-rep-data="${dia.dataOriginal}" ondragover="permitirSoltarMarcacaoRep_(event)" ondragleave="sairDestinoMarcacaoRep_(event)" ondrop="soltarMarcacaoRep_(event,'${dia.dataOriginal}')">
-      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia lancamento" onclick="abrirLancamentoDiretoRep_('', '${dia.dataOriginal}', '${selecionado.pis}')">+ Lançamento</button>${acaoValidacao}</div></td>
-      <td><div class="rep-linha-tempo">${eventos}</div>${infoAusencia}${infoCompensacao}${infoOrigemCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia adicionar-marcacao" onclick="abrirInsercaoMarcacaoDiaRep_('${selecionado.pis}','${dia.dataOriginal}')">+ Batidas</button><button type="button" class="rep-ajustar-dia lancamento" onclick="abrirLancamentoDiretoRep_('', '${dia.dataOriginal}', '${selecionado.pis}')">+ Lançamento</button>${acaoValidacao}</div></td>
+      <td><div class="rep-linha-tempo">${eventos}</div><div id="rep-insercao-${dia.dataOriginal.replace(/[^\d]/g,'')}" hidden></div>${infoAusencia}${infoCompensacao}${infoOrigemCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${campoSaldo}</td>
       <td><span class="rep-status ${dia.status}"><b>${categoriaSituacaoRep(dia.status)}</b><span>${textoSituacaoRep(dia.status)}</span></span><span class="rep-sinalizadores">${sinalizadorCompensacao}</span></td>
@@ -9337,9 +9813,9 @@ function renderizarPainelRep(servidores, container) {
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><h3>${escapeHtml(selecionado.nome)}</h3><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button></div></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><div class="rep-identidade-titulo"><h3>${escapeHtml(selecionado.nome)}</h3>${obterVinculoVisualRep_(cadastroSelecionado, false)}</div><strong class="rep-identidade-cargo">${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')}</strong><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<button type="button" class="rep-conferencia-cabecalho ${conferenciaSelecionado ? 'conferido' : ''}" onclick="alternarConferenciaServidorRep('${selecionado.pis}', this)" title="${conferenciaSelecionado ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferenciaSelecionado ? 'circle-check-big' : 'circle-check'}"></span>${conferenciaSelecionado ? 'Conferido' : 'Conferir'}</button><button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button></div></div>
         <div class="rep-grupo-resumo">
-          <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Saldo de horas positivas</small><b>${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h</b><em>${formatHoursRep(selecionado.resumo.horasExtras)}h válidas · ${formatHoursRep(selecionado.resumo.horasExtrasDesconsideradas || 0)}h desconsideradas · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h retiradas</em></button>
+          <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Horas extras válidas</small><b>${formatHoursRep(selecionado.resumo.horasExtras || 0)}h</b><em>Saldo para compensação: ${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h já usadas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada considerada ≥ 6h em dia não útil</em></button>
           <button type="button" class="rep-indicador-resumo devidas ${filtroDiasRepAtual === 'saldo' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('saldo')" aria-pressed="${filtroDiasRepAtual === 'saldo'}" title="Soma do que ainda falta cumprir em dias úteis, após justificativas e compensações."><small>Horas devidas</small><b>${selecionado.resumo.horasDevidas > 0 ? '-' : ''}${formatHoursRep(selecionado.resumo.horasDevidas || 0)}h</b><em>Inclui falta de 8h em dia útil</em></button>
           <button type="button" class="rep-indicador-resumo alerta ${selecionado.resumo.pendencias ? 'tem-alerta' : ''} ${filtroDiasRepAtual === 'alertas' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('alertas')" aria-pressed="${filtroDiasRepAtual === 'alertas'}"><small>Dias a conferir</small><b>${selecionado.resumo.pendencias}</b><em>Batidas inconsistentes</em></button>
@@ -9413,19 +9889,21 @@ function renderizarListaRep() {
   const conferenciaFilter = document.getElementById('rep-filter-conferencia')?.value || 'all';
   const lotacaoFilter = document.getElementById('rep-filter-lotacao')?.value || 'all';
 
-  listContainer.innerHTML = '';
+  // A renderização seguinte lê a posição atual antes de substituir o painel.
 
+  const contextoVisual = criarContextoVisualRep_(dadosRepProcessados);
   const filtered = dadosRepProcessados.filter(emp => {
+    const pisNormalizado = normalizarPisRep(emp.pis);
     const matchesSearch = emp.nome.toLowerCase().includes(searchTerm) || emp.pis.includes(searchTerm);
     let matchesStatus = true;
     if (statusFilter === 'pending') {
-      matchesStatus = emp.resumo.pendencias > 0 || obterApontamentosServidorPeriodoRep_(emp.pis, emp.dias).some(item => item.status !== 'CONCLUIDO');
+      matchesStatus = emp.resumo.pendencias > 0 || (contextoVisual.apontamentosPorPis.get(pisNormalizado) || []).some(item => item.status !== 'CONCLUIDO');
     } else if (statusFilter === 'unmatched') {
       matchesStatus = emp.naoConciliado;
     } else if (statusFilter === 'saldo') {
       matchesStatus = emp.resumo.horasExtras > 0;
     }
-    const conferencia = obterConferenciaServidorRep_(emp.pis);
+    const conferencia = contextoVisual.conferenciaPorPis.get(pisNormalizado) || null;
     const matchesConferencia = conferenciaFilter === 'all' || (conferenciaFilter === 'checked' ? Boolean(conferencia) : !conferencia);
     return matchesSearch && matchesStatus && matchesConferencia && (lotacaoFilter === 'all' || emp.lotacao === lotacaoFilter);
   });
@@ -9435,7 +9913,7 @@ function renderizarListaRep() {
     return;
   }
 
-  renderizarPainelRep(filtered, listContainer);
+  renderizarPainelRep(filtered, listContainer, contextoVisual);
   return;
 
   let linhas = '';
@@ -9562,6 +10040,15 @@ function renderizarListaRep() {
 
     listContainer.insertAdjacentHTML('beforeend', cardHtml);
   });
+}
+
+let temporizadorBuscaListaRep_ = null;
+function agendarRenderizacaoListaRep_() {
+  if (temporizadorBuscaListaRep_) clearTimeout(temporizadorBuscaListaRep_);
+  temporizadorBuscaListaRep_ = setTimeout(function() {
+    temporizadorBuscaListaRep_ = null;
+    renderizarListaRep();
+  }, 140);
 }
 
 function toggleRepCard(bodyId) {
@@ -9814,6 +10301,7 @@ function descreverPoliticaCalculoRep_() {
   const cfg = configuracaoCalculoRepAtual;
   if (cfg.modo === 'LEGADO') return 'Modo legado: arredondamento individual das batidas para 00, 30 ou 60 minutos.';
   if (cfg.modo === 'EXATO') return 'Modo exato: todos os minutos registrados participam integralmente do saldo.';
+  if (cfg.modo === 'SOMENTE_HE') return 'Arredondamento exclusivo da HE: os demais controles usam minutos reais; somente o crédito de hora extra usa as batidas arredondadas.';
   const contagem = cfg.contagemDeficit === 'EXCEDENTE' ? 'somente o excedente é devido' : 'todo o déficit é devido';
   return `Saldo diário: tolerância de ${cfg.toleranciaDeficitMin} min; quando ultrapassada, ${contagem}. HE: 0-${cfg.heMeiaMin - 1} min = 0; ${cfg.heMeiaMin}-${cfg.heHoraMin - 1} min = 30 min; ${cfg.heHoraMin}-59 min = 1h.`;
 }
