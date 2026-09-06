@@ -169,7 +169,7 @@ O Drive armazena:
 
 ## 6. Proteção contra perda e contra o limite da planilha
 
-O Google Planilhas possui limite de células por arquivo. Ter backup não resolve o problema de capacidade: uma planilha cheia pode continuar existindo e, ainda assim, recusar novos dados.
+O Google Planilhas possui [limite oficial de 10 milhões de células por arquivo](https://support.google.com/drive/answer/37603?hl=pt-BR). Ter backup não resolve o problema de capacidade: uma planilha cheia pode continuar existindo e, ainda assim, recusar novos dados.
 
 A V2.3.150 adiciona uma estratégia em camadas:
 
