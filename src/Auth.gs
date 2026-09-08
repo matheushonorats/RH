@@ -210,6 +210,7 @@ function obterFuncoesApiPermitidas_() {
     listarAjustesRep: listarAjustesRep,
     salvarAjustesRep: salvarAjustesRep,
     salvarAlteracoesLoteRep: salvarAlteracoesLoteRep,
+    obterAtualizacoesCompartilhadasRep: obterAtualizacoesCompartilhadasRep,
     listarConferenciasRep: listarConferenciasRep,
     salvarConferenciaRep: salvarConferenciaRep,
     salvarApontamentoRep: salvarApontamentoRep,

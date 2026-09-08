@@ -597,6 +597,22 @@ function salvarAlteracoesLoteRep(lote, opcoes) {
   return resultados;
 }
 
+/** Retorna os dados leves do REP em uma única execução para evitar saturação. */
+function obterAtualizacoesCompartilhadasRep() {
+  obterDadosUsuarioLogado();
+  return {
+    apontamentos: listarApontamentosRep(),
+    justificativas: listarJustificativasLancamentoRep(),
+    compensacoes: listarCompensacoesRep(),
+    validacoes: listarValidacoesRep(),
+    descartesHoraExtra: listarDescartesHoraExtraRep(),
+    feriados: listarFeriadosRep(),
+    ajustes: listarAjustesRep(),
+    conferencias: listarConferenciasRep(),
+    configuracaoCalculo: obterConfiguracaoCalculoRep()
+  };
+}
+
 function listarConferenciasRep() {
   obterDadosUsuarioLogado();
   const aba = obterAbaConferenciasRep_();

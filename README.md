@@ -2,7 +2,7 @@
 
 Sistema web de gestão de pessoas da Secretaria Municipal de Turismo de São Sebastião/SP. A aplicação reúne cadastro de servidores, lançamentos funcionais, protocolos, relatórios, férias, conferência de ponto e horas extras em uma única interface.
 
-Versão publicada: **V2.3.157**
+Versão publicada: **V2.3.158**
 
 Plataforma: **Google Apps Script + Google Planilhas + Google Drive**
 
@@ -172,7 +172,7 @@ O Drive armazena:
 
 O Google Planilhas possui [limite oficial de 10 milhões de células por arquivo](https://support.google.com/drive/answer/37603?hl=pt-BR). Ter backup não resolve o problema de capacidade: uma planilha cheia pode continuar existindo e, ainda assim, recusar novos dados.
 
-A V2.3.157 adiciona uma estratégia em camadas:
+A V2.3.158 adiciona uma estratégia em camadas:
 
 1. **Diagnóstico de capacidade:** soma as células reservadas em todas as abas e mostra o percentual no painel Administração → Proteção dos dados.
 2. **Avisos antecipados:** registra as faixas normal, atenção, alta e crítica; envia alerta aos responsáveis configurados quando a faixa muda.
@@ -372,7 +372,7 @@ Abra Administração → Proteção dos dados. Confira o percentual e as abas ma
 
 ## 16. Estado atual e próximos passos
 
-A V2.3.157 entrega o pacote de estabilidade, desempenho, reorganização visual, fila segura, validações adicionais, tela de escolha de versão, proteção de capacidade, edição de feriados por competência, confirmação discreta da leitura do ponto, salvamento consciente de marcações a conferir, inclusão do primeiro cartão manual de um servidor, atualização compartilhada reforçada do REP e reenvio automático de pendências após falhas temporárias.
+A V2.3.158 entrega o pacote de estabilidade, desempenho, reorganização visual, fila segura, validações adicionais, tela de escolha de versão, proteção de capacidade, edição de feriados por competência, confirmação discreta da leitura do ponto, salvamento consciente de marcações a conferir, inclusão do primeiro cartão manual de um servidor, atualização compartilhada reforçada do REP, reenvio automático e comunicação consolidada com a planilha.
 
 Próximos passos recomendados:
 
@@ -489,7 +489,7 @@ O servidor cria essas abas sob demanda com `obterAbaRepOnline_()`. Ao mudar cabe
 ### 17.5 Pipeline do Leitor REP
 
 1. `listarArquivosPastaEntradaRep()` enumera apenas `.txt` e `.afd` na pasta autorizada.
-2. O navegador baixa cada arquivo em partes; a V2.3.157 trabalha com até dois arquivos em paralelo.
+2. O navegador baixa cada arquivo em partes; a V2.3.158 trabalha com até dois arquivos em paralelo.
 3. Cada parte é validada e o hash SHA-256 do arquivo completo permite conferir integridade.
 4. O parser transforma linhas AFD em marcações normalizadas.
 5. Duplicatas vindas de múltiplos relógios são conciliadas.
@@ -705,7 +705,7 @@ Depois de publicar:
 ### 17.18 O que não está resolvido por completo
 
 - Google Planilhas continua sendo a base operacional e possui limite finito.
-- A V2.3.157 impede desperdício de células e arquiva crescimento técnico, mas ainda não particiona `Lançamentos` e tabelas REP funcionais por ano.
+- A V2.3.158 impede desperdício de células e arquiva crescimento técnico, mas ainda não particiona `Lançamentos` e tabelas REP funcionais por ano.
 - Cópias no mesmo ecossistema Google protegem contra erro operacional, mas uma estratégia de continuidade mais forte deve incluir exportação periódica independente.
 - Alguns testes são de regressão local e ainda não substituem testes integrados completos contra uma cópia controlada da planilha.
 - A beta conectada melhora a percepção de velocidade, mas quotas e indisponibilidade do Google continuam sendo dependências externas.

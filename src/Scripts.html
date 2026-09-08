@@ -1244,6 +1244,7 @@ function inicializarUsuario(temCache) {
  */
 let sincronizacaoServidorEmAndamento = false;
 let sincronizacaoViewPendente = null;
+let sincronizacaoCompletaSequencia_ = 0;
 
 function reservarSincronizacaoServidor_(viewAlvo) {
   if (existemGravacoesPendentes_()) {
@@ -1279,6 +1280,25 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     return;
   }
   const revisaoAoIniciar = revisaoMutacoesCliente_;
+  const sequenciaSincronizacao = ++sincronizacaoCompletaSequencia_;
+  let respostaEncerrada = false;
+  const limiteSincronizacao = setTimeout(function() {
+    if (respostaEncerrada || sequenciaSincronizacao !== sincronizacaoCompletaSequencia_) return;
+    respostaEncerrada = true;
+    const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
+    carregamentoInicialBancoPendente_ = false;
+    AppState.dadosCompletosCarregados = false;
+    exibirLoader(false);
+    if (AppState.cacheRestaurado) {
+      popularFiltroLotacoes();
+      carregarDadosDaView(viewFinal || viewAlvo || 'dashboard');
+      atualizarTextoSync('Google demorou a responder — exibindo a última cópia salva', true, 'warning');
+      mostrarToast('O Google demorou a responder. A última cópia salva foi aberta; suas pendências continuam protegidas.', 'warning');
+    } else {
+      atualizarTextoSync('Google demorou a responder — clique em atualizar para tentar novamente', true, 'warning');
+      mostrarToast('O carregamento foi liberado porque o Google não respondeu. Clique em atualizar para tentar novamente.', 'error');
+    }
+  }, 45000);
   const syncBtn = document.getElementById('btn-sync-icon');
   if (syncBtn) syncBtn.classList.add('spinning');
   exibirLoader(true);
@@ -1287,6 +1307,9 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
   
   backendApi()
     .withSuccessHandler(function(dados) {
+      if (respostaEncerrada) return;
+      respostaEncerrada = true;
+      clearTimeout(limiteSincronizacao);
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
       if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesPendentes_()) {
@@ -1329,6 +1352,9 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       }
     })
     .withFailureHandler(function(erro) {
+      if (respostaEncerrada) return;
+      respostaEncerrada = true;
+      clearTimeout(limiteSincronizacao);
       const syncBtn = document.getElementById('btn-sync-icon');
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
@@ -6538,26 +6564,16 @@ async function sincronizarAlteracoesRepSegundoPlano_(versaoDetectada) {
   repAtualizacaoLeveEmAndamento_ = true;
   atualizarTextoSync('Atualizando alterações compartilhadas do REP...', true, 'spinner');
   try {
-    const resultados = await Promise.all([
-      chamarBackendPromessa_('listarApontamentosRep', []),
-      chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
-      chamarBackendPromessa_('listarCompensacoesRep', []),
-      chamarBackendPromessa_('listarValidacoesRep', []),
-      chamarBackendPromessa_('listarDescartesHoraExtraRep', []),
-      chamarBackendPromessa_('listarFeriadosRep', []),
-      chamarBackendPromessa_('listarAjustesRep', []),
-      chamarBackendPromessa_('listarConferenciasRep', []),
-      chamarBackendPromessa_('obterConfiguracaoCalculoRep', [])
-    ]);
-    apontamentosRep = Array.isArray(resultados[0]) ? resultados[0] : [];
-    justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
-    compensacoesRep = Array.isArray(resultados[2]) ? resultados[2] : [];
-    validacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
-    descartesHoraExtraRep = Array.isArray(resultados[4]) ? resultados[4] : [];
-    feriadosCompartilhadosRep = Array.isArray(resultados[5]) ? resultados[5] : [];
-    ajustesCompartilhadosRep = Array.isArray(resultados[6]) ? resultados[6] : [];
-    conferenciasRep = Array.isArray(resultados[7]) ? resultados[7] : [];
-    aplicarConfiguracaoCalculoRep_(resultados[8] || { arredondamentoAtivo: true });
+    const resultados = await chamarBackendPromessa_('obterAtualizacoesCompartilhadasRep', []);
+    apontamentosRep = Array.isArray(resultados.apontamentos) ? resultados.apontamentos : [];
+    justificativasLancamentoRep = Array.isArray(resultados.justificativas) ? resultados.justificativas : [];
+    compensacoesRep = Array.isArray(resultados.compensacoes) ? resultados.compensacoes : [];
+    validacoesRep = Array.isArray(resultados.validacoes) ? resultados.validacoes : [];
+    descartesHoraExtraRep = Array.isArray(resultados.descartesHoraExtra) ? resultados.descartesHoraExtra : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados.feriados) ? resultados.feriados : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados.ajustes) ? resultados.ajustes : [];
+    conferenciasRep = Array.isArray(resultados.conferencias) ? resultados.conferencias : [];
+    aplicarConfiguracaoCalculoRep_(resultados.configuracaoCalculo || { arredondamentoAtivo: true });
     atualizarCampoFeriadosCompartilhadosRep_();
     aplicarAjustesCompartilhadosRep_();
     AppState.versaoDados = String(versaoDetectada || AppState.versaoDados || '');
@@ -9549,28 +9565,19 @@ function atualizarApontamentosRepSegundoPlano_() {
     return;
   }
   const revisaoAoIniciar = revisaoMutacoesCliente_;
-  Promise.all([
-    chamarBackendPromessa_('listarApontamentosRep', []),
-    chamarBackendPromessa_('listarJustificativasLancamentoRep', []),
-    chamarBackendPromessa_('listarCompensacoesRep', []),
-    chamarBackendPromessa_('listarValidacoesRep', []),
-    chamarBackendPromessa_('listarDescartesHoraExtraRep', []),
-    chamarBackendPromessa_('listarFeriadosRep', []),
-    chamarBackendPromessa_('listarAjustesRep', []),
-    chamarBackendPromessa_('listarConferenciasRep', [])
-  ]).then(function(resultados) {
+  chamarBackendPromessa_('obterAtualizacoesCompartilhadasRep', []).then(function(resultados) {
     if (revisaoAoIniciar !== revisaoMutacoesCliente_ || repTemAlteracoesPendentes_() || gravacoesBackendEmAndamento_ > 0) {
       setTimeout(atualizarApontamentosRepSegundoPlano_, 500);
       return;
     }
-    apontamentosRep = Array.isArray(resultados[0]) ? resultados[0] : [];
-    justificativasLancamentoRep = Array.isArray(resultados[1]) ? resultados[1] : [];
-    compensacoesRep = Array.isArray(resultados[2]) ? resultados[2] : [];
-    validacoesRep = Array.isArray(resultados[3]) ? resultados[3] : [];
-    descartesHoraExtraRep = Array.isArray(resultados[4]) ? resultados[4] : [];
-    feriadosCompartilhadosRep = Array.isArray(resultados[5]) ? resultados[5] : [];
-    ajustesCompartilhadosRep = Array.isArray(resultados[6]) ? resultados[6] : [];
-    conferenciasRep = Array.isArray(resultados[7]) ? resultados[7] : [];
+    apontamentosRep = Array.isArray(resultados.apontamentos) ? resultados.apontamentos : [];
+    justificativasLancamentoRep = Array.isArray(resultados.justificativas) ? resultados.justificativas : [];
+    compensacoesRep = Array.isArray(resultados.compensacoes) ? resultados.compensacoes : [];
+    validacoesRep = Array.isArray(resultados.validacoes) ? resultados.validacoes : [];
+    descartesHoraExtraRep = Array.isArray(resultados.descartesHoraExtra) ? resultados.descartesHoraExtra : [];
+    feriadosCompartilhadosRep = Array.isArray(resultados.feriados) ? resultados.feriados : [];
+    ajustesCompartilhadosRep = Array.isArray(resultados.ajustes) ? resultados.ajustes : [];
+    conferenciasRep = Array.isArray(resultados.conferencias) ? resultados.conferencias : [];
     atualizarCampoFeriadosCompartilhadosRep_();
     aplicarAjustesCompartilhadosRep_();
     if (currentView === 'pre-leitura-rep' && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
