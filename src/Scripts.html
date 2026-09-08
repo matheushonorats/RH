@@ -787,6 +787,7 @@ window.addEventListener('beforeunload', (e) => {
 // Consulta apenas uma versão leve. A base completa só é recarregada quando
 // outro usuário realmente grava uma alteração.
 let pollingInterval;
+let repUltimaSincronizacaoCompartilhadaEm_ = 0;
 function iniciarPolling() {
   if (pollingInterval) clearInterval(pollingInterval);
   pollingInterval = setInterval(() => {
@@ -794,18 +795,19 @@ function iniciarPolling() {
     backendApi()
       .withSuccessHandler(function(versao) {
         versao = String(versao || '');
-        if (!AppState.versaoDados) {
-          AppState.versaoDados = versao;
-          return;
-        }
-        if (versao && versao !== AppState.versaoDados) {
-          const editorRepAtivo = currentView === 'pre-leitura-rep' && (
-            document.getElementById('modal-lancamentos-lote-rep')?.dataset.dirty === 'sim' ||
-            document.activeElement?.closest?.('#view-pre-leitura-rep input, #view-pre-leitura-rep textarea, #view-pre-leitura-rep select')
-          );
-          if (editorRepAtivo) return;
-          if (currentView === 'pre-leitura-rep' && typeof sincronizarAlteracoesRepSegundoPlano_ === 'function') sincronizarAlteracoesRepSegundoPlano_(versao);
-          else sincronizarEmSegundoPlano(currentView);
+        const mudou = Boolean(versao && AppState.versaoDados && versao !== AppState.versaoDados);
+        if (!AppState.versaoDados) AppState.versaoDados = versao;
+        const editorRepAtivo = currentView === 'pre-leitura-rep' && (
+          document.getElementById('modal-lancamentos-lote-rep')?.dataset.dirty === 'sim' ||
+          document.activeElement?.closest?.('#view-pre-leitura-rep input, #view-pre-leitura-rep textarea, #view-pre-leitura-rep select')
+        );
+        if (editorRepAtivo) return;
+        if (currentView === 'pre-leitura-rep' && typeof sincronizarAlteracoesRepSegundoPlano_ === 'function') {
+          // Proteção contra atrasos do timestamp do Drive: a cada minuto, busca
+          // apenas os dados compartilhados do REP, sem reler arquivos AFD.
+          if (mudou || Date.now() - repUltimaSincronizacaoCompartilhadaEm_ >= 60000) sincronizarAlteracoesRepSegundoPlano_(versao);
+        } else if (mudou) {
+          sincronizarEmSegundoPlano(currentView);
         }
       })
       .withFailureHandler(function(erro) { console.warn('Não foi possível consultar mudanças compartilhadas:', mensagemErro(erro)); })
@@ -6559,6 +6561,7 @@ async function sincronizarAlteracoesRepSegundoPlano_(versaoDetectada) {
     atualizarCampoFeriadosCompartilhadosRep_();
     aplicarAjustesCompartilhadosRep_();
     AppState.versaoDados = String(versaoDetectada || AppState.versaoDados || '');
+    repUltimaSincronizacaoCompartilhadaEm_ = Date.now();
     if (typeof agendarReprocessamentoRepLeve_ === 'function') agendarReprocessamentoRepLeve_(220);
     else setTimeout(function() { atualizarProcessamentoRep({ notificarEntidade: false }); }, 220);
     atualizarTextoSync('Alterações compartilhadas atualizadas', true, 'check');
@@ -8268,6 +8271,7 @@ let repSequenciaAlteracao_ = 0;
 let repUltimoEstadoSincronizacao_ = 'idle';
 let repUltimoErroSincronizacao_ = '';
 let repUltimaConfirmacaoSincronizacao_ = 0;
+let repTentativasReenvio_ = 0;
 
 function obterChaveFilaRep_() {
   try {
@@ -8339,6 +8343,15 @@ function repTemAlteracoesPendentes_() {
   return repAlteracoesPendentes_.size > 0 || Boolean(repSalvamentoEmAndamento_);
 }
 
+function agendarReenvioSeguroRep_() {
+  if (!repAlteracoesPendentes_.size) return;
+  clearTimeout(repTemporizadorSalvamento_);
+  const espera = Math.min(60000, 3000 * Math.pow(2, Math.max(0, repTentativasReenvio_ - 1)));
+  repTemporizadorSalvamento_ = setTimeout(function() {
+    if (navigator.onLine) salvarAlteracoesPendentesRep_({ automatico: true, reenvio: true });
+  }, espera);
+}
+
 function enfileirarAlteracaoRep_(tipo, dados, chave) {
   const identificador = String(chave || `${tipo}|${++repSequenciaAlteracao_}`);
   const anterior = repAlteracoesPendentes_.get(identificador);
@@ -8403,6 +8416,7 @@ async function salvarAlteracoesPendentesRep_(opcoes) {
         throw new Error(falha ? falha.erro : 'Nem todas as alterações foram confirmadas pelo servidor.');
       }
       loteSalvo = true;
+      repTentativasReenvio_ = 0;
       repUltimoEstadoSincronizacao_ = repAlteracoesPendentes_.size ? 'pending' : 'confirmed';
       repUltimaConfirmacaoSincronizacao_ = Date.now();
       repUltimoErroSincronizacao_ = '';
@@ -8410,10 +8424,13 @@ async function salvarAlteracoesPendentesRep_(opcoes) {
       if (opcoes.manual) mostrarToast(`${resultados.length} alteração(ões) do REP salvas.`, 'success');
       return true;
     } catch (erro) {
+      const jaEstavaEmFalha = repUltimoEstadoSincronizacao_ === 'error';
       repUltimoEstadoSincronizacao_ = 'error';
       repUltimoErroSincronizacao_ = mensagemErro(erro);
       persistirFilaRep_();
-      mostrarToast('As alterações continuam pendentes: ' + mensagemErro(erro), 'error');
+      repTentativasReenvio_++;
+      agendarReenvioSeguroRep_();
+      if (!opcoes.reenvio && !jaEstavaEmFalha) mostrarToast('As alterações continuam pendentes e serão reenviadas automaticamente: ' + mensagemErro(erro), 'error');
       return false;
     } finally {
       repSalvamentoEmAndamento_ = null;
