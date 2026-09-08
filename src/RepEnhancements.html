@@ -708,8 +708,15 @@ function abrirLancamentosLoteRep_(opcoes) {
 
 // Prévia isolada: usa o mesmo cálculo da conferência sem modificar as batidas salvas.
 let repPreviaLoteNoTurno_ = null;
-function obterServidorProjetadoLoteRep_() {
-  const emp = obterServidorSelecionadoRep_();
+function obterServidorProjetadoLoteRep_(pisPreferido) {
+  // O formulário pertence ao servidor registrado no momento da abertura.
+  // Uma atualização leve da lista, portanto, não pode trocar nem invalidar
+  // um cartão que a pessoa já está preenchendo.
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const pisDoFormulario = normalizarPisRep(pisPreferido || modal?.dataset.pis || pisSelecionadoRep);
+  const emp = (dadosRepProcessados || []).find(function(item) {
+    return normalizarPisRep(item.pis) === pisDoFormulario;
+  }) || (!pisDoFormulario ? obterServidorSelecionadoRep_() : null);
   if (!emp) return null;
   if (repPreviaLoteNoTurno_ && repPreviaLoteNoTurno_.original === emp) return repPreviaLoteNoTurno_.resultado;
   const substituidos = new Set();
@@ -761,9 +768,9 @@ function adicionarDeficitsCompensacaoLoteRep_() {
 
 async function salvarLancamentosLoteRep_() {
   const modal = document.getElementById('modal-lancamentos-lote-rep');
-  const emp = obterServidorProjetadoLoteRep_();
+  const emp = obterServidorProjetadoLoteRep_(modal?.dataset.pis);
   const pis = modal && modal.dataset.pis;
-  if (!emp || normalizarPisRep(emp.pis) !== normalizarPisRep(pis)) return mostrarToast('O servidor selecionado mudou. Abra o formulário novamente.', 'warning');
+  if (!emp || !pis) return mostrarToast('Não foi possível localizar o servidor deste formulário. Atualize a tela e abra-o novamente.', 'warning');
   const cartaoManual = modal && modal.dataset.modo === 'cartao-manual';
   const linhasMarcacao = Array.from(document.querySelectorAll('#rep-lote-marcacoes tr')).filter(function(linha) {
     const possuiHorario = Array.from(linha.querySelectorAll('.rep-lote-hora')).some(function(campo) { return campo.value; });
