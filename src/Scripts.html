@@ -8646,15 +8646,10 @@ function observarPreLeituraRepEntidade_(notificar) {
 
   if (!notificar || entidadeFingerprintsRepNotificados.has(fingerprint)) return;
   entidadeFingerprintsRepNotificados.add(fingerprint);
-  const mensagem = 'Leitor REP carregado. A conferência está pronta para ' + resumo.recorte.rotulo + '.';
-
-  if (entidadeChatAberto) {
-    addMensagemEntidade(mensagem, false);
-    entidadeHistorico.push({ role: 'assistant', content: mensagem });
-  } else {
-    entidadeMensagemTemporariaRep = mensagem;
-    exibirBadgeNotificacao();
-  }
+  // A conclusão da leitura não é uma pendência: confirma discretamente, sem
+  // criar mensagem no chat da Entidade, ponto de notificação ou histórico.
+  tocarSomNotificacao();
+  mostrarToast('Leitor de ponto carregado. A conferência está pronta para ' + resumo.recorte.rotulo + '.', 'success');
 }
 
 async function aplicarFeriadosRep() {
