@@ -172,13 +172,15 @@ function preencherDiasCartaoManualRep_(competencia, local) {
   if (status && totalExistentes) status.textContent = `${totalExistentes} marcação(ões) já existente(s) foram carregadas. Registros do AFD estão protegidos; registros manuais podem ser continuados ou corrigidos.`;
 }
 
-function alternarDiaSeguinteCartaoManualRep_(botao, forcarOffset) {
+function alternarDiaSeguinteCartaoManualRep_(botao, forcarOffset, automatico) {
   const celula = botao?.closest('.rep-cartao-horario');
   const campo = celula?.querySelector('.rep-lote-hora');
   if (!campo || campo.readOnly) return;
   const atual = Number(campo.dataset.diaOffset || 0);
   const novo = forcarOffset == null ? (atual ? 0 : 1) : (forcarOffset ? 1 : 0);
   campo.dataset.diaOffset = String(novo);
+  if (automatico) campo.dataset.diaOffsetAutomatico = novo ? 'sim' : '';
+  else delete campo.dataset.diaOffsetAutomatico;
   botao.classList.toggle('ativo', novo === 1);
   botao.setAttribute('aria-pressed', novo === 1 ? 'true' : 'false');
   botao.title = novo === 1 ? 'Este horário pertence ao dia seguinte' : 'Marcar este horário como pertencente ao dia seguinte';
@@ -187,15 +189,18 @@ function alternarDiaSeguinteCartaoManualRep_(botao, forcarOffset) {
 }
 
 function ajustarViradaAutomaticaCartaoManualRep_(campo) {
-  if (!campo || !campo.value || campo.readOnly) return;
-  const linha = campo.closest('tr');
-  const horarios = Array.from(linha?.querySelectorAll('.rep-lote-hora') || []);
-  const indice = horarios.indexOf(campo);
-  const anterior = horarios.slice(0, indice).reverse().find(function(item) { return item.value; });
-  if (!anterior) return;
-  const offsetAnterior = Number(anterior.dataset.diaOffset || 0);
-  const deveSerDiaSeguinte = offsetAnterior === 1 || campo.value < anterior.value;
-  if (deveSerDiaSeguinte) alternarDiaSeguinteCartaoManualRep_(campo.closest('.rep-cartao-horario')?.querySelector('.rep-dia-seguinte'), true);
+  if (!campo || campo.readOnly) return;
+  const botao = campo.closest('.rep-cartao-horario')?.querySelector('.rep-dia-seguinte');
+  const minutos = /^\d{2}:\d{2}$/.test(String(campo.value || ''))
+    ? Number(campo.value.slice(0, 2)) * 60 + Number(campo.value.slice(3, 5))
+    : null;
+  // Só sugere automaticamente a virada para horários da madrugada. Para
+  // qualquer outro horário, o +1 é uma decisão explícita de quem confere.
+  if (minutos != null && minutos >= 0 && minutos <= 300) {
+    alternarDiaSeguinteCartaoManualRep_(botao, true, true);
+  } else if (campo.dataset.diaOffsetAutomatico === 'sim') {
+    alternarDiaSeguinteCartaoManualRep_(botao, false, true);
+  }
 }
 
 function criarDataAjusteComOffsetRep_(dataIso, hora, offset) {
@@ -680,7 +685,7 @@ function abrirLancamentosLoteRep_(opcoes) {
   if (titulo) titulo.textContent = opcoes.cartaoManual ? 'Preencher cartão de ponto manual' : 'Ajustes de ponto em lote';
   const intro = modal.querySelector('.rep-lote-intro');
   if (intro) intro.textContent = opcoes.cartaoManual
-    ? 'As marcações já salvas foram carregadas: AFD fica protegido e manual pode ser corrigido. Use Tab, Enter, setas ou cole do Excel. Quando a saída ocorrer após 00:00, o sistema ativa +1 automaticamente; confira o selo amarelo.'
+    ? 'As marcações já salvas foram carregadas: AFD fica protegido e manual pode ser corrigido. Use Tab, Enter, setas ou cole do Excel. O +1 só é sugerido automaticamente para horários entre 00:00 e 05:00; fora disso, marque-o se necessário.'
     : 'Registre marcações esquecidas e compense déficits de vários dias em uma única conferência. O AFD original permanece preservado.';
   document.getElementById('rep-lote-servidor').textContent = emp.nome + ' · ' + emp.pis;
   document.getElementById('rep-lote-marcacoes').innerHTML = '';
@@ -772,6 +777,7 @@ async function salvarLancamentosLoteRep_() {
   const novos = [];
   const paraDesconsiderar = [];
   const origensAjuste = new Set();
+  const avisosInconsistencia = [];
   let compensacoes = [];
   let limitesAutorizados = new Map();
   try {
@@ -790,14 +796,14 @@ async function salvarLancamentosLoteRep_() {
     const paresIncompletos = [[0,1],[2,3],[4,5]].some(function(par) { return Boolean(valoresHorarios[par[0]]) !== Boolean(valoresHorarios[par[1]]); });
     const horarios = valoresHorarios.filter(Boolean);
     const justificativa = linha.querySelector('.rep-lote-justificativa').value.trim();
-    if (cartaoManual && paresIncompletos) throw new Error('Complete a entrada e a saída do mesmo período em ' + data.split('-').reverse().join('/') + '.');
-    if (!data || (cartaoManual ? ![2, 4, 6].includes(horarios.length) : horarios.length < 1 || horarios.length > 6)) throw new Error(cartaoManual
-      ? 'Informe a data e um par completo de horários para manhã, tarde e/ou período extra.'
-      : 'Informe a data e pelo menos uma marcação. No ajuste em lote não é obrigatório completar pares.');
+    const possuiManualExistente = camposHorarios.some(function(campo) { return Boolean(campo.dataset.eventId) && campo.dataset.manual === 'sim'; });
+    if (!data || horarios.length > 6 || (!horarios.length && !possuiManualExistente)) throw new Error('Informe a data e ao menos uma marcação válida.');
+    const dataFormatada = data.split('-').reverse().join('/');
+    if (paresIncompletos) avisosInconsistencia.push(dataFormatada + ': há entrada ou saída sem o par correspondente.');
     const chavesHorarios = camposHorarios.filter(function(campo) { return campo.value; }).map(function(campo) { return `${Number(campo.dataset.diaOffset || 0)}|${campo.value}`; });
-    if (new Set(chavesHorarios).size !== chavesHorarios.length) throw new Error('Há horários repetidos nas marcações de ' + data.split('-').reverse().join('/') + '.');
+    if (new Set(chavesHorarios).size !== chavesHorarios.length) avisosInconsistencia.push(dataFormatada + ': há horários repetidos.');
     const datasOrdenadas = camposHorarios.filter(function(campo) { return campo.value; }).map(function(campo) { return criarDataAjusteComOffsetRep_(data, campo.value, campo.dataset.diaOffset); });
-    if (datasOrdenadas.some(function(item, indice) { return indice > 0 && item <= datasOrdenadas[indice - 1]; })) throw new Error('Os horários de ' + data.split('-').reverse().join('/') + ' estão fora de ordem. Use o botão +1 na marcação que ocorreu depois da meia-noite.');
+    if (datasOrdenadas.some(function(item, indice) { return indice > 0 && item <= datasOrdenadas[indice - 1]; })) avisosInconsistencia.push(dataFormatada + ': os horários estão fora de ordem; confira o botão +1 quando houver virada de dia.');
     camposHorarios.forEach(function(campo, indice) {
       const hora = campo.value;
       const eventoId = String(campo.dataset.eventId || '');
@@ -847,6 +853,11 @@ async function salvarLancamentosLoteRep_() {
   });
   } catch (erroValidacao) {
     return mostrarToast(mensagemErro(erroValidacao), 'warning');
+  }
+  if (avisosInconsistencia.length) {
+    const avisosUnicos = Array.from(new Set(avisosInconsistencia));
+    const continuar = await abrirConfirm('Foram encontradas inconsistências que aparecerão como alerta na conferência:\n\n• ' + avisosUnicos.slice(0, 6).join('\n• ') + (avisosUnicos.length > 6 ? '\n• E mais ' + (avisosUnicos.length - 6) + ' ocorrência(s).' : '') + '\n\nDeseja salvar assim mesmo?', 'Salvar com alertas?');
+    if (!continuar) return;
   }
   const mapaPersistido = new Map(autorizacoesPersistidas.map(function(item) { return [item.data, { minutos: Number(item.minutos || 0), ordem: Number(item.ordem || 0) }]; }));
   const ordemAutorizacoes = new Map(Array.from(document.querySelectorAll('#rep-lote-autorizacoes .rep-lote-autorizacao')).map(function(linha, indice) { return [linha.querySelector('.rep-lote-autorizacao-data').value, indice + 1]; }));
