@@ -556,13 +556,13 @@
                 </div>
                 <div style="width: 140px;">
                   <label class="rep-filter-label" for="rep-filter-ano">Ano</label>
-                  <select id="rep-filter-ano" class="form-control" onchange="atualizarProcessamentoRep()">
+                  <select id="rep-filter-ano" class="form-control" onchange="aoAlterarCompetenciaRep()">
                     <option value="all">Todos os Anos</option>
                   </select>
                 </div>
                 <div style="width: 150px;">
                   <label class="rep-filter-label" for="rep-filter-mes">Mês</label>
-                  <select id="rep-filter-mes" class="form-control" onchange="atualizarProcessamentoRep()">
+                  <select id="rep-filter-mes" class="form-control" onchange="aoAlterarCompetenciaRep()">
                     <option value="all">Todos os Meses</option>
                     <option value="01">Janeiro</option>
                     <option value="02">Fevereiro</option>
@@ -625,7 +625,7 @@
                 </div>
                 <button type="button" class="btn btn-secondary rep-configurar-calculo" onclick="abrirPoliticaCalculoRep_()" title="Definir o padrão de tolerância, atrasos e horas extras do Leitor REP"><span data-lucide="calculator"></span> Configurar cálculo</button>
                 <div style="min-width: 245px;">
-                  <label class="rep-filter-label" for="rep-feriados">Feriados</label>
+                  <label class="rep-filter-label" for="rep-feriados">Feriados da competência</label>
                   <div style="display:flex; gap:6px;">
                     <input type="text" id="rep-feriados" class="form-control" placeholder="Digite 09072026 e pressione Enter" title="Digite uma data sem barras e pressione Enter para salvar e adicionar outra" aria-label="Feriados separados por vírgula" oninput="this.dataset.sujo='true'" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); adicionarFeriadoRep(); }">
                     <button type="button" class="btn btn-secondary" onclick="aplicarFeriadosRep()">Aplicar</button>

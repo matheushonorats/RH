@@ -7080,22 +7080,58 @@ function obterTokensFeriadosRep_() {
   return String(campo && campo.value || '').split(/[;,\n]+/).map(valor => valor.trim()).filter(Boolean);
 }
 
+/** A edição do calendário é sempre limitada à competência selecionada no REP. */
+function obterCompetenciaFeriadosRep_() {
+  return obterCompetenciaSelecionadaRep_();
+}
+
+function feriadosDaCompetenciaRep_(competencia) {
+  if (!competencia) return [];
+  return (feriadosCompartilhadosRep || []).filter(function(item) {
+    return String(item && item.data || '').slice(0, 7) === competencia;
+  });
+}
+
 function obterFeriadosRep() {
-  return new Set(obterTokensFeriadosRep_().map(normalizarDataFeriadoRep_).filter(Boolean));
+  const campo = document.getElementById('rep-feriados');
+  const competencia = obterCompetenciaFeriadosRep_();
+  const compartilhados = (feriadosCompartilhadosRep || []).map(function(item) {
+    return normalizarDataFeriadoRep_(item && item.data);
+  }).filter(Boolean);
+  if (competencia && campo && campo.dataset.sujo === 'true') {
+    const digitados = obterTokensFeriadosRep_().map(normalizarDataFeriadoRep_)
+      .filter(function(data) { return data && data.slice(0, 7) === competencia; });
+    return new Set(compartilhados.filter(function(data) { return data.slice(0, 7) !== competencia; }).concat(digitados));
+  }
+  return new Set(compartilhados);
 }
 
 function atualizarCampoFeriadosCompartilhadosRep_(forcar) {
   const campo = document.getElementById('rep-feriados');
   if (!campo) return;
   if (!forcar && campo.dataset.sujo === 'true') return;
-  campo.value = (feriadosCompartilhadosRep || []).map(item => formatarDataExibicaoFeriadoRep_(item.data)).filter(Boolean).join(', ');
+  const competencia = obterCompetenciaFeriadosRep_();
+  const exibidos = feriadosDaCompetenciaRep_(competencia);
+  campo.value = exibidos.map(item => formatarDataExibicaoFeriadoRep_(item.data)).filter(Boolean).join(', ');
+  campo.placeholder = competencia ? 'Digite uma data e pressione Enter' : 'Selecione ano e mês para editar';
+  campo.dataset.competencia = competencia;
   campo.dataset.sujo = 'false';
+}
+
+function aoAlterarCompetenciaRep() {
+  atualizarCampoFeriadosCompartilhadosRep_();
+  atualizarProcessamentoRep({ notificarEntidade: false });
 }
 
 /** Salva a data ao pressionar Enter e mantém o campo pronto para a próxima. */
 async function adicionarFeriadoRep() {
   const campo = document.getElementById('rep-feriados');
   if (!campo) return;
+  const competencia = obterCompetenciaFeriadosRep_();
+  if (!competencia) {
+    mostrarToast('Selecione um ano e um mês antes de editar os feriados.', 'warning');
+    return;
+  }
 
   const tokens = obterTokensFeriadosRep_();
   if (!tokens.length) return;
@@ -7111,6 +7147,10 @@ async function adicionarFeriadoRep() {
     return;
   }
   const ultimaIso = normalizarDataFeriadoRep_(ultimaData);
+  if (!ultimaIso || ultimaIso.slice(0, 7) !== competencia) {
+    mostrarToast('Informe um feriado pertencente a ' + competencia.split('-').reverse().join('/') + '.', 'warning');
+    return;
+  }
   const jaCompartilhada = (feriadosCompartilhadosRep || []).some(item => item.data === ultimaIso);
   if (anteriores.includes(ultimaData) && jaCompartilhada) {
     campo.value = anteriores.concat(ultimaData).join(', ') + ', ';
@@ -8469,6 +8509,7 @@ function atualizarProcessamentoRep(opcoes) {
 
   const anoSel = document.getElementById('rep-filter-ano') ? document.getElementById('rep-filter-ano').value : 'all';
   const mesSel = document.getElementById('rep-filter-mes') ? document.getElementById('rep-filter-mes').value : 'all';
+  atualizarCampoFeriadosCompartilhadosRep_();
   const localSel = document.getElementById('rep-filter-local') ? document.getElementById('rep-filter-local').value : 'all';
   const contexto = JSON.stringify([anoSel, mesSel, localSel, configuracaoCalculoRepAtual, obterJornadaReferenciaRep_(), document.getElementById('rep-intervalo-presumido-horas')?.value]);
   const pessoas = repContextoProcessamento_ === contexto && Array.isArray(opcoes.pessoas) && opcoes.pessoas.length
@@ -8617,6 +8658,11 @@ function observarPreLeituraRepEntidade_(notificar) {
 }
 
 async function aplicarFeriadosRep() {
+  const competencia = obterCompetenciaFeriadosRep_();
+  if (!competencia) {
+    mostrarToast('Selecione um ano e um mês antes de aplicar os feriados.', 'warning');
+    return;
+  }
   formatarCampoFeriadosRep();
   const tokens = obterTokensFeriadosRep_();
   const invalidos = tokens.filter(valor => !normalizarDataFeriadoRep_(valor));
@@ -8625,7 +8671,12 @@ async function aplicarFeriadosRep() {
     return;
   }
   const datas = Array.from(new Set(tokens.map(normalizarDataFeriadoRep_).filter(Boolean))).sort();
-  const atuais = Array.from(new Set((feriadosCompartilhadosRep || []).map(item => item.data).filter(Boolean))).sort();
+  const foraDaCompetencia = datas.filter(function(data) { return data.slice(0, 7) !== competencia; });
+  if (foraDaCompetencia.length) {
+    mostrarToast('Mantenha no campo somente feriados de ' + competencia.split('-').reverse().join('/') + '.', 'warning');
+    return;
+  }
+  const atuais = Array.from(new Set(feriadosDaCompetenciaRep_(competencia).map(item => item.data).filter(Boolean))).sort();
   const atuaisSet = new Set(atuais);
   const datasSet = new Set(datas);
   const adicionar = datas.filter(data => !atuaisSet.has(data));
