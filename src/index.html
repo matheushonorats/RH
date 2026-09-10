@@ -70,7 +70,6 @@
         </nav>
 
         <div class="header-actions">
-          <button class="header-icon-button" onclick="sincronizarDados(true)" title="Sincronizar dados" aria-label="Sincronizar dados"><span data-lucide="refresh-cw" id="btn-sync-icon"></span></button>
           <button class="header-icon-button" onclick="toggleDarkMode()" title="Alternar tema" aria-label="Alternar tema"><span data-lucide="moon" id="theme-icon"></span></button>
           <div class="user-info" style="cursor: pointer; position: relative;" onclick="toggleUserMenu(event)">
             <div class="user-avatar" id="current-user-avatar">U</div>
@@ -96,8 +95,11 @@
         </div>
       </div>
 
-      <!-- Barra de status de sincronização (discreta) -->
-      <div id="sync-status-bar" class="sync-bar" style="display: none;"></div>
+      <!-- Atualização e status ficam juntos no rodapé. -->
+      <div class="sync-control-dock" aria-label="Status da sincronização">
+        <button class="sync-refresh-button" onclick="sincronizarDados(true)" title="Atualizar dados" aria-label="Atualizar dados"><span data-lucide="refresh-cw" id="btn-sync-icon"></span></button>
+        <div id="sync-status-bar" class="sync-bar" style="display: none;"></div>
+      </div>
 
       <div class="mobile-drawer-backdrop" id="mobile-drawer-backdrop" onclick="alternarMenuMobile(false)"></div>
       <aside class="mobile-drawer" id="mobile-drawer" aria-label="Menu móvel">
@@ -356,13 +358,6 @@
                 <span class="search-icon-inside" data-lucide="search"></span>
                 <input type="text" id="filtro-busca-protocolo" class="form-control" placeholder="Buscar por ID do protocolo..." oninput="filtrarTabelaProtocolos()">
               </div>
-              <select id="filtro-status-protocolo" class="form-control filter-select" onchange="filtrarTabelaProtocolos()">
-                <option value="">Todos Status</option>
-                <option value="Aguardando Assinatura">Aguardando Assinatura</option>
-                <option value="Entregue">Entregue</option>
-                <option value="Retornado pelo Chefe">Retornado pelo Chefe</option>
-                <option value="Enviado ao DGP">Enviado ao DGP</option>
-              </select>
             </div>
 
             <div class="table-container">
@@ -376,14 +371,13 @@
                     <th>ID Protocolo</th>
                     <th>Data Geração</th>
                     <th>Qtd Documentos</th>
-                    <th>Status</th>
                     <th>Emitido Por</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody id="tabela-protocolos-body">
                   <tr>
-                    <td colspan="6" style="text-align: center; color: var(--text-secondary);">Buscando protocolos...</td>
+                    <td colspan="5" style="text-align: center; color: var(--text-secondary);">Buscando protocolos...</td>
                   </tr>
                 </tbody>
               </table>
@@ -1189,6 +1183,17 @@
                 <input type="date" id="lanc-data-falta" class="form-control">
               </div>
 
+              <section class="form-group" id="bloco-abono-eleitoral" style="display: none;">
+                <label class="form-label">Pleito eleitoral *</label>
+                <input type="text" id="lanc-pleito-eleitoral" class="form-control" placeholder="Ex.: Eleições municipais 2024">
+                <div class="form-row" style="margin-top: 10px;">
+                  <div class="form-group"><label class="form-label">Movimento *</label><select id="lanc-movimento-eleitoral" class="form-control" onchange="ajustarCamposAbonoEleitoral_()"><option value="CREDITO">Conceder crédito</option><option value="USO">Usar folgas</option></select></div>
+                  <div class="form-group" id="bloco-eleitoral-quantidade"><label class="form-label">Dias concedidos *</label><input type="number" id="lanc-quantidade-eleitoral" class="form-control" min="1" value="4"></div>
+                </div>
+                <div class="form-group" id="bloco-eleitoral-datas" style="display:none;"><label class="form-label">Datas de uso *</label><textarea id="lanc-datas-eleitoral" class="form-control" rows="3" placeholder="Uma data por linha: 15/10/2026&#10;22/10/2026"></textarea><p class="form-help">Use datas individuais, uma por linha. Elas podem ser em anos diferentes.</p></div>
+                <div id="lanc-resumo-eleitoral" class="eleitoral-resumo"><small>Selecione o servidor para consultar os saldos por pleito.</small></div>
+              </section>
+
               <!-- Bloco 3: Horas Extras -->
               <div class="form-row" id="bloco-horas" style="display: none; align-items: flex-end;">
                 <div class="form-group" style="flex: 2;">
@@ -1313,13 +1318,13 @@
     <div class="modal-overlay" id="modal-criar-protocolo">
       <div class="modal-content large">
         <div class="modal-header">
-          <h3 class="modal-title">Criar Protocolo de Encaminhamento</h3>
+          <h3 class="modal-title" id="titulo-modal-protocolo">Criar Protocolo de Encaminhamento</h3>
           <button class="modal-close" onclick="fecharModal('modal-criar-protocolo')">
             <span data-lucide="x"></span>
           </button>
         </div>
         <div class="modal-body">
-          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Selecione os lançamentos de documentos físicos pendentes que serão agrupados nesta folha de protocolo:</p>
+          <p id="descricao-modal-protocolo" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Selecione os lançamentos de documentos físicos pendentes que serão agrupados nesta folha de protocolo:</p>
           
           <div class="table-container" style="max-height: 350px; overflow-y: auto;">
             <table class="custom-table">

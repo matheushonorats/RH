@@ -33,7 +33,9 @@ function obterIndicesColunasLancamentos_(cabecalho) {
     criadoPor:       indiceCabecalho_(cabecalho, ["CRIADO POR"]),
     criadoEm:        indiceCabecalho_(cabecalho, ["CRIADO EM"]),
     editadoPor:      indiceCabecalho_(cabecalho, ["EDITADO POR"]),
-    editadoEm:       indiceCabecalho_(cabecalho, ["EDITADO EM"])
+    editadoEm:       indiceCabecalho_(cabecalho, ["EDITADO EM"]),
+    pleitoEleitoral: indiceCabecalho_(cabecalho, ["PLEITO ELEITORAL"]),
+    movimentoEleitoral: indiceCabecalho_(cabecalho, ["MOVIMENTO ELEITORAL"])
   };
 }
 
@@ -76,6 +78,7 @@ function obterTotalDebitoFerias_(linha, idx) {
 function ehTipoAusenciaConflitante_(tipo) {
   const texto = normalizarCabecalho_(tipo);
   if (!texto || texto.includes("ANULAD") || texto.includes("NAO EFETIVAD")) return false;
+  if (texto.includes("CREDITO DE ABONO ELEITORAL")) return false;
   if (texto.includes("HORA EXTRA") || texto.includes("ESTAGIO PROBATORIO") || texto.includes("AVALIACAO")) return false;
   return /(FERIAS|LICENCA|ABON|AFAST|ATESTADO|FALTA)/.test(texto);
 }
@@ -324,7 +327,9 @@ function garantirColunasPersistenciaLancamentos_(aba) {
     { nome: "Status", alternativas: ["STATUS", "SITUACAO", "SITUACAO DO LANCAMENTO", "SITUACAO LANCAMENTO"] },
     { nome: "Dias_Pecunia", alternativas: ["DIAS PECUNIA", "DIAS EM PECUNIA", "QTD DIAS PECUNIA"] },
     { nome: "Reserva_Credito_Futuro", alternativas: ["RESERVA CREDITO FUTURO", "RESERVA DE CREDITO FUTURO"] },
-    { nome: "ID_Operacao", alternativas: ["ID OPERACAO", "ID DA OPERACAO"] }
+    { nome: "ID_Operacao", alternativas: ["ID OPERACAO", "ID DA OPERACAO"] },
+    { nome: "Pleito_Eleitoral", alternativas: ["PLEITO ELEITORAL"] },
+    { nome: "Movimento_Eleitoral", alternativas: ["MOVIMENTO ELEITORAL"] }
   ];
 
   colunas.forEach(config => {
@@ -338,6 +343,81 @@ function garantirColunasPersistenciaLancamentos_(aba) {
       .setFontColor("#ffffff")
       .setHorizontalAlignment("center");
   });
+}
+
+/** Registra créditos e usos de abono eleitoral por pleito, sempre em datas avulsas. */
+function salvarAbonoEleitoral(dadosAbono) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para registrar abono eleitoral.');
+  const matricula = normalizarChaveMatricula_(dadosAbono && dadosAbono.matricula);
+  const pleito = String(dadosAbono && dadosAbono.pleito || '').trim();
+  const movimento = normalizarCabecalho_(dadosAbono && dadosAbono.movimento);
+  const datas = Array.from(new Set((dadosAbono && dadosAbono.datas || []).map(String).filter(function(data) { return /^\d{4}-\d{2}-\d{2}$/.test(data); }))).sort();
+  const quantidadeCredito = Math.max(0, parseInt(dadosAbono && dadosAbono.quantidadeCredito, 10) || 0);
+  if (!matricula || !pleito) throw new Error('Informe o servidor e o pleito eleitoral.');
+  if (movimento !== 'CREDITO' && movimento !== 'USO') throw new Error('Informe se este lançamento é crédito ou uso do abono eleitoral.');
+  if (movimento === 'CREDITO' && !quantidadeCredito) throw new Error('Informe a quantidade de dias concedidos para este pleito.');
+  if (movimento === 'USO' && !datas.length) throw new Error('Informe ao menos uma data de uso do abono eleitoral.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = obterPlanilha_();
+    const aba = ss.getSheetByName('Lançamentos');
+    if (!aba) throw new Error("Aba 'Lançamentos' não encontrada.");
+    garantirColunasPersistenciaLancamentos_(aba);
+    const dados = aba.getDataRange().getValues();
+    const cabecalho = dados[0];
+    const idx = obterIndicesColunasLancamentos_(cabecalho);
+    const normalizarPleito = function(valor) { return normalizarCabecalho_(valor); };
+    let creditos = 0, usados = 0;
+    const datasOcupadas = {};
+    dados.slice(1).forEach(function(linha) {
+      if (ehLancamentoAnulado_(linha, idx)) return;
+      if (normalizarChaveMatricula_(idx.matricula === -1 ? '' : linha[idx.matricula]) !== matricula) return;
+      const mov = normalizarCabecalho_(idx.movimentoEleitoral === -1 ? '' : linha[idx.movimentoEleitoral]);
+      if (!mov || normalizarPleito(idx.pleitoEleitoral === -1 ? '' : linha[idx.pleitoEleitoral]) !== normalizarPleito(pleito)) return;
+      const qtd = Math.max(1, obterDiasLancamento_(linha, idx));
+      if (mov === 'CREDITO') creditos += qtd;
+      if (mov === 'USO') {
+        usados += qtd;
+        const data = idx.dataInicio === -1 ? '' : Utilities.formatDate(new Date(linha[idx.dataInicio]), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        if (data) datasOcupadas[data] = true;
+      }
+    });
+    if (movimento === 'USO' && datas.length > (creditos - usados)) throw new Error('O pleito ' + pleito + ' possui saldo de apenas ' + Math.max(0, creditos - usados) + ' dia(s).');
+    if (movimento === 'USO' && datas.some(function(data) { return datasOcupadas[data]; })) throw new Error('Uma das datas informadas já foi usada neste pleito eleitoral.');
+    const servidor = obterListaServidores().find(function(item) { return normalizarChaveMatricula_(item.matricula) === matricula; });
+    if (!servidor) throw new Error('Servidor não localizado.');
+    const usuario = obterDadosUsuarioLogado();
+    const agora = new Date();
+    const criarLinha = function(data, dias) {
+      const linha = new Array(cabecalho.length).fill('');
+      if (idx.id !== -1) linha[idx.id] = Utilities.getUuid().substring(0, 8);
+      if (idx.idoc !== -1) linha[idx.idoc] = String(dadosAbono.idoc || '');
+      if (idx.dataSolicitacao !== -1) linha[idx.dataSolicitacao] = dadosAbono.dataSolicitacao || agora;
+      if (idx.tipo !== -1) linha[idx.tipo] = movimento === 'CREDITO' ? 'Crédito de Abono Eleitoral' : 'Abonada Eleitoral';
+      if (idx.nome !== -1) linha[idx.nome] = matricula + ': ' + servidor.nome;
+      if (idx.matricula !== -1) linha[idx.matricula] = matricula;
+      if (idx.dataInicio !== -1) linha[idx.dataInicio] = data || '';
+      if (idx.dias !== -1) linha[idx.dias] = dias;
+      if (idx.diasFerias !== -1) linha[idx.diasFerias] = dias;
+      if (idx.pleitoEleitoral !== -1) linha[idx.pleitoEleitoral] = pleito;
+      if (idx.movimentoEleitoral !== -1) linha[idx.movimentoEleitoral] = movimento === 'CREDITO' ? 'CRÉDITO' : 'USO';
+      if (idx.despacho !== -1) linha[idx.despacho] = String(dadosAbono.despacho || '');
+      if (idx.observacao !== -1) linha[idx.observacao] = String(dadosAbono.observacao || '');
+      if (idx.status !== -1) linha[idx.status] = 'Ativo';
+      if (idx.criadoPor !== -1) linha[idx.criadoPor] = usuario.email || usuario.nome || '';
+      if (idx.criadoEm !== -1) linha[idx.criadoEm] = agora;
+      if (idx.editadoPor !== -1) linha[idx.editadoPor] = usuario.email || usuario.nome || '';
+      if (idx.editadoEm !== -1) linha[idx.editadoEm] = agora;
+      return linha;
+    };
+    const linhas = movimento === 'CREDITO' ? [criarLinha('', quantidadeCredito)] : datas.map(function(data) { return criarLinha(data, 1); });
+    aba.getRange(aba.getLastRow() + 1, 1, linhas.length, cabecalho.length).setValues(linhas);
+    lancarLogSemLock_('ABONO_ELEITORAL', 'Lançamentos', movimento === 'CREDITO' ? 'Crédito eleitoral do pleito ' + pleito : 'Uso eleitoral em ' + datas.length + ' data(s) do pleito ' + pleito, '', '', JSON.stringify({ matricula: matricula, pleito: pleito, movimento: movimento, quantidade: linhas.length }), String(dadosAbono.idoc || ''));
+    CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
+    return { sucesso: true, pleito: pleito, movimento: movimento, diasRegistrados: movimento === 'CREDITO' ? quantidadeCredito : datas.length, saldoRestante: creditos + (movimento === 'CREDITO' ? quantidadeCredito : 0) - usados - (movimento === 'USO' ? datas.length : 0) };
+  } finally { lock.releaseLock(); }
 }
 
 /**
@@ -400,6 +480,8 @@ function obterListaLancamentos() {
       anexo3: idx.anexo3 !== -1 ? String(linha[idx.anexo3]).trim() : "",
       despacho: idx.despacho !== -1 ? String(linha[idx.despacho]).trim() : "",
       observacao: idx.observacao !== -1 ? String(linha[idx.observacao]).trim() : "",
+      pleitoEleitoral: idx.pleitoEleitoral !== -1 ? String(linha[idx.pleitoEleitoral]).trim() : "",
+      movimentoEleitoral: idx.movimentoEleitoral !== -1 ? String(linha[idx.movimentoEleitoral]).trim() : "",
       idProtocolo: idx.idProtocolo !== -1 ? String(linha[idx.idProtocolo]).trim() : "",
       status: statusText,
       linhaPlanilha: i + 1
@@ -408,6 +490,33 @@ function obterListaLancamentos() {
   
   // Ordena por ordem de inserção inversa (mais recentes primeiro)
   return lancamentos.reverse();
+}
+
+function obterResumoAbonosEleitorais(matriculaInformada) {
+  obterDadosUsuarioLogado();
+  const matricula = normalizarChaveMatricula_(matriculaInformada);
+  if (!matricula) return [];
+  const aba = obterPlanilha_().getSheetByName('Lançamentos');
+  if (!aba || aba.getLastRow() <= 1) return [];
+  garantirColunasPersistenciaLancamentos_(aba);
+  const dados = aba.getDataRange().getValues();
+  const idx = obterIndicesColunasLancamentos_(dados[0]);
+  const mapa = {};
+  dados.slice(1).forEach(function(linha) {
+    if (ehLancamentoAnulado_(linha, idx) || normalizarChaveMatricula_(linha[idx.matricula]) !== matricula) return;
+    const pleito = idx.pleitoEleitoral !== -1 ? String(linha[idx.pleitoEleitoral] || '').trim() : '';
+    const movimento = idx.movimentoEleitoral !== -1 ? normalizarCabecalho_(linha[idx.movimentoEleitoral]) : '';
+    if (!pleito || !movimento) return;
+    const chave = normalizarCabecalho_(pleito);
+    if (!mapa[chave]) mapa[chave] = { pleito: pleito, concedidos: 0, usados: 0, datasUsadas: [] };
+    const qtd = Math.max(1, obterDiasLancamento_(linha, idx));
+    if (movimento === 'CREDITO') mapa[chave].concedidos += qtd;
+    if (movimento === 'USO') {
+      mapa[chave].usados += qtd;
+      if (idx.dataInicio !== -1 && linha[idx.dataInicio]) mapa[chave].datasUsadas.push(formatarDataLancamento_(linha[idx.dataInicio]));
+    }
+  });
+  return Object.keys(mapa).map(function(chave) { const item = mapa[chave]; item.saldo = Math.max(0, item.concedidos - item.usados); return item; }).sort(function(a, b) { return b.pleito.localeCompare(a.pleito, 'pt-BR'); });
 }
 
 /**

@@ -279,9 +279,10 @@ function salvarServidor(dadosServidor) {
   dadosServidor.email = String(dadosServidor.email || "").trim();
   dadosServidor.matricula = String(dadosServidor.matricula || "").trim();
   const identificacaoOpcional = dadosServidor.situacao === "ESTAGIÁRIO" || dadosServidor.situacao === "PEAD";
+  const cadastroInativo = String(dadosServidor.ativo || "Sim").trim().toUpperCase() === "NÃO" || String(dadosServidor.ativo || "Sim").trim().toUpperCase() === "NAO";
   if (!dadosServidor.nome) throw new Error("Informe o nome do servidor.");
-  if (!identificacaoOpcional && !dadosServidor.matricula) throw new Error("A matrícula é obrigatória para esta situação funcional.");
-  if (!identificacaoOpcional && !dadosServidor.email) throw new Error("O e-mail é obrigatório para esta situação funcional.");
+  if (!cadastroInativo && !identificacaoOpcional && !dadosServidor.matricula) throw new Error("A matrícula é obrigatória para esta situação funcional.");
+  if (!cadastroInativo && !identificacaoOpcional && !dadosServidor.email) throw new Error("O e-mail é obrigatório para esta situação funcional.");
   if (dadosServidor.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dadosServidor.email)) throw new Error("Informe um e-mail válido ou deixe o campo vazio quando permitido.");
   dadosServidor.pis = normalizarPisCpfServidor_(dadosServidor.pis);
 

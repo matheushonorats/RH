@@ -932,8 +932,19 @@ async function salvarLancamentosLoteRep_() {
       }
       if (seletorAno) seletorAno.value = partesCompetencia[0];
       if (seletorMes) seletorMes.value = partesCompetencia[1];
+      // O resultado da inclusao deve permanecer na pessoa que acabou de ser salva.
+      // Filtros anteriores podem ocultá-la; neste fluxo, o foco nela tem prioridade.
+      const buscaRep = document.getElementById('rep-search-input');
+      const statusRep = document.getElementById('rep-filter-status');
+      const conferenciaRep = document.getElementById('rep-filter-conferencia');
+      const lotacaoRep = document.getElementById('rep-filter-lotacao');
+      if (buscaRep) buscaRep.value = '';
+      if (statusRep) statusRep.value = 'all';
+      if (conferenciaRep) conferenciaRep.value = 'all';
+      if (lotacaoRep) lotacaoRep.value = 'all';
+      pisSelecionadoRep = pis;
     }
-    agendarReprocessamentoRepLeve_(260, cartaoManual ? null : pis);
+    agendarReprocessamentoRepLeve_(260, pis);
     mostrarToast(cartaoManual
       ? origensAjuste.size + ' dia(s) do cartão manual atualizado(s) no cálculo.'
       : (linhasMarcacao.length + compensacoes.length) + ' ajuste(s) de ponto salvo(s) em lote.', 'success');

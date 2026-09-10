@@ -81,7 +81,18 @@ function criarProtocolo(linhasLancamentos) {
     const anoAtual = new Date().getFullYear();
     const chaveProps = "ULTIMO_NUMERO_PROTOCOLO_" + anoAtual;
 
+    // Oficial e beta compartilham a planilha, mas não as propriedades do script.
+    // A sequência precisa partir dos IDs realmente gravados para nunca repetir.
     let ultimoNumero = parseInt(props.getProperty(chaveProps)) || 0;
+    const padraoAno = new RegExp('^SETUR-' + anoAtual + '-(\\d{6})$');
+    const considerarId = function(valor) {
+      const match = String(valor || '').trim().match(padraoAno);
+      if (match) ultimoNumero = Math.max(ultimoNumero, parseInt(match[1], 10) || 0);
+    };
+    if (abaProt.getLastRow() > 1) abaProt.getRange(2, 1, abaProt.getLastRow() - 1, 1).getDisplayValues().forEach(function(linha) { considerarId(linha[0]); });
+    const cabLancAtual = abaLanc.getRange(1, 1, 1, abaLanc.getLastColumn()).getValues()[0];
+    const idxProtLancAtual = indiceCabecalho_(cabLancAtual, ["ID_PROTOCOLO", "ID PROTOCOLO"]);
+    if (idxProtLancAtual !== -1 && abaLanc.getLastRow() > 1) abaLanc.getRange(2, idxProtLancAtual + 1, abaLanc.getLastRow() - 1, 1).getDisplayValues().forEach(function(linha) { considerarId(linha[0]); });
     let novoNumero = ultimoNumero + 1;
     props.setProperty(chaveProps, String(novoNumero));
 
@@ -109,6 +120,13 @@ function criarProtocolo(linhasLancamentos) {
       .map(l => parseInt(l))
       .filter(l => l > 1 && l <= abaLanc.getLastRow());
 
+    const jaVinculadas = linhasValidas.filter(function(linha) {
+      return String(dadosLanc[linha - 1][colIdxIDProt] || '').trim() !== '';
+    });
+    if (jaVinculadas.length) {
+      throw new Error('Um ou mais documentos selecionados já pertencem a outro protocolo. Atualize a lista e tente novamente.');
+    }
+
     // Usa setValues em ranges individuais agrupados - mais eficiente que setValue em loop
     linhasValidas.forEach(linha => {
       abaLanc.getRange(linha, colIdxIDProt + 1).setValue(idProtocolo);
@@ -129,6 +147,80 @@ function criarProtocolo(linhasLancamentos) {
       "", "", "", idProtocolo);
 
     return idProtocolo;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Retorna os itens atuais e disponíveis para corrigir uma folha de protocolo. */
+function obterDadosEdicaoProtocolo(idProtocolo, linhaProtocolo) {
+  obterDadosUsuarioLogado();
+  const atuais = obterLancamentosVinculados(idProtocolo);
+  const pendentes = obterLancamentosPendentesProtocolo();
+  return {
+    id: String(idProtocolo || ''),
+    linhaProtocolo: Number(linhaProtocolo) || 0,
+    itens: atuais.map(function(item) { item.selecionado = true; return item; })
+      .concat(pendentes.map(function(item) { item.selecionado = false; return item; }))
+  };
+}
+
+/**
+ * Corrige os documentos de uma folha. Se o ID estiver duplicado, separa a
+ * linha editada com o próximo número livre, preservando a folha antiga.
+ */
+function salvarEdicaoProtocolo(idProtocolo, linhaProtocolo, linhasSelecionadas) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para editar protocolos.');
+  const idOriginal = String(idProtocolo || '').trim();
+  const linhaProt = Number(linhaProtocolo);
+  const selecionadas = Array.from(new Set((linhasSelecionadas || []).map(Number).filter(function(v) { return Number.isInteger(v) && v > 1; })));
+  if (!idOriginal || !linhaProt || !selecionadas.length) throw new Error('Mantenha ao menos um documento na folha de protocolo.');
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const ss = obterPlanilha_();
+    const abaProt = ss.getSheetByName('Protocolos');
+    const abaLanc = ss.getSheetByName('Lançamentos');
+    if (!abaProt || !abaLanc || linhaProt > abaProt.getLastRow()) throw new Error('Protocolo não localizado.');
+    if (String(abaProt.getRange(linhaProt, 1).getDisplayValue()).trim() !== idOriginal) throw new Error('A folha mudou desde que foi aberta. Atualize a página e tente novamente.');
+
+    const dadosLanc = abaLanc.getDataRange().getValues();
+    const idxProt = indiceCabecalho_(dadosLanc[0], ['ID_PROTOCOLO', 'ID PROTOCOLO']);
+    if (idxProt === -1) throw new Error("Coluna 'ID_Protocolo' não encontrada.");
+    const conjunto = {};
+    selecionadas.forEach(function(linha) {
+      if (linha > abaLanc.getLastRow()) throw new Error('Um documento selecionado não existe mais.');
+      const vinculo = String(dadosLanc[linha - 1][idxProt] || '').trim();
+      if (vinculo && vinculo !== idOriginal) throw new Error('Um documento selecionado passou a pertencer a outra folha. Atualize e tente novamente.');
+      conjunto[linha] = true;
+    });
+
+    const idsProt = abaProt.getLastRow() > 1
+      ? abaProt.getRange(2, 1, abaProt.getLastRow() - 1, 1).getDisplayValues().map(function(l) { return String(l[0] || '').trim(); })
+      : [];
+    const duplicado = idsProt.filter(function(id) { return id === idOriginal; }).length > 1;
+    let idFinal = idOriginal;
+    if (duplicado) {
+      const ano = (idOriginal.match(/^SETUR-(\d{4})-/) || [])[1] || String(new Date().getFullYear());
+      let maior = 0;
+      const padrao = new RegExp('^SETUR-' + ano + '-(\\d{6})$');
+      idsProt.forEach(function(id) { const m = id.match(padrao); if (m) maior = Math.max(maior, Number(m[1]) || 0); });
+      dadosLanc.slice(1).forEach(function(l) { const m = String(l[idxProt] || '').trim().match(padrao); if (m) maior = Math.max(maior, Number(m[1]) || 0); });
+      idFinal = 'SETUR-' + ano + '-' + String(maior + 1).padStart(6, '0');
+      abaProt.getRange(linhaProt, 1).setValue(idFinal);
+    }
+
+    const alteracoes = [];
+    for (let i = 1; i < dadosLanc.length; i++) {
+      const linha = i + 1;
+      const atual = String(dadosLanc[i][idxProt] || '').trim();
+      if (conjunto[linha]) alteracoes.push({ linha: linha, valor: idFinal });
+      else if (!duplicado && atual === idOriginal) alteracoes.push({ linha: linha, valor: '' });
+    }
+    alteracoes.forEach(function(item) { abaLanc.getRange(item.linha, idxProt + 1).setValue(item.valor); });
+    lancarLogSemLock_('EDITAR_PROTOCOLO', 'Protocolos', 'Corrigiu os documentos da folha ' + idOriginal + (idFinal !== idOriginal ? ' e separou-a como ' + idFinal : '') + '.', '', idOriginal, idFinal, idFinal);
+    return { sucesso: true, idOriginal: idOriginal, idProtocolo: idFinal, separado: duplicado, quantidade: selecionadas.length };
   } finally {
     lock.releaseLock();
   }

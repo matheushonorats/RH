@@ -1528,6 +1528,18 @@ body.dark-mode .metric-blue { background: rgba(59, 130, 246, .13); color: #60a5f
 body.dark-mode .metric-amber { background: rgba(254, 180, 8, .12); color: #fbbf24; }
 .metric-card .card-title { margin: 0 0 3px; }
 .metric-card .card-value { line-height: 1.05; font-size: 30px; }
+.eleitoral-resumo { display: grid; gap: 7px; margin-top: 10px; padding: 10px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-tertiary); }
+.eleitoral-resumo > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.eleitoral-resumo span, .eleitoral-resumo small { color: var(--text-secondary); font-size: 11px; }
+.eleitoral-resumo b { color: var(--brand-primary); }
+.card-value.contador-trocando,
+.rep-dashboard-stats b.contador-trocando { position: relative; display: inline-grid; height: 1.1em; overflow: hidden; vertical-align: bottom; }
+.contador-trocando > span { grid-area: 1 / 1; white-space: nowrap; }
+.contador-trocando .contador-sai { animation: contador-sair .38s cubic-bezier(.4,0,.2,1) both; }
+.contador-trocando .contador-entra { animation: contador-entrar .38s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes contador-sair { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(105%); } }
+@keyframes contador-entrar { from { opacity: 0; transform: translateY(-105%); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .contador-trocando .contador-sai, .contador-trocando .contador-entra { animation: none; } }
 .metric-caption { display: block; margin-top: 7px; color: var(--text-muted); font-size: 10px; }
 .metric-arrow { width: 16px; color: var(--text-muted); opacity: .7; }
 .status-danger { color: var(--status-leave-text); }
@@ -1871,7 +1883,6 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 }
 
 @media (max-width: 620px) {
-  .header-actions .header-icon-button:first-child { display: none; }
   .dashboard-welcome { align-items: flex-start; flex-direction: column; }
   .dashboard-welcome .btn { width: 100%; }
   .dashboard-grid { grid-template-columns: 1fr; }
@@ -1991,6 +2002,13 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 .button-spinner { width: 15px; height: 15px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; flex: 0 0 auto; }
 /* Sync Status Bar */
 .sync-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 16px; font-size: 12px; font-weight: 500; letter-spacing: 0.02em; z-index: 50; }
+.sync-control-dock { position: fixed; left: 12px; bottom: 6px; z-index: 9998; display: flex; align-items: center; gap: 8px; max-width: min(520px, calc(100vw - 24px)); }
+.sync-control-dock .sync-bar { min-width: 0; max-width: calc(100vw - 72px); border: 1px solid var(--border-color); border-radius: 9px; box-shadow: 0 8px 24px rgba(0, 0, 0, .22); }
+.sync-refresh-button { width: 34px; height: 34px; display: inline-grid; flex: 0 0 34px; place-items: center; padding: 0; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 9px; box-shadow: 0 8px 24px rgba(0, 0, 0, .22); cursor: pointer; transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease; }
+.sync-refresh-button:hover { color: var(--brand-primary); border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 10%, var(--bg-secondary)); transform: translateY(-1px); }
+.sync-refresh-button:active { transform: translateY(0) scale(.94); }
+.sync-refresh-button svg { width: 17px; height: 17px; }
+.sync-refresh-button .spinning, .sync-refresh-button.spinning { animation: spin .8s linear infinite; }
 .sync-bar.sync-offline { background: linear-gradient(90deg, #dc262620, #dc262610); color: #f87171; border-bottom: 1px solid #dc262630; }
 .sync-bar.sync-busy { background: linear-gradient(90deg, #3b82f620, #3b82f610); color: #60a5fa; border-bottom: 1px solid #3b82f630; }
 .sync-bar.sync-pending { background: linear-gradient(90deg, #f59e0b20, #f59e0b10); color: #fbbf24; border-bottom: 1px solid #f59e0b30; }

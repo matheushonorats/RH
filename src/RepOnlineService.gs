@@ -480,9 +480,34 @@ function listarAjustesRep() {
     .filter(function(linha) { return linha[0] && String(linha[5] || 'Sim').toLowerCase() !== 'não'; })
     .map(function(linha) {
       let ajustes = [];
-      try { ajustes = JSON.parse(String(linha[2] || '[]')); } catch (e) {}
+      try { ajustes = desserializarAjustesRep_(linha[2]); } catch (e) {}
       return { pis: normalizarIdentificadorRep_(linha[0]), competencia: String(linha[1] || ''), ajustes: Array.isArray(ajustes) ? ajustes : [], atualizadoEm: linha[3] instanceof Date ? linha[3].toISOString() : String(linha[3] || ''), atualizadoPor: String(linha[4] || '') };
     });
+}
+
+function serializarAjustesRep_(ajustes) {
+  const json = JSON.stringify(ajustes || []);
+  if (json.length <= 30000) return json;
+  const compactado = 'GZIP:' + Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(json, 'application/json')).getBytes());
+  if (compactado.length > 49000) throw new Error('Os ajustes desta competência ultrapassaram a capacidade da planilha. Divida o lançamento em menos dias.');
+  return compactado;
+}
+
+function desserializarAjustesRep_(valor) {
+  const texto = String(valor || '[]');
+  if (texto.indexOf('GZIP:') !== 0) return JSON.parse(texto);
+  const bytes = Utilities.base64Decode(texto.slice(5));
+  return JSON.parse(Utilities.ungzip(Utilities.newBlob(bytes)).getDataAsString('UTF-8'));
+}
+
+function preservarAjustesCorrompidosRep_(pis, competencia, valor, usuario) {
+  const texto = String(valor || '');
+  const aba = obterAbaRepOnline_('REP_Ajustes_Recuperacao', ['PIS', 'Competencia', 'Recuperado_Em', 'Recuperado_Por', 'Parte', 'Conteudo_Original']);
+  const partes = texto.match(/[\s\S]{1,30000}/g) || [''];
+  const linhas = partes.map(function(parte, indice) {
+    return [pis, competencia, new Date(), usuario.nome || usuario.email || '', (indice + 1) + '/' + partes.length, parte];
+  });
+  aba.getRange(aba.getLastRow() + 1, 1, linhas.length, 6).setValues(linhas);
 }
 
 function dataCivilValidaRep_(valor) {
@@ -531,20 +556,24 @@ function salvarAjustesRep(dados) {
     let linhaAlvo = -1;
     existentes.some(function(linha, indice) { if (normalizarIdentificadorRep_(linha[0]) === pis && String(linha[1]) === competencia) { linhaAlvo = indice + 2; return true; } return false; });
     let anteriores = [];
+    let registroCorrompido = false;
     if (linhaAlvo > 0) {
-      try { anteriores = JSON.parse(String(existentes[linhaAlvo - 2][2] || '[]')); }
-      catch (e) { throw new Error('Os ajustes existentes precisam de recuperação. Nenhum registro foi sobrescrito.'); }
+      try { anteriores = desserializarAjustesRep_(existentes[linhaAlvo - 2][2]); }
+      catch (e) {
+        preservarAjustesCorrompidosRep_(pis, competencia, existentes[linhaAlvo - 2][2], usuario);
+        anteriores = [];
+        registroCorrompido = true;
+      }
       if (!Array.isArray(anteriores)) throw new Error('Os ajustes existentes possuem formato inválido. Nenhum registro foi sobrescrito.');
     }
     const origens = origensSubstituidas.length ? origensSubstituidas : ajustes.map(function(item) { return String(item.origemData || ''); }).filter(Boolean);
     const conjuntoOrigens = {};
     origens.forEach(function(origem) { conjuntoOrigens[origem] = true; });
     const preservados = (Array.isArray(anteriores) ? anteriores : []).filter(function(item) { return !conjuntoOrigens[String(item && item.origemData || '')]; });
-    const recebidos = ajustes.filter(function(item) { return !origens.length || conjuntoOrigens[String(item.origemData || '')]; });
+    const recebidos = registroCorrompido ? ajustes : ajustes.filter(function(item) { return !origens.length || conjuntoOrigens[String(item.origemData || '')]; });
     const ajustesFinais = preservados.concat(recebidos);
     if (ajustesFinais.length > 500) throw new Error('Limite de 500 ajustes excedido. Os registros anteriores foram preservados.');
-    const json = JSON.stringify(ajustesFinais);
-    if (json.length > 30000) throw new Error('Os ajustes desta competência ultrapassaram o limite permitido.');
+    const json = serializarAjustesRep_(ajustesFinais);
     const valores = [[pis, competencia, json, new Date(), usuario.nome || usuario.email || '', ajustesFinais.length ? 'Sim' : 'Não']];
     const destino = linhaAlvo > 0 ? linhaAlvo : aba.getLastRow() + 1;
     aba.getRange(destino, 1, 1, REP_ONLINE_CABECALHO_AJUSTES_.length).setValues(valores);
@@ -591,7 +620,7 @@ function salvarAlteracoesLoteRep(lote, opcoes) {
       const mensagem = "Falha na alteração " + (indice + 1) + " (" + tipo + "): " + (erro && erro.message ? erro.message : erro);
       if (!opcoes || !opcoes.confirmacaoIndividual) throw new Error(mensagem);
       resultados.push({ chave: String(operacao && operacao.chave || ""), tipo: tipo, sucesso: false, erro: mensagem });
-      interrompido = true;
+      interrompido = !(opcoes && opcoes.confirmacaoIndividual);
     }
   });
   return resultados;

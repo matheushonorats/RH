@@ -19,9 +19,9 @@ const AppState = {
   cacheRestaurado: false,
   versaoDados: '',
   paginacao: {
-    servidores: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
-    lancamentos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] },
-    protocolos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [] }
+    servidores: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [], filtroAssinatura: '' },
+    lancamentos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [], filtroAssinatura: '' },
+    protocolos: { paginaAtual: 1, itensPorPagina: 30, listaAtual: [], filtroAssinatura: '' }
   }
 };
 
@@ -58,11 +58,20 @@ function existemGravacoesPendentes_() {
   return gravacoesBackendEmAndamento_ > 0 || filaGeralPendente || filaRepPendente || filaServidorPendente;
 }
 
+// Uma fila preservada não é uma gravação em andamento. Bloquear leituras por
+// itens apenas aguardando envio cria um impasse na abertura: a base espera a
+// fila, enquanto a fila também depende de a sessão terminar de carregar.
+function existemGravacoesEmAndamento_() {
+  const filaGeralProcessando = typeof SyncQueue !== 'undefined' && SyncQueue.processando;
+  const filaRepProcessando = typeof repSalvamentoEmAndamento_ !== 'undefined' && Boolean(repSalvamentoEmAndamento_);
+  return gravacoesBackendEmAndamento_ > 0 || filaGeralProcessando || filaRepProcessando;
+}
+
 function agendarSincronizacaoSegura_(viewAlvo) {
   if (viewAlvo) sincronizacaoViewPendente = viewAlvo;
   clearTimeout(temporizadorSincronizacaoSegura_);
   temporizadorSincronizacaoSegura_ = setTimeout(function tentarSincronizarSemGravacao() {
-    if (existemGravacoesPendentes_() || sincronizacaoServidorEmAndamento) {
+    if (existemGravacoesEmAndamento_() || sincronizacaoServidorEmAndamento) {
       temporizadorSincronizacaoSegura_ = setTimeout(tentarSincronizarSemGravacao, 500);
       return;
     }
@@ -141,7 +150,10 @@ const SyncQueue = {
 
   processar() {
     if (this.processando || this.fila.length === 0) return;
-    if (this.fila[0].status === 'erro') {
+    // Uma falha que exige revisao nao pode represar alteracoes novas e validas.
+    // Mantemos o item com erro preservado, mas processamos o primeiro item apto.
+    const indiceItem = this.fila.findIndex(itemFila => itemFila.status !== 'erro');
+    if (indiceItem === -1) {
       this.atualizarUI();
       return;
     }
@@ -152,7 +164,7 @@ const SyncQueue = {
     if (typeof google === 'undefined' || !google.script) return;
 
     this.processando = true;
-    const item = this.fila[0];
+    const item = this.fila[indiceItem];
     item.tentativas++;
     this.atualizarUI();
 
@@ -164,7 +176,8 @@ const SyncQueue = {
     const self = this;
     backendApi()
       .withSuccessHandler(function(resultado) {
-        self.fila.shift(); // Remove o primeiro (processado)
+        const indiceConcluido = self.fila.findIndex(itemFila => itemFila.id === item.id);
+        if (indiceConcluido !== -1) self.fila.splice(indiceConcluido, 1);
         if (item.operacaoId) self.resultados[item.operacaoId] = { sucesso: true, resultado: resultado, concluidoEm: Date.now() };
         self.processando = false;
         self.persistir();
@@ -239,7 +252,7 @@ const SyncQueue = {
     } catch(e) { console.warn('Erro ao persistir fila:', e); }
   },
 
-  restaurar() {
+  restaurar(processarAutomaticamente = true) {
     try {
       const chave = obterChaveFilaSincronizacao_();
       localStorage.removeItem('rh_sync_queue');
@@ -250,7 +263,7 @@ const SyncQueue = {
         if (this.fila.length > 0) {
           const bloqueadas = this.fila.filter(item => item.status === 'erro').length;
           mostrarToast(bloqueadas ? `${bloqueadas} operação(ões) ainda não confirmada(s). Clique no aviso para revisar.` : `${this.fila.length} operação(ões) pendente(s) encontrada(s). Sincronizando...`, bloqueadas ? 'warning' : 'info');
-          if (!bloqueadas) setTimeout(() => this.processar(), 2000);
+          if (this.fila.some(item => item.status !== 'erro') && processarAutomaticamente) setTimeout(() => this.processar(), 2000);
         }
       }
     } catch(e) { this.fila = []; }
@@ -856,6 +869,30 @@ function mensagemErro(erro) {
 
 const operacoesInterfaceAtivas = new Set();
 let proximoZIndexModal = 20000;
+const valoresContadoresAnimados_ = new Map();
+
+/** Atualiza totais sem o corte seco: o valor anterior sai e o novo entra dentro do próprio cartão. */
+function atualizarContadorAnimado_(elementoOuId, valor, chave) {
+  const elemento = typeof elementoOuId === 'string' ? document.getElementById(elementoOuId) : elementoOuId;
+  if (!elemento) return;
+  const novoValor = String(valor == null ? 0 : valor);
+  const identificador = chave || elemento.id;
+  const anterior = valoresContadoresAnimados_.get(identificador);
+  valoresContadoresAnimados_.set(identificador, novoValor);
+  if (anterior == null || anterior === novoValor || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    elemento.textContent = novoValor;
+    return;
+  }
+  elemento.classList.remove('contador-trocando');
+  elemento.innerHTML = `<span class="contador-sai">${escapeHtml(anterior)}</span><span class="contador-entra">${escapeHtml(novoValor)}</span>`;
+  elemento.classList.add('contador-trocando');
+  setTimeout(function() {
+    if (valoresContadoresAnimados_.get(identificador) === novoValor) {
+      elemento.textContent = novoValor;
+      elemento.classList.remove('contador-trocando');
+    }
+  }, 420);
+}
 
 function iniciarOperacaoInterface(chave, botao, texto = 'Processando...') {
   if (operacoesInterfaceAtivas.has(chave)) {
@@ -1201,8 +1238,10 @@ function inicializarUsuario(temCache) {
   
   try {
     AppState.usuarioLogado = JSON.parse(userJson);
-    SyncQueue.restaurar();
-    if (typeof restaurarFilaRep_ === 'function') restaurarFilaRep_();
+    // Primeiro lê a base. As filas recuperadas começam a enviar somente após
+    // essa leitura, evitando saturar o Apps Script durante a abertura.
+    SyncQueue.restaurar(false);
+    if (typeof restaurarFilaRep_ === 'function') restaurarFilaRep_(false);
     SyncQueue.atualizarUI();
   } catch(e) {
     mostrarLogin();
@@ -1218,16 +1257,34 @@ function inicializarUsuario(temCache) {
   carregamentoInicialBancoPendente_ = true;
   exibirLoader(true, 'Carregando informações atuais do banco de dados...');
   
+  let sessaoRespondeu = false;
+  const limiteSessao = setTimeout(function() {
+    if (sessaoRespondeu) return;
+    carregamentoInicialBancoPendente_ = false;
+    exibirLoader(false);
+    if (AppState.cacheRestaurado || temCache) {
+      popularFiltroLotacoes();
+      carregarDadosDaView('dashboard');
+      atualizarTextoSync('Google demorou a responder — exibindo a última cópia salva', true, 'warning');
+      mostrarToast('A abertura foi liberada com a última cópia salva. As pendências continuam protegidas e serão enviadas quando o Google responder.', 'warning');
+    } else {
+      atualizarTextoSync('Google ainda não respondeu — tente atualizar em alguns instantes', true, 'warning');
+      mostrarToast('O Google não respondeu à abertura. A tela foi liberada, mas nenhuma pendência foi apagada.', 'error');
+    }
+  }, 30000);
+
   backendApi()
     .withSuccessHandler(function(usuario) {
+      sessaoRespondeu = true;
+      clearTimeout(limiteSessao);
       AppState.usuarioLogado = usuario;
       localStorage.setItem('rh_user', JSON.stringify(usuario));
       atualizarBarraUsuario();
-      carregarOperacoesPendentesServidor(true);
-      
       sincronizarDados(true, 'dashboard');
     })
     .withFailureHandler(function(erro) {
+      sessaoRespondeu = true;
+      clearTimeout(limiteSessao);
       console.error("Sessão inválida:", erro);
       limparCacheLocal_();
       localStorage.removeItem('rh_token');
@@ -1247,7 +1304,7 @@ let sincronizacaoViewPendente = null;
 let sincronizacaoCompletaSequencia_ = 0;
 
 function reservarSincronizacaoServidor_(viewAlvo) {
-  if (existemGravacoesPendentes_()) {
+  if (existemGravacoesEmAndamento_()) {
     agendarSincronizacaoSegura_(viewAlvo || currentView);
     return false;
   }
@@ -1264,6 +1321,17 @@ function concluirSincronizacaoServidor_(viewAlvo) {
   const viewFinal = sincronizacaoViewPendente || viewAlvo || null;
   sincronizacaoViewPendente = null;
   return viewFinal;
+}
+
+let filasAposCargaInicialIniciadas_ = false;
+function iniciarFilasAposCargaInicial_() {
+  if (filasAposCargaInicialIniciadas_) return;
+  filasAposCargaInicialIniciadas_ = true;
+  carregarOperacoesPendentesServidor(true);
+  if (SyncQueue.fila.some(item => item.status !== 'erro') && !SyncQueue.processando) {
+    setTimeout(function() { SyncQueue.processar(); }, 350);
+  }
+  if (typeof liberarFilaRepRestaurada_ === 'function') liberarFilaRepRestaurada_();
 }
 
 function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
@@ -1289,6 +1357,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
     carregamentoInicialBancoPendente_ = false;
     AppState.dadosCompletosCarregados = false;
     exibirLoader(false);
+    iniciarFilasAposCargaInicial_();
     if (AppState.cacheRestaurado) {
       popularFiltroLotacoes();
       carregarDadosDaView(viewFinal || viewAlvo || 'dashboard');
@@ -1312,7 +1381,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       clearTimeout(limiteSincronizacao);
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
-      if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesPendentes_()) {
+      if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesEmAndamento_()) {
         if (!carregamentoInicialBancoPendente_) exibirLoader(false);
         const viewFinalPendente = concluirSincronizacaoServidor_(viewAlvo);
         atualizarTextoSync('Aguardando a gravação terminar...', true, 'warning');
@@ -1332,6 +1401,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.versaoDados = String(dados.versaoDados || AppState.versaoDados || '');
       AppState.dadosCompletosCarregados = true;
       carregamentoInicialBancoPendente_ = false;
+      iniciarFilasAposCargaInicial_();
       popularFiltroLotacoes();
       salvarCacheLocal();
       if (currentView === 'pre-leitura-rep') {
@@ -1341,14 +1411,12 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       if (currentView === 'pre-leitura-rep') atualizarApontamentosRepSegundoPlano_();
       exibirLoader(false);
       const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
-      if (viewFinal) {
+      if (viewFinal && viewFinal === currentView) {
         carregarDadosDaView(viewFinal);
       } else {
-        const activeLink = document.querySelector('.menu-link.active');
-        if (activeLink) {
-          const match = activeLink.getAttribute('onclick').match(/'([^']+)'/);
-          if (match) carregarDadosDaView(match[1]);
-        }
+        // A resposta pode chegar depois de o usuário trocar de área.
+        // Atualiza somente a tela que continua realmente aberta.
+        carregarDadosDaView(currentView);
       }
     })
     .withFailureHandler(function(erro) {
@@ -1361,6 +1429,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       concluirSincronizacaoServidor_(null);
       if (carregamentoInicialBancoPendente_ && AppState.cacheRestaurado) {
         carregamentoInicialBancoPendente_ = false;
+        iniciarFilasAposCargaInicial_();
         AppState.dadosCompletosCarregados = false;
         popularFiltroLotacoes();
         carregarDadosDaView(viewAlvo || 'dashboard');
@@ -1404,7 +1473,7 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
     .withSuccessHandler(function(dados) {
       const currBtn = document.getElementById('btn-sync-icon');
       if (currBtn) currBtn.classList.remove('spinning');
-      if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesPendentes_()) {
+      if (revisaoAoIniciar !== revisaoMutacoesCliente_ || existemGravacoesEmAndamento_()) {
         const viewFinalPendente = concluirSincronizacaoServidor_(viewAlvo);
         atualizarTextoSync('Aguardando a gravação terminar...', true, 'warning');
         agendarSincronizacaoSegura_(viewFinalPendente || viewAlvo || currentView);
@@ -1432,7 +1501,7 @@ function sincronizarEmSegundoPlano(viewAlvo = null) {
       }
       if (currentView === 'pre-leitura-rep') atualizarApontamentosRepSegundoPlano_();
       const viewFinal = concluirSincronizacaoServidor_(viewAlvo);
-      if (viewFinal) carregarDadosDaView(viewFinal);
+      carregarDadosDaView(viewFinal === currentView ? viewFinal : currentView);
     })
     .withFailureHandler(function(erro) {
       const currBtn = document.getElementById('btn-sync-icon');
@@ -1797,7 +1866,7 @@ function carregarDashboard() {
 
   const resumo = AppState.dashboard || {};
 
-  document.getElementById('dash-servidores-ativos').innerText = resumo.ativos || 0;
+  atualizarContadorAnimado_('dash-servidores-ativos', resumo.ativos || 0);
   const distribuicao = resumo.ativosPorSituacao || {};
   const ordemSituacoes = ['Estatutários', 'Comissionados', 'Estagiários', 'PEAD', 'Outros'];
   const detalhamentoEquipe = ordemSituacoes
@@ -1805,9 +1874,9 @@ function carregarDashboard() {
     .map(rotulo => `${Number(distribuicao[rotulo])} ${rotulo}`);
   const campoDistribuicao = document.getElementById('dash-servidores-breakdown');
   if (campoDistribuicao) campoDistribuicao.innerText = detalhamentoEquipe.join(' · ') || 'Equipe cadastrada';
-  document.getElementById('dash-ferias-compulsorias').innerText = resumo.compulsorias || 0;
-  document.getElementById('dash-ausentes-hoje').innerText = resumo.ausentesHoje || 0;
-  document.getElementById('dash-protocolos-pendentes').innerText = resumo.protocolosPendentes || 0;
+  atualizarContadorAnimado_('dash-ferias-compulsorias', resumo.compulsorias || 0);
+  atualizarContadorAnimado_('dash-ausentes-hoje', resumo.ausentesHoje || 0);
+  atualizarContadorAnimado_('dash-protocolos-pendentes', resumo.protocolosPendentes || 0);
   atualizarGraficoDashboard(resumo);
   
   // Renderiza tabela de ausências de hoje
@@ -2392,13 +2461,11 @@ function renderizarTabelaServidores(listaFiltrada, mantemPagina = false) {
     : (Array.isArray(AppState.servidores) ? AppState.servidores : []);
   const tbody = document.getElementById('tabela-servidores-body');
   
-  if (!mantemPagina) {
-    AppState.paginacao.servidores.listaAtual = listaOriginal;
-    AppState.paginacao.servidores.paginaAtual = 1;
-  }
-  
   const estado = AppState.paginacao.servidores;
+  estado.listaAtual = listaOriginal;
+  if (!mantemPagina) estado.paginaAtual = 1;
   const totalItens = estado.listaAtual.length;
+  estado.paginaAtual = Math.min(estado.paginaAtual, Math.max(1, Math.ceil(totalItens / estado.itensPorPagina)));
   
   if (totalItens === 0) {
     tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Nenhum servidor encontrado.</td></tr>`;
@@ -2480,7 +2547,11 @@ function filtrarTabelaServidores() {
     return bateBusca && bateLotacao && bateSituacao && bateStatus;
   });
   
-  renderizarTabelaServidores(filtrados);
+  const estado = AppState.paginacao.servidores;
+  const assinatura = JSON.stringify([busca, lotacao, situacao, status]);
+  const manterPagina = estado.filtroAssinatura === assinatura;
+  estado.filtroAssinatura = assinatura;
+  renderizarTabelaServidores(filtrados, manterPagina);
 }
 
 /**
@@ -2636,9 +2707,9 @@ function toggleCamposObrigatoriosServidor() {
   const marcaMatricula = document.getElementById('serv-matricula-obrigatoria');
   const marcaEmail = document.getElementById('serv-email-obrigatorio');
   const ajuda = document.getElementById('serv-identificacao-ajuda');
-  if (marcaMatricula) marcaMatricula.style.display = identificacaoOpcional ? 'none' : '';
-  if (marcaEmail) marcaEmail.style.display = identificacaoOpcional ? 'none' : '';
-  if (ajuda) ajuda.style.display = identificacaoOpcional ? 'block' : 'none';
+  if (marcaMatricula) marcaMatricula.style.display = !isAtivo || identificacaoOpcional ? 'none' : '';
+  if (marcaEmail) marcaEmail.style.display = !isAtivo || identificacaoOpcional ? 'none' : '';
+  if (ajuda) ajuda.style.display = isAtivo && identificacaoOpcional ? 'block' : 'none';
 }
 
 
@@ -2691,18 +2762,11 @@ async function salvarDadosServidor(event) {
     return;
   }
   
-  mostrarToast("Enviando alteração e aguardando confirmação do banco...", 'info');
+  mostrarToast("Alteração salva nesta tela. O envio continuará em segundo plano.", 'info');
   SyncQueue.enfileirar('salvar_servidor', 'salvarServidor', [dados], 'Salvar servidor ' + dados.nome);
-  try {
-    await aguardarConfirmacaoFila_(dados.operacaoId, 180000);
-    exibirLoader(false);
-    fecharModal('modal-servidor');
-    mostrarToast("Cadastro confirmado no banco de dados.", 'success');
-    agendarSincronizacaoSegura_('servidores');
-  } catch (erroConfirmacao) {
-    exibirLoader(false);
-    mostrarToast("A alteração ainda não foi confirmada. O formulário foi mantido aberto: " + mensagemErro(erroConfirmacao), 'error');
-  }
+  exibirLoader(false);
+  fecharModal('modal-servidor');
+  agendarSincronizacaoSegura_('servidores');
   } finally {
     finalizarOperacaoInterface('salvar-servidor', botaoSalvar);
   }
@@ -2980,13 +3044,11 @@ function renderizarTabelaLancamentos(listaFiltrada, mantemPagina = false) {
     : (Array.isArray(AppState.lancamentos) ? AppState.lancamentos : []);
   const tbody = document.getElementById('tabela-lancamentos-body');
   
-  if (!mantemPagina) {
-    AppState.paginacao.lancamentos.listaAtual = listaOriginal;
-    AppState.paginacao.lancamentos.paginaAtual = 1;
-  }
-  
   const estado = AppState.paginacao.lancamentos;
+  estado.listaAtual = listaOriginal;
+  if (!mantemPagina) estado.paginaAtual = 1;
   const totalItens = estado.listaAtual.length;
+  estado.paginaAtual = Math.min(estado.paginaAtual, Math.max(1, Math.ceil(totalItens / estado.itensPorPagina)));
   
   if (totalItens === 0) {
     tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-secondary);">Nenhum lançamento encontrado.</td></tr>`;
@@ -3118,7 +3180,11 @@ function filtrarTabelaLancamentos() {
     return bateBusca && bateTipo && bateStatus;
   });
   
-  renderizarTabelaLancamentos(filtrados);
+  const estado = AppState.paginacao.lancamentos;
+  const assinatura = JSON.stringify([busca, tipo, status]);
+  const manterPagina = estado.filtroAssinatura === assinatura;
+  estado.filtroAssinatura = assinatura;
+  renderizarTabelaLancamentos(filtrados, manterPagina);
 }
 
 /**
@@ -3130,6 +3196,7 @@ function ajustarCamposFormularioLancamento() {
   const blocoFerias = document.getElementById('bloco-ferias');
   const blocoFalta = document.getElementById('bloco-falta');
   const blocoHoras = document.getElementById('bloco-horas');
+  const blocoEleitoral = document.getElementById('bloco-abono-eleitoral');
   const blocoDiasPecunia = document.getElementById('bloco-dias-pecunia');
   const labelDias = document.getElementById('lanc-dias-label');
   
@@ -3137,14 +3204,17 @@ function ajustarCamposFormularioLancamento() {
   blocoFerias.style.display = "none";
   blocoFalta.style.display = "none";
   blocoHoras.style.display = "none";
+  if (blocoEleitoral) blocoEleitoral.style.display = "none";
   blocoDiasPecunia.style.display = "none";
   labelDias.textContent = "Quantidade de Dias *";
   
   // Força remoção de obrigatoriedade temporária e desabilita os inputs invisíveis
-  const inputs = ['lanc-data-inicio', 'lanc-dias', 'lanc-dias-pecunia', 'lanc-data-falta', 'lanc-qtd-horas'];
+  const inputs = ['lanc-data-inicio', 'lanc-dias', 'lanc-dias-pecunia', 'lanc-data-falta', 'lanc-qtd-horas', 'lanc-pleito-eleitoral', 'lanc-movimento-eleitoral', 'lanc-quantidade-eleitoral', 'lanc-datas-eleitoral'];
   inputs.forEach(id => {
-    document.getElementById(id).required = false;
-    document.getElementById(id).disabled = true;
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.required = false;
+    input.disabled = true;
   });
   
   if (tipo === "Férias" || tipo === "Férias (1/3 Pecúnia)" || tipo === "Licença Prêmio" || tipo === "Atestado") {
@@ -3160,6 +3230,10 @@ function ajustarCamposFormularioLancamento() {
       document.getElementById('lanc-dias-pecunia').disabled = false;
       document.getElementById('lanc-dias-pecunia').required = true;
     }
+  } else if (tipo === "Abonada Eleitoral") {
+    if (blocoEleitoral) blocoEleitoral.style.display = 'block';
+    ['lanc-pleito-eleitoral', 'lanc-movimento-eleitoral', 'lanc-quantidade-eleitoral', 'lanc-datas-eleitoral'].forEach(function(id) { const input = document.getElementById(id); if (input) input.disabled = false; });
+    ajustarCamposAbonoEleitoral_();
   } else if (tipo === "Autorização de Horas Extras") {
     blocoHoras.style.display = "block";
     document.getElementById('lanc-qtd-horas').disabled = false;
@@ -3545,6 +3619,10 @@ async function salvarDadosLancamento(event) {
     mostrarToast(`${servidorLancamento.situacao} não possui direito a abonos. Férias permanecem disponíveis.`, 'warning');
     return;
   }
+  if (document.getElementById('lanc-tipo').value === 'Abonada Eleitoral') {
+    await salvarAbonoEleitoralFormulario_(matricula);
+    return;
+  }
   
   if (idocInput && idocInput !== "-" && AppState.lancamentos) {
     const lExistente = AppState.lancamentos.find(l => l.idoc === idocInput && l.linhaPlanilha !== linhaAtual);
@@ -3762,18 +3840,11 @@ async function salvarDadosLancamento(event) {
     console.warn('A fila segura será reconstruída pelos anexos vinculados:', mensagemErro(erroFila));
   }
 
-  mostrarToast("Documento protegido. Aguardando confirmação do banco de dados...", 'info');
+  mostrarToast("Documento protegido e salvo nesta tela. O envio continuará em segundo plano.", 'info');
   SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
-  try {
-    await aguardarConfirmacaoFila_(operacaoId, 180000);
-    exibirLoader(false);
-    fecharModal('modal-lancamento');
-    mostrarToast("Lançamento confirmado no banco de dados.", 'success');
-    agendarSincronizacaoSegura_('lancamentos');
-  } catch (erroConfirmacao) {
-    exibirLoader(false);
-    mostrarToast("O lançamento ainda não foi confirmado. O formulário foi mantido aberto e a operação continua preservada: " + mensagemErro(erroConfirmacao), 'error');
-  }
+  exibirLoader(false);
+  fecharModal('modal-lancamento');
+  agendarSincronizacaoSegura_('lancamentos');
   } finally {
     finalizarOperacaoInterface('salvar-lancamento', botaoSalvarLancamento);
   }
@@ -3883,16 +3954,14 @@ function renderizarTabelaProtocolos(listaFiltrada, mantemPagina = false) {
     : (Array.isArray(AppState.protocolos) ? AppState.protocolos : []);
   const tabela = document.getElementById('tabela-protocolos-body');
   
-  if (!mantemPagina) {
-    AppState.paginacao.protocolos.listaAtual = listaOriginal;
-    AppState.paginacao.protocolos.paginaAtual = 1;
-  }
-  
   const estado = AppState.paginacao.protocolos;
+  estado.listaAtual = listaOriginal;
+  if (!mantemPagina) estado.paginaAtual = 1;
   const totalItens = estado.listaAtual.length;
+  estado.paginaAtual = Math.min(estado.paginaAtual, Math.max(1, Math.ceil(totalItens / estado.itensPorPagina)));
   
   if (totalItens === 0) {
-    tabela.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 30px; color: var(--text-secondary);">Nenhum protocolo encontrado.</td></tr>`;
+    tabela.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 30px; color: var(--text-secondary);">Nenhum protocolo encontrado.</td></tr>`;
     renderizarControlesPaginacao('paginacao-protocolos', 'protocolos', 0);
     exibirLoader(false);
     return;
@@ -3904,10 +3973,7 @@ function renderizarTabelaProtocolos(listaFiltrada, mantemPagina = false) {
   
   let html = "";
   protocolos.forEach(p => {
-    let statusClass = "badge-neutral";
-    if (p.status.toLowerCase() === "entregue" || p.status.toLowerCase() === "assinado") statusClass = "badge-success";
-    
-    html += `<tr>       <td><strong>${escapeHtml(p.id)}</strong></td>       <td>${escapeHtml(p.dataGeracao)}</td>       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>       <td><span class="badge ${statusClass}">${escapeHtml(p.status)}</span></td>       <td>${escapeHtml(p.criadoPor)}</td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e Imprimir Folha">             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="status-prot" data-id="${escapeHtml(p.id)}" data-status="${escapeHtml(p.status)}" title="Alternar status Entregue">             <span data-lucide="check" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
+    html += `<tr>       <td><strong>${escapeHtml(p.id)}</strong></td>       <td>${escapeHtml(p.dataGeracao)}</td>       <td style="text-align: center;">${p.qtdDocumentos} documentos</td>       <td>${escapeHtml(p.criadoPor)}</td>       <td>         <div class="action-buttons">           <button class="btn-action" data-action="imprimir-prot" data-id="${escapeHtml(p.id)}" title="Visualizar e imprimir folha">             <span data-lucide="printer" style="width: 14px; height: 14px;"></span>           </button>           <button class="btn-action" data-action="editar-prot" data-id="${escapeHtml(p.id)}" data-linha="${p.linhaPlanilha}" title="Editar documentos desta folha">             <span data-lucide="pencil" style="width: 14px; height: 14px;"></span>           </button>         </div>       </td>     </tr>`;
   });
   
   tabela.innerHTML = html;
@@ -3915,7 +3981,7 @@ function renderizarTabelaProtocolos(listaFiltrada, mantemPagina = false) {
     btn.addEventListener('click', function() {
       const action = this.dataset.action;
       if (action === 'imprimir-prot') abrirFolhaProtocolo(this.dataset.id);
-      else if (action === 'status-prot') alterarStatusProtocoloTramite(this.dataset.id, this.dataset.status);
+      else if (action === 'editar-prot') abrirEdicaoProtocolo(this.dataset.id, this.dataset.linha);
     });
   });
   renderizarIcones();
@@ -3927,21 +3993,72 @@ function renderizarTabelaProtocolos(listaFiltrada, mantemPagina = false) {
  */
 function filtrarTabelaProtocolos() {
   const busca = document.getElementById('filtro-busca-protocolo').value.toLowerCase().trim();
-  const status = document.getElementById('filtro-status-protocolo').value;
-  
   const filtrados = AppState.protocolos.filter(p => {
     const bateBusca = !busca || p.id.toLowerCase().includes(busca);
-    const bateStatus = !status || p.status === status;
-    return bateBusca && bateStatus;
+    return bateBusca;
   });
   
-  renderizarTabelaProtocolos(filtrados);
+  const estado = AppState.paginacao.protocolos;
+  const assinatura = JSON.stringify([busca]);
+  const manterPagina = estado.filtroAssinatura === assinatura;
+  estado.filtroAssinatura = assinatura;
+  renderizarTabelaProtocolos(filtrados, manterPagina);
+}
+
+async function salvarAbonoEleitoralFormulario_(matricula) {
+  const pleito = document.getElementById('lanc-pleito-eleitoral').value.trim();
+  const movimento = document.getElementById('lanc-movimento-eleitoral').value;
+  const quantidadeCredito = Number(document.getElementById('lanc-quantidade-eleitoral').value || 0);
+  const textoDatas = document.getElementById('lanc-datas-eleitoral').value;
+  const datas = Array.from(new Set(textoDatas.split(/[\n,;]/).map(function(valor) {
+    const texto = valor.trim();
+    const br = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    return br ? br[3] + '-' + br[2] + '-' + br[1] : texto;
+  }).filter(function(data) { return /^\d{4}-\d{2}-\d{2}$/.test(data); }))).sort();
+  if (!pleito) { exibirLoader(false); mostrarToast('Informe o pleito eleitoral.', 'warning'); return; }
+  if (movimento === 'CREDITO' && quantidadeCredito < 1) { exibirLoader(false); mostrarToast('Informe os dias concedidos.', 'warning'); return; }
+  if (movimento === 'USO' && !datas.length) { exibirLoader(false); mostrarToast('Informe as datas de uso, uma por linha.', 'warning'); return; }
+  const dados = { operacaoId: gerarIdOperacaoCliente_(), matricula: matricula, pleito: pleito, movimento: movimento, quantidadeCredito: quantidadeCredito, datas: datas, idoc: document.getElementById('lanc-idoc').value.trim(), dataSolicitacao: document.getElementById('lanc-data-solicitacao').value, despacho: document.getElementById('lanc-despacho').value, observacao: document.getElementById('lanc-observacao').value.trim() };
+  SyncQueue.enfileirar('abono_eleitoral', 'salvarAbonoEleitoral', [dados], movimento === 'CREDITO' ? 'Conceder crédito eleitoral: ' + pleito : 'Usar abono eleitoral: ' + pleito);
+  exibirLoader(false);
+  fecharModal('modal-lancamento');
+  mostrarToast('Abono eleitoral registrado nesta tela. A sincronização continuará em segundo plano.', 'success');
+  agendarSincronizacaoSegura_('lancamentos');
+}
+
+function ajustarCamposAbonoEleitoral_() {
+  const uso = document.getElementById('lanc-movimento-eleitoral')?.value === 'USO';
+  const quantidade = document.getElementById('bloco-eleitoral-quantidade');
+  const datas = document.getElementById('bloco-eleitoral-datas');
+  const inputQuantidade = document.getElementById('lanc-quantidade-eleitoral');
+  const inputDatas = document.getElementById('lanc-datas-eleitoral');
+  if (quantidade) quantidade.style.display = uso ? 'none' : '';
+  if (datas) datas.style.display = uso ? '' : 'none';
+  if (inputQuantidade) inputQuantidade.required = !uso;
+  if (inputDatas) inputDatas.required = uso;
+  carregarResumoAbonosEleitorais_();
+}
+
+function carregarResumoAbonosEleitorais_() {
+  const container = document.getElementById('lanc-resumo-eleitoral');
+  const matricula = document.getElementById('lanc-matricula')?.value || '';
+  if (!container) return;
+  if (!matricula || typeof google === 'undefined' || !google.script) { container.innerHTML = '<small>Selecione o servidor para consultar os saldos por pleito.</small>'; return; }
+  container.innerHTML = '<small>Consultando saldos eleitorais...</small>';
+  backendApi().withSuccessHandler(function(itens) {
+    itens = Array.isArray(itens) ? itens : [];
+    container.innerHTML = itens.length ? itens.map(function(item) { return `<div><strong>${escapeHtml(item.pleito)}</strong><span>${item.concedidos} concedido(s) · ${item.usados} usado(s) · <b>${item.saldo} restante(s)</b></span></div>`; }).join('') : '<small>Nenhum crédito eleitoral registrado para este servidor.</small>';
+  }).withFailureHandler(function(erro) { container.innerHTML = '<small>Não foi possível consultar os saldos: ' + escapeHtml(mensagemErro(erro)) + '</small>'; }).obterResumoAbonosEleitorais(matricula);
 }
 
 /**
  * Carrega lançamentos pendentes de vínculo e abre o modal de criação de protocolo (wizard)
  */
 function abrirModalCriarProtocolo() {
+  AppState.edicaoProtocolo = null;
+  document.getElementById('titulo-modal-protocolo').textContent = 'Criar Protocolo de Encaminhamento';
+  document.getElementById('descricao-modal-protocolo').textContent = 'Selecione os lançamentos de documentos físicos pendentes que serão agrupados nesta folha de protocolo:';
+  document.getElementById('btn-gerar-protocolo').innerHTML = 'Gerar Folha de Protocolo';
   exibirLoader(true);
   
   // Limpa quantidade de selecionados
@@ -4016,6 +4133,24 @@ function confirmarGeracaoProtocolo() {
   
   exibirLoader(true);
   
+  if (AppState.edicaoProtocolo) {
+    const edicao = AppState.edicaoProtocolo;
+    backendApi().withSuccessHandler(function(resultado) {
+      exibirLoader(false);
+      finalizarOperacaoInterface('gerar-protocolo', botaoGerar);
+      AppState.edicaoProtocolo = null;
+      fecharModal('modal-criar-protocolo');
+      mostrarToast(resultado.separado ? 'Folha separada e corrigida como ' + resultado.idProtocolo + '.' : 'Documentos da folha atualizados.', 'success');
+      sincronizarEmSegundoPlano('protocolos');
+      abrirFolhaProtocolo(resultado.idProtocolo);
+    }).withFailureHandler(function(erro) {
+      exibirLoader(false);
+      finalizarOperacaoInterface('gerar-protocolo', botaoGerar);
+      mostrarToast('Erro ao corrigir a folha: ' + mensagemErro(erro), 'error');
+    }).salvarEdicaoProtocolo(edicao.id, edicao.linhaProtocolo, selecionados);
+    return;
+  }
+
   backendApi()
     .withSuccessHandler(function(idProtocolo) {
       exibirLoader(false);
@@ -5564,6 +5699,28 @@ function fecharChatEntidade() {
   fantasma.style.removeProperty('left');
   fantasma.style.removeProperty('top');
   fantasma.style.display = 'grid';
+}
+
+function abrirEdicaoProtocolo(idProtocolo, linhaProtocolo) {
+  exibirLoader(true);
+  backendApi().withSuccessHandler(function(dados) {
+    AppState.edicaoProtocolo = { id: dados.id, linhaProtocolo: dados.linhaProtocolo };
+    document.getElementById('titulo-modal-protocolo').textContent = 'Editar ' + dados.id;
+    document.getElementById('descricao-modal-protocolo').textContent = 'Marque somente os documentos que devem permanecer nesta folha. Se o número estiver duplicado, o sistema fará a separação automaticamente.';
+    document.getElementById('btn-gerar-protocolo').innerHTML = '<span data-lucide="save"></span> Salvar correção';
+    document.getElementById('check-todos-pendentes').checked = false;
+    const itens = Array.isArray(dados.itens) ? dados.itens : [];
+    document.getElementById('tabela-pendentes-protocolo-body').innerHTML = itens.map(function(p) {
+      return `<tr><td style="text-align:center"><input type="checkbox" name="chk-lancamento-pendente" value="${p.linhaPlanilha}" ${p.selecionado ? 'checked' : ''} onchange="atualizarQuantidadeSelecionadosProtocolo()"></td><td><strong>${escapeHtml(p.nome)}</strong> (${escapeHtml(p.matricula)})</td><td>${escapeHtml(p.tipo)}</td><td>${escapeHtml(p.dataInicio)}</td><td style="text-align:center">${formatarQuantidadeLancamento(p)}</td><td>${escapeHtml(p.idoc) || 'Sem número'}</td></tr>`;
+    }).join('');
+    atualizarQuantidadeSelecionadosProtocolo();
+    exibirLoader(false);
+    abrirModal('modal-criar-protocolo');
+    renderizarIcones();
+  }).withFailureHandler(function(erro) {
+    exibirLoader(false);
+    mostrarToast('Não foi possível abrir a edição: ' + mensagemErro(erro), 'error');
+  }).obterDadosEdicaoProtocolo(idProtocolo, Number(linhaProtocolo));
 }
 
 async function carregarProtecaoDados() {
@@ -8317,7 +8474,8 @@ function persistirFilaRep_() {
   }
 }
 
-function restaurarFilaRep_() {
+let filaRepRestauradaAguardandoInicializacao_ = false;
+function restaurarFilaRep_(processarAutomaticamente = true) {
   try {
     const chave = obterChaveFilaRep_();
     if (!chave) return;
@@ -8332,10 +8490,23 @@ function restaurarFilaRep_() {
     if (repAlteracoesPendentes_.size) {
       repUltimoEstadoSincronizacao_ = 'pending';
       clearTimeout(repTemporizadorSalvamento_);
-      repTemporizadorSalvamento_ = setTimeout(function() { salvarAlteracoesPendentesRep_({ automatico: true }); }, 1800);
+      if (processarAutomaticamente) {
+        repTemporizadorSalvamento_ = setTimeout(function() { salvarAlteracoesPendentesRep_({ automatico: true }); }, 1800);
+      } else {
+        filaRepRestauradaAguardandoInicializacao_ = true;
+      }
     }
     atualizarEstadoSalvamentoRep_();
   } catch (e) { console.warn('Não foi possível restaurar a fila do REP:', e); }
+}
+
+function liberarFilaRepRestaurada_() {
+  if (!filaRepRestauradaAguardandoInicializacao_ || !repAlteracoesPendentes_.size) return;
+  filaRepRestauradaAguardandoInicializacao_ = false;
+  clearTimeout(repTemporizadorSalvamento_);
+  repTemporizadorSalvamento_ = setTimeout(function() {
+    salvarAlteracoesPendentesRep_({ automatico: true, reenvio: true });
+  }, 900);
 }
 
 function atualizarEstadoSalvamentoRep_() {
@@ -9332,7 +9503,7 @@ async function confirmarFusaoRep() {
 }
 
 function updateDashboardRep() {
-  document.getElementById('rep-total-servidores').textContent = dadosRepProcessados.length;
+  atualizarContadorAnimado_('rep-total-servidores', dadosRepProcessados.length);
   let totaisMarcacoes = 0;
   let totaisPendencias = 0;
   let totalNaoConciliados = 0;
@@ -9343,10 +9514,10 @@ function updateDashboardRep() {
     if (emp.naoConciliado) totalNaoConciliados++;
   });
 
-  document.getElementById('rep-total-marcacoes').textContent = totaisMarcacoes;
-  document.getElementById('rep-total-pendencias').textContent = totaisPendencias;
+  atualizarContadorAnimado_('rep-total-marcacoes', totaisMarcacoes);
+  atualizarContadorAnimado_('rep-total-pendencias', totaisPendencias);
   const indicadorNaoConciliados = document.getElementById('rep-total-nao-conciliados');
-  if (indicadorNaoConciliados) indicadorNaoConciliados.textContent = totalNaoConciliados;
+  if (indicadorNaoConciliados) atualizarContadorAnimado_(indicadorNaoConciliados, totalNaoConciliados);
 }
 
 function textoSituacaoRep(status) {
