@@ -3438,6 +3438,7 @@ function abrirModalLancamento(linhaPlanilha) {
 
   const form = document.getElementById('form-lancamento');
   form.reset();
+  if (typeof renderizarDatasAbonoEleitoral_ === 'function') renderizarDatasAbonoEleitoral_();
   
   // Certifica de esconder informações de autocomplete anteriores
   document.getElementById('lanc-servidor-info').style.display = "none";

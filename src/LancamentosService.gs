@@ -459,6 +459,10 @@ function obterListaLancamentos() {
     let linha = dados[i];
     let tipo = idx.tipo !== -1 ? String(linha[idx.tipo]).trim() : "";
     if (!tipo) continue; // ignora linhas vazias
+    // O crédito eleitoral é uma movimentação administrativa de saldo. Ele
+    // permanece na planilha para auditoria e para o resumo por pleito, mas não
+    // representa um segundo afastamento nem deve ir para listas/protocolos.
+    if (normalizarCabecalho_(tipo) === "CREDITO DE ABONO ELEITORAL") continue;
     
     let nomeBruto = idx.nome !== -1 ? String(linha[idx.nome]).trim() : "";
     let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
@@ -1103,6 +1107,7 @@ function atualizar1DocLote(linhaPlanilha, novo1Doc, novoAnexo) {
     
     const cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
     const idxIdoc = indiceCabecalho_(cabecalho, ["N PROC 1DOC", "1DOC", "PROTOCOLO", "N 1DOC"]) + 1;
+    const idxIdOperacao = indiceCabecalho_(cabecalho, ["ID OPERACAO", "ID DA OPERACAO"]);
     const indicesAnexos = [
       indiceCabecalho_(cabecalho, ["ANEXO 1", "ANEXO1"]),
       indiceCabecalho_(cabecalho, ["ANEXO 2", "ANEXO2"]),
@@ -1116,28 +1121,41 @@ function atualizar1DocLote(linhaPlanilha, novo1Doc, novoAnexo) {
     if (!Number.isInteger(linhaNumero) || linhaNumero < 2 || linhaNumero > aba.getLastRow()) {
       throw new Error("Linha do lançamento inválida.");
     }
+    let linhasAlvo = [linhaNumero];
+    if (idxIdOperacao !== -1) {
+      const idOperacaoSelecionada = String(aba.getRange(linhaNumero, idxIdOperacao + 1).getDisplayValue() || '').trim();
+      if (idOperacaoSelecionada) {
+        const idsOperacao = aba.getRange(2, idxIdOperacao + 1, aba.getLastRow() - 1, 1).getDisplayValues();
+        linhasAlvo = idsOperacao.reduce(function(linhas, valor, indice) {
+          if (String(valor[0] || '').trim() === idOperacaoSelecionada) linhas.push(indice + 2);
+          return linhas;
+        }, []);
+      }
+    }
 
     const anexoLimpo = String(novoAnexo || '').trim();
     if (anexoLimpo) {
       if (!extrairIdArquivoDrive_(anexoLimpo)) throw new Error("O novo anexo não é um link válido do Google Drive.");
       if (!indicesAnexos.length) throw new Error("Colunas de anexo não encontradas.");
-      const anexosAtuais = indicesAnexos.map(function(indice) {
-        return String(aba.getRange(linhaNumero, indice + 1).getDisplayValue() || '').trim();
-      }).filter(function(valor) { return valor && valor !== 'undefined'; });
+      const anexosAtuais = linhasAlvo.reduce(function(valores, linhaAlvo) {
+        return valores.concat(indicesAnexos.map(function(indice) {
+          return String(aba.getRange(linhaAlvo, indice + 1).getDisplayValue() || '').trim();
+        }));
+      }, []).filter(function(valor) { return valor && valor !== 'undefined'; });
       if (anexosAtuais.length) throw new Error("Este lançamento já possui anexo. Use a edição completa para alterá-lo.");
     }
     
-    aba.getRange(linhaNumero, idxIdoc).setValue(novo1Doc || "");
-    if (anexoLimpo) aba.getRange(linhaNumero, indicesAnexos[0] + 1).setValue(anexoLimpo);
-    
     const emailUsuario = Session.getActiveUser().getEmail();
     const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+    linhasAlvo.forEach(function(linhaAlvo) {
+      aba.getRange(linhaAlvo, idxIdoc).setValue(novo1Doc || "");
+      if (anexoLimpo) aba.getRange(linhaAlvo, indicesAnexos[0] + 1).setValue(anexoLimpo);
+      if (idxEditadoPor > 0) aba.getRange(linhaAlvo, idxEditadoPor).setValue(emailUsuario);
+      if (idxEditadoEm > 0) aba.getRange(linhaAlvo, idxEditadoEm).setValue(timestamp);
+    });
     
-    if (idxEditadoPor > 0) aba.getRange(linhaNumero, idxEditadoPor).setValue(emailUsuario);
-    if (idxEditadoEm > 0) aba.getRange(linhaNumero, idxEditadoEm).setValue(timestamp);
-    
-    lancarLogSemLock_("ATUALIZAR_1DOC", "Lançamentos", "Atualizou o 1Doc (Linha " + linhaNumero + ") para " + (novo1Doc || "vazio") + (anexoLimpo ? " e adicionou anexo" : ""), "Lançamento", "", novo1Doc, novo1Doc);
-    return { atualizado: true, anexoAdicionado: anexoLimpo };
+    lancarLogSemLock_("ATUALIZAR_1DOC", "Lançamentos", "Atualizou o 1Doc em " + linhasAlvo.length + " registro(s) vinculados para " + (novo1Doc || "vazio") + (anexoLimpo ? " e adicionou anexo" : ""), "Lançamento", "", novo1Doc, novo1Doc);
+    return { atualizado: true, quantidadeAtualizada: linhasAlvo.length, anexoAdicionado: anexoLimpo };
   } finally {
     lock.releaseLock();
   }
