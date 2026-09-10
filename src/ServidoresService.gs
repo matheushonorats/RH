@@ -465,7 +465,7 @@ function salvarPenalidadeAbonosServidor(dados) {
   const matricula = normalizarChaveMatricula_(dados.matricula);
   const dias = Math.max(0, Math.min(5, parseInt(dados.dias, 10) || 0));
   if (!matricula) throw new Error('Servidor inválido.');
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
   try {
     const aba = obterPlanilha_().getSheetByName('Servidores');

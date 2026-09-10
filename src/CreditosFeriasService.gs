@@ -184,7 +184,7 @@ function salvarPenalidadePeriodoFerias(dados) {
   const referencia = String(dados.referencia || '').trim();
   const dias = Math.max(0, Math.min(30, parseInt(dados.dias, 10) || 0));
   if (!matricula || !referencia) throw new Error('Período aquisitivo inválido.');
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
   try {
     const aba = obterPlanilha_().getSheetByName('Creditos_Ferias');

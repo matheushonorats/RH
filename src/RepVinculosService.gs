@@ -49,7 +49,7 @@ function salvarVinculosRep(dados) {
   const servidor = obterListaServidores().find(item => normalizarIdentificadorRep_(item.pis) === pisOficial);
   if (!servidor) throw new Error('O PIS oficial não foi encontrado no cadastro de servidores.');
 
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado. Tente salvar o vínculo novamente.');
   try {
     const aba = obterAbaVinculosRep_();
