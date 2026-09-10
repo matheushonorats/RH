@@ -804,7 +804,7 @@ let repUltimaSincronizacaoCompartilhadaEm_ = 0;
 function iniciarPolling() {
   if (pollingInterval) clearInterval(pollingInterval);
   pollingInterval = setInterval(() => {
-    if (document.visibilityState !== 'visible' || !navigator.onLine || existemGravacoesPendentes_()) return;
+    if (!localStorage.getItem('rh_token') || document.visibilityState !== 'visible' || !navigator.onLine || existemGravacoesPendentes_()) return;
     backendApi()
       .withSuccessHandler(function(versao) {
         versao = String(versao || '');
@@ -1209,7 +1209,7 @@ function backendApi() {
           })
           .withFailureHandler(function(e) {
             if (ehMutacao) registrarFimMutacaoBackend_();
-            if (e.message && (e.message.includes("Sua sessão expirou") || e.message.includes("Token de sessão não fornecido"))) {
+            if (e.message && localStorage.getItem('rh_token') === token && (e.message.includes("Sua sessão expirou") || e.message.includes("Token de sessão não fornecido"))) {
               limparCacheLocal_();
               localStorage.removeItem('rh_token');
               localStorage.removeItem('rh_user');
@@ -1273,7 +1273,7 @@ function inicializarUsuario(temCache) {
     }
   }, 30000);
 
-  backendApi()
+  google.script.run
     .withSuccessHandler(function(usuario) {
       sessaoRespondeu = true;
       clearTimeout(limiteSessao);
@@ -1286,10 +1286,12 @@ function inicializarUsuario(temCache) {
       sessaoRespondeu = true;
       clearTimeout(limiteSessao);
       console.error("Sessão inválida:", erro);
+      if (localStorage.getItem('rh_token') !== token) return;
       limparCacheLocal_();
       localStorage.removeItem('rh_token');
       localStorage.removeItem('rh_user');
       mostrarLogin();
+      showError('Não foi possível manter a sessão: ' + mensagemErro(erro));
       exibirLoader(false);
     })
     .verificarSessao(token);
