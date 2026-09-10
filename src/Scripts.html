@@ -1401,6 +1401,9 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       AppState.lancamentos = Array.isArray(dados.lancamentos) ? dados.lancamentos : [];
       AppState.protocolos = Array.isArray(dados.protocolos) ? dados.protocolos : [];
       AppState.versaoDados = String(dados.versaoDados || AppState.versaoDados || '');
+      if (Array.isArray(dados.errosCarga) && dados.errosCarga.length) {
+        mostrarToast('A base abriu parcialmente. ' + dados.errosCarga.join(' | '), 'warning');
+      }
       AppState.dadosCompletosCarregados = true;
       carregamentoInicialBancoPendente_ = false;
       iniciarFilasAposCargaInicial_();
@@ -1444,7 +1447,7 @@ function sincronizarDados(forcarUpdate = false, viewAlvo = null) {
       if (carregamentoInicialBancoPendente_) {
         exibirLoader(true, 'Banco temporariamente indisponível. Tentando novamente...');
         atualizarTextoSync('Tentando acessar o banco novamente...', true, 'warning');
-        mostrarToast('Não foi possível carregar a base. O sistema tentará novamente sem abrir uma tela vazia.', 'error');
+        mostrarToast('Não foi possível carregar a base: ' + mensagemErro(erro) + '. O sistema tentará novamente sem abrir uma tela vazia.', 'error');
         setTimeout(function() { sincronizarDados(true, viewAlvo || 'dashboard'); }, 5000);
         return;
       }
@@ -4018,10 +4021,13 @@ async function salvarAbonoEleitoralFormulario_(matricula) {
     return br ? br[3] + '-' + br[2] + '-' + br[1] : texto;
   }).filter(function(data) { return /^\d{4}-\d{2}-\d{2}$/.test(data); }))).sort();
   if (!pleito) { exibirLoader(false); mostrarToast('Informe o pleito eleitoral.', 'warning'); return; }
-  if (movimento === 'CREDITO' && quantidadeCredito < 1) { exibirLoader(false); mostrarToast('Informe os dias concedidos.', 'warning'); return; }
-  if (movimento === 'USO' && !datas.length) { exibirLoader(false); mostrarToast('Informe as datas de uso, uma por linha.', 'warning'); return; }
+  const concedeCredito = movimento === 'CREDITO' || movimento === 'CREDITO_USO';
+  const usaFolgas = movimento === 'USO' || movimento === 'CREDITO_USO';
+  if (concedeCredito && quantidadeCredito < 1) { exibirLoader(false); mostrarToast('Informe os dias concedidos.', 'warning'); return; }
+  if (usaFolgas && !datas.length) { exibirLoader(false); mostrarToast('Informe ao menos uma data de uso, uma por linha.', 'warning'); return; }
   const dados = { operacaoId: gerarIdOperacaoCliente_(), matricula: matricula, pleito: pleito, movimento: movimento, quantidadeCredito: quantidadeCredito, datas: datas, idoc: document.getElementById('lanc-idoc').value.trim(), dataSolicitacao: document.getElementById('lanc-data-solicitacao').value, despacho: document.getElementById('lanc-despacho').value, observacao: document.getElementById('lanc-observacao').value.trim() };
-  SyncQueue.enfileirar('abono_eleitoral', 'salvarAbonoEleitoral', [dados], movimento === 'CREDITO' ? 'Conceder crédito eleitoral: ' + pleito : 'Usar abono eleitoral: ' + pleito);
+  const descricao = movimento === 'CREDITO_USO' ? 'Conceder e usar abono eleitoral: ' + pleito : (movimento === 'CREDITO' ? 'Conceder crédito eleitoral: ' + pleito : 'Usar abono eleitoral: ' + pleito);
+  SyncQueue.enfileirar('abono_eleitoral', 'salvarAbonoEleitoral', [dados], descricao);
   exibirLoader(false);
   fecharModal('modal-lancamento');
   mostrarToast('Abono eleitoral registrado nesta tela. A sincronização continuará em segundo plano.', 'success');
@@ -4029,15 +4035,17 @@ async function salvarAbonoEleitoralFormulario_(matricula) {
 }
 
 function ajustarCamposAbonoEleitoral_() {
-  const uso = document.getElementById('lanc-movimento-eleitoral')?.value === 'USO';
+  const movimento = document.getElementById('lanc-movimento-eleitoral')?.value || 'CREDITO_USO';
+  const concedeCredito = movimento === 'CREDITO' || movimento === 'CREDITO_USO';
+  const usaFolgas = movimento === 'USO' || movimento === 'CREDITO_USO';
   const quantidade = document.getElementById('bloco-eleitoral-quantidade');
   const datas = document.getElementById('bloco-eleitoral-datas');
   const inputQuantidade = document.getElementById('lanc-quantidade-eleitoral');
   const inputDatas = document.getElementById('lanc-datas-eleitoral');
-  if (quantidade) quantidade.style.display = uso ? 'none' : '';
-  if (datas) datas.style.display = uso ? '' : 'none';
-  if (inputQuantidade) inputQuantidade.required = !uso;
-  if (inputDatas) inputDatas.required = uso;
+  if (quantidade) quantidade.style.display = concedeCredito ? '' : 'none';
+  if (datas) datas.style.display = usaFolgas ? '' : 'none';
+  if (inputQuantidade) inputQuantidade.required = concedeCredito;
+  if (inputDatas) inputDatas.required = usaFolgas;
   carregarResumoAbonosEleitorais_();
 }
 
@@ -4049,7 +4057,10 @@ function carregarResumoAbonosEleitorais_() {
   container.innerHTML = '<small>Consultando saldos eleitorais...</small>';
   backendApi().withSuccessHandler(function(itens) {
     itens = Array.isArray(itens) ? itens : [];
-    container.innerHTML = itens.length ? itens.map(function(item) { return `<div><strong>${escapeHtml(item.pleito)}</strong><span>${item.concedidos} concedido(s) · ${item.usados} usado(s) · <b>${item.saldo} restante(s)</b></span></div>`; }).join('') : '<small>Nenhum crédito eleitoral registrado para este servidor.</small>';
+    container.innerHTML = itens.length ? itens.map(function(item) {
+      const datas = Array.isArray(item.datasUsadas) && item.datasUsadas.length ? `<small>Folgas usadas em: ${item.datasUsadas.map(escapeHtml).join(', ')}</small>` : '<small>Nenhuma folga utilizada.</small>';
+      return `<div><strong>${escapeHtml(item.pleito)}</strong><span>${item.concedidos} concedido(s) · ${item.usados} usado(s) · <b>${item.saldo} restante(s)</b></span>${datas}</div>`;
+    }).join('') : '<small>Nenhum crédito eleitoral registrado para este servidor.</small>';
   }).withFailureHandler(function(erro) { container.innerHTML = '<small>Não foi possível consultar os saldos: ' + escapeHtml(mensagemErro(erro)) + '</small>'; }).obterResumoAbonosEleitorais(matricula);
 }
 

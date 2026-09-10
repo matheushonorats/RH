@@ -354,9 +354,11 @@ function salvarAbonoEleitoral(dadosAbono) {
   const datas = Array.from(new Set((dadosAbono && dadosAbono.datas || []).map(String).filter(function(data) { return /^\d{4}-\d{2}-\d{2}$/.test(data); }))).sort();
   const quantidadeCredito = Math.max(0, parseInt(dadosAbono && dadosAbono.quantidadeCredito, 10) || 0);
   if (!matricula || !pleito) throw new Error('Informe o servidor e o pleito eleitoral.');
-  if (movimento !== 'CREDITO' && movimento !== 'USO') throw new Error('Informe se este lançamento é crédito ou uso do abono eleitoral.');
-  if (movimento === 'CREDITO' && !quantidadeCredito) throw new Error('Informe a quantidade de dias concedidos para este pleito.');
-  if (movimento === 'USO' && !datas.length) throw new Error('Informe ao menos uma data de uso do abono eleitoral.');
+  const concedeCredito = movimento === 'CREDITO' || movimento === 'CREDITO USO';
+  const usaFolgas = movimento === 'USO' || movimento === 'CREDITO USO';
+  if (!concedeCredito && !usaFolgas) throw new Error('Informe se deseja conceder dias, usar folgas ou fazer os dois no mesmo lançamento.');
+  if (concedeCredito && !quantidadeCredito) throw new Error('Informe a quantidade de dias concedidos para este pleito.');
+  if (usaFolgas && !datas.length) throw new Error('Informe ao menos uma data de uso do abono eleitoral.');
 
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
@@ -368,6 +370,11 @@ function salvarAbonoEleitoral(dadosAbono) {
     const dados = aba.getDataRange().getValues();
     const cabecalho = dados[0];
     const idx = obterIndicesColunasLancamentos_(cabecalho);
+    const idOperacao = dadosAbono.operacaoId ? validarIdOperacao_(dadosAbono.operacaoId) : '';
+    if (idOperacao && idx.idOperacao !== -1 && dados.slice(1).some(function(linha) { return String(linha[idx.idOperacao] || '').trim() === idOperacao; })) {
+      marcarOperacaoConcluidaSemLock_(idOperacao);
+      return { sucesso: true, duplicadoIgnorado: true };
+    }
     const normalizarPleito = function(valor) { return normalizarCabecalho_(valor); };
     let creditos = 0, usados = 0;
     const datasOcupadas = {};
@@ -384,25 +391,27 @@ function salvarAbonoEleitoral(dadosAbono) {
         if (data) datasOcupadas[data] = true;
       }
     });
-    if (movimento === 'USO' && datas.length > (creditos - usados)) throw new Error('O pleito ' + pleito + ' possui saldo de apenas ' + Math.max(0, creditos - usados) + ' dia(s).');
-    if (movimento === 'USO' && datas.some(function(data) { return datasOcupadas[data]; })) throw new Error('Uma das datas informadas já foi usada neste pleito eleitoral.');
+    const saldoDisponivel = creditos - usados + (concedeCredito ? quantidadeCredito : 0);
+    if (usaFolgas && datas.length > saldoDisponivel) throw new Error('O pleito ' + pleito + ' possui saldo de apenas ' + Math.max(0, saldoDisponivel) + ' dia(s).');
+    if (usaFolgas && datas.some(function(data) { return datasOcupadas[data]; })) throw new Error('Uma das datas informadas já foi usada neste pleito eleitoral.');
     const servidor = obterListaServidores().find(function(item) { return normalizarChaveMatricula_(item.matricula) === matricula; });
     if (!servidor) throw new Error('Servidor não localizado.');
     const usuario = obterDadosUsuarioLogado();
     const agora = new Date();
-    const criarLinha = function(data, dias) {
+    const criarLinha = function(data, dias, tipoMovimento) {
       const linha = new Array(cabecalho.length).fill('');
       if (idx.id !== -1) linha[idx.id] = Utilities.getUuid().substring(0, 8);
       if (idx.idoc !== -1) linha[idx.idoc] = String(dadosAbono.idoc || '');
       if (idx.dataSolicitacao !== -1) linha[idx.dataSolicitacao] = dadosAbono.dataSolicitacao || agora;
-      if (idx.tipo !== -1) linha[idx.tipo] = movimento === 'CREDITO' ? 'Crédito de Abono Eleitoral' : 'Abonada Eleitoral';
+      if (idx.tipo !== -1) linha[idx.tipo] = tipoMovimento === 'CREDITO' ? 'Crédito de Abono Eleitoral' : 'Abonada Eleitoral';
       if (idx.nome !== -1) linha[idx.nome] = matricula + ': ' + servidor.nome;
       if (idx.matricula !== -1) linha[idx.matricula] = matricula;
       if (idx.dataInicio !== -1) linha[idx.dataInicio] = data || '';
       if (idx.dias !== -1) linha[idx.dias] = dias;
       if (idx.diasFerias !== -1) linha[idx.diasFerias] = dias;
       if (idx.pleitoEleitoral !== -1) linha[idx.pleitoEleitoral] = pleito;
-      if (idx.movimentoEleitoral !== -1) linha[idx.movimentoEleitoral] = movimento === 'CREDITO' ? 'CRÉDITO' : 'USO';
+      if (idx.movimentoEleitoral !== -1) linha[idx.movimentoEleitoral] = tipoMovimento === 'CREDITO' ? 'CRÉDITO' : 'USO';
+      if (idx.idOperacao !== -1 && idOperacao) linha[idx.idOperacao] = idOperacao;
       if (idx.despacho !== -1) linha[idx.despacho] = String(dadosAbono.despacho || '');
       if (idx.observacao !== -1) linha[idx.observacao] = String(dadosAbono.observacao || '');
       if (idx.status !== -1) linha[idx.status] = 'Ativo';
@@ -412,11 +421,15 @@ function salvarAbonoEleitoral(dadosAbono) {
       if (idx.editadoEm !== -1) linha[idx.editadoEm] = agora;
       return linha;
     };
-    const linhas = movimento === 'CREDITO' ? [criarLinha('', quantidadeCredito)] : datas.map(function(data) { return criarLinha(data, 1); });
+    const linhas = [];
+    if (concedeCredito) linhas.push(criarLinha('', quantidadeCredito, 'CREDITO'));
+    if (usaFolgas) Array.prototype.push.apply(linhas, datas.map(function(data) { return criarLinha(data, 1, 'USO'); }));
     aba.getRange(aba.getLastRow() + 1, 1, linhas.length, cabecalho.length).setValues(linhas);
-    lancarLogSemLock_('ABONO_ELEITORAL', 'Lançamentos', movimento === 'CREDITO' ? 'Crédito eleitoral do pleito ' + pleito : 'Uso eleitoral em ' + datas.length + ' data(s) do pleito ' + pleito, '', '', JSON.stringify({ matricula: matricula, pleito: pleito, movimento: movimento, quantidade: linhas.length }), String(dadosAbono.idoc || ''));
+    if (idOperacao) marcarOperacaoConcluidaSemLock_(idOperacao);
+    const descricaoLog = concedeCredito && usaFolgas ? 'Crédito e uso eleitoral em ' + datas.length + ' data(s) do pleito ' + pleito : (concedeCredito ? 'Crédito eleitoral do pleito ' + pleito : 'Uso eleitoral em ' + datas.length + ' data(s) do pleito ' + pleito);
+    lancarLogSemLock_('ABONO_ELEITORAL', 'Lançamentos', descricaoLog, '', '', JSON.stringify({ matricula: matricula, pleito: pleito, movimento: movimento, quantidade: linhas.length }), String(dadosAbono.idoc || ''));
     CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
-    return { sucesso: true, pleito: pleito, movimento: movimento, diasRegistrados: movimento === 'CREDITO' ? quantidadeCredito : datas.length, saldoRestante: creditos + (movimento === 'CREDITO' ? quantidadeCredito : 0) - usados - (movimento === 'USO' ? datas.length : 0) };
+    return { sucesso: true, pleito: pleito, movimento: movimento, diasConcedidos: concedeCredito ? quantidadeCredito : 0, diasUsados: usaFolgas ? datas.length : 0, saldoRestante: saldoDisponivel - (usaFolgas ? datas.length : 0) };
   } finally { lock.releaseLock(); }
 }
 

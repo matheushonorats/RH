@@ -2,8 +2,8 @@
  * Versão exibida pela interface.
  * Atualizada automaticamente pelo comando oficial de publicação.
  */
-const APP_VERSION = "2.3.169";
-const APP_VERSION_DISPLAY = "2.3.169";
+const APP_VERSION = "2.3.171";
+const APP_VERSION_DISPLAY = "2.3.171";
 
 function obterVersaoAplicacao() {
   return APP_VERSION;

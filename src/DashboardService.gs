@@ -191,13 +191,24 @@ function formatarDataDashboard(data) {
 function obterDadosCompletos() {
   iniciarLeiturasEmLote_();
   try {
-    return {
-      dashboard: obterResumoDashboard(),
-      servidores: obterListaServidores(),
-      lancamentos: obterListaLancamentos(),
-      protocolos: obterListaProtocolos(),
-      versaoDados: obterVersaoDados()
+    const resultado = { dashboard: {}, servidores: [], lancamentos: [], protocolos: [], versaoDados: '', errosCarga: [] };
+    const carregar = function(chave, descricao, executar) {
+      try { resultado[chave] = executar(); }
+      catch (erro) {
+        const mensagem = descricao + ': ' + String(erro && erro.message ? erro.message : erro);
+        resultado.errosCarga.push(mensagem);
+        Logger.log('Falha parcial em obterDadosCompletos - ' + mensagem);
+      }
     };
+    carregar('dashboard', 'Resumo inicial', obterResumoDashboard);
+    carregar('servidores', 'Servidores', obterListaServidores);
+    carregar('lancamentos', 'Lançamentos', obterListaLancamentos);
+    carregar('protocolos', 'Protocolos', obterListaProtocolos);
+    carregar('versaoDados', 'Controle de atualização', obterVersaoDados);
+    if (!resultado.servidores.length && !resultado.lancamentos.length && resultado.errosCarga.length >= 2) {
+      throw new Error('A base não pôde ser lida. ' + resultado.errosCarga.join(' | '));
+    }
+    return resultado;
   } finally {
     finalizarLeiturasEmLote_();
   }
