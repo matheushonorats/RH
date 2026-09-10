@@ -1187,10 +1187,10 @@
                 <label class="form-label">Pleito eleitoral *</label>
                 <input type="text" id="lanc-pleito-eleitoral" class="form-control" placeholder="Ex.: Eleições municipais 2024">
                 <div class="form-row" style="margin-top: 10px;">
-                  <div class="form-group"><label class="form-label">O que deseja fazer? *</label><select id="lanc-movimento-eleitoral" class="form-control" onchange="ajustarCamposAbonoEleitoral_()"><option value="CREDITO_USO">Conceder dias e já usar folga(s)</option><option value="CREDITO">Somente conceder os dias</option><option value="USO">Usar crédito já cadastrado</option></select></div>
+                  <div class="form-group"><label class="form-label">O que deseja fazer? *</label><select id="lanc-movimento-eleitoral" class="form-control" onchange="ajustarCamposAbonoEleitoral_()"><option value="CREDITO_USO">Conceder dias e já usar folga(s)</option><option value="USO">Usar dias concedidos anteriormente</option></select></div>
                   <div class="form-group" id="bloco-eleitoral-quantidade"><label class="form-label">Dias concedidos *</label><input type="number" id="lanc-quantidade-eleitoral" class="form-control" min="1" value="4"></div>
                 </div>
-                <div class="form-group" id="bloco-eleitoral-datas"><label class="form-label">Datas em que usará a(s) folga(s) *</label><textarea id="lanc-datas-eleitoral" class="form-control" rows="3" placeholder="Uma data por linha: 15/10/2026&#10;22/10/2026"></textarea><p class="form-help">Informe uma ou mais datas individuais. Ex.: crédito de 4 dias com 1 data informada deixa saldo de 3 dias.</p></div>
+                <div class="form-group" id="bloco-eleitoral-datas"><label class="form-label">Datas em que usará a(s) folga(s) *</label><div class="form-row"><input type="date" id="lanc-data-eleitoral-nova" class="form-control"><button type="button" class="btn btn-secondary" onclick="adicionarDataAbonoEleitoral_()">+ Adicionar data</button></div><input type="hidden" id="lanc-datas-eleitoral"><div id="lanc-datas-eleitoral-lista" class="eleitoral-datas-lista"></div><p class="form-help">Adicione uma ou mais datas individuais. Ex.: 4 dias concedidos com 1 data utilizada deixam saldo de 3 dias.</p></div>
                 <div id="lanc-resumo-eleitoral" class="eleitoral-resumo"><small>Selecione o servidor para consultar os saldos por pleito.</small></div>
               </section>
 
@@ -1628,6 +1628,8 @@
         </div>
         <div class="modal-body">
           <div id="fila-sincronizacao-lista" class="fila-sincronizacao-lista"></div>
+          <div class="fila-historico-cabecalho"><strong>Atividade em segundo plano</strong><small>O que o sistema está fazendo nesta sessão</small></div>
+          <div id="fila-sincronizacao-historico" class="fila-sincronizacao-historico"></div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="carregarOperacoesPendentesServidor(false)">

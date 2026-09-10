@@ -2004,6 +2004,9 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 .sync-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 16px; font-size: 12px; font-weight: 500; letter-spacing: 0.02em; z-index: 50; }
 .sync-control-dock { position: fixed; left: 12px; bottom: 6px; z-index: 9998; display: flex; align-items: center; gap: 8px; max-width: min(520px, calc(100vw - 24px)); }
 .sync-control-dock .sync-bar { min-width: 0; max-width: calc(100vw - 72px); border: 1px solid var(--border-color); border-radius: 9px; box-shadow: 0 8px 24px rgba(0, 0, 0, .22); }
+.sync-control-dock .sync-bar.sync-idle { width: 34px; height: 34px; flex: 0 0 34px; padding: 0; overflow: hidden; color: #818cf8; background: var(--bg-secondary); transition: width .24s ease, color .24s ease, background .24s ease; }
+.sync-control-dock .sync-bar.sync-idle svg { width: 17px; height: 17px; filter: drop-shadow(0 0 6px rgba(129, 140, 248, .6)); animation: ghost-float 2.4s ease-in-out infinite; }
+.sync-control-dock .sync-bar:not(.sync-idle) { transition: width .24s ease, background .24s ease, color .24s ease; }
 .sync-refresh-button { width: 34px; height: 34px; display: inline-grid; flex: 0 0 34px; place-items: center; padding: 0; color: var(--text-secondary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 9px; box-shadow: 0 8px 24px rgba(0, 0, 0, .22); cursor: pointer; transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease; }
 .sync-refresh-button:hover { color: var(--brand-primary); border-color: var(--brand-primary); background: color-mix(in srgb, var(--brand-primary) 10%, var(--bg-secondary)); transform: translateY(-1px); }
 .sync-refresh-button:active { transform: translateY(0) scale(.94); }
@@ -2031,6 +2034,23 @@ body.dark-mode #view-dashboard .smart-dashboard-card {
 .fila-vazia svg { width: 32px; height: 32px; color: var(--brand-primary); }
 .fila-vazia strong { color: var(--text-primary); }
 .fila-vazia small { font-size: 12px; }
+.fila-historico-cabecalho { display: flex; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-color); }
+.fila-historico-cabecalho small { color: var(--text-muted); }
+.fila-sincronizacao-historico { max-height: 220px; overflow: auto; margin-top: 8px; padding: 10px; color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; background: rgba(0,0,0,.18); border: 1px solid var(--border-color); border-radius: 8px; }
+.atividade-linha { display: grid; grid-template-columns: 66px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px dashed rgba(148,163,184,.14); }
+.atividade-linha:last-child { border-bottom: 0; }
+.atividade-linha time { color: var(--text-muted); }
+.atividade-linha span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.atividade-linha small { color: var(--text-muted); white-space: normal; }
+.atividade-linha.is-enviando strong, .atividade-linha.is-atualizando strong { color: #60a5fa; }
+.atividade-linha.is-confirmada strong { color: #34d399; }
+.atividade-linha.is-erro strong { color: #fb7185; }
+.atividade-linha.is-aguardando strong, .atividade-linha.is-tentando strong { color: #fbbf24; }
+.atividade-vazia { padding: 8px; color: var(--text-muted); text-align: center; }
+.eleitoral-datas-lista { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-height: 28px; align-items: center; }
+.eleitoral-data-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid rgba(16,185,129,.45); border-radius: 999px; background: rgba(16,185,129,.1); color: var(--text-primary); font-weight: 600; }
+.eleitoral-data-chip button { border: 0; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; }
+.eleitoral-data-chip button:hover { color: var(--danger-color, #ef4444); }
 /* Detailed Sync Status Box - Banner Ticker (Surgimento Suave por Trás do Menu) */
 .sync-detailed-status {
   position: fixed;
