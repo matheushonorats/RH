@@ -103,6 +103,11 @@ function obterResumoDashboard() {
       if (!tipoDoc || ehLancamentoAnulado_(linha, idxLanc)) {
         continue;
       }
+      // Crédito eleitoral mantém o saldo e a auditoria, mas não é documento de
+      // afastamento e não pode aumentar o cartão "Sem 1Doc" nem ausências.
+      if (normalizarCabecalho_(tipoDoc) === "CREDITO DE ABONO ELEITORAL") {
+        continue;
+      }
       // Verifica pendência de 1DOC (não tem número preenchido), desconsiderando lançamentos > 1 ano
       let num1Doc = idxLanc.idoc !== -1 ? String(linha[idxLanc.idoc]).trim() : "";
       if (!num1Doc) {
