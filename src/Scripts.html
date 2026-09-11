@@ -885,6 +885,24 @@ function prepararOlhosEntidade_() {
   });
 }
 
+/**
+ * Padroniza consultas textuais sem alterar o dado exibido. Com isso, nomes e
+ * palavras podem ser encontrados com ou sem acentos e independentemente de
+ * maiúsculas, minúsculas ou espaços nas extremidades.
+ */
+function normalizarTextoBusca(valor) {
+  return String(valor == null ? '' : valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function correspondeBusca(termo, ...valores) {
+  const consulta = normalizarTextoBusca(termo);
+  return !consulta || valores.some(valor => normalizarTextoBusca(valor).includes(consulta));
+}
+
 function renderizarIcones() {
   if (window.lucide && typeof window.lucide.createIcons === 'function') {
     window.lucide.createIcons();
@@ -2557,14 +2575,14 @@ function renderizarTabelaServidores(listaFiltrada, mantemPagina = false) {
  * Filtra a tabela de servidores em tempo real no lado do cliente
  */
 function filtrarTabelaServidores() {
-  const busca = document.getElementById('filtro-busca-servidor').value.toLowerCase().trim();
+  const busca = normalizarTextoBusca(document.getElementById('filtro-busca-servidor').value);
   const lotacao = document.getElementById('filtro-lotacao-servidor').value;
   const situacao = document.getElementById('filtro-situacao-servidor').value;
   const status = document.getElementById('filtro-status-servidor').value;
   
   const filtrados = AppState.servidores.filter(s => {
     // 1. Busca textual (Nome ou Matrícula)
-    const bateBusca = !busca || s.nome.toLowerCase().includes(busca) || s.matricula.toLowerCase().includes(busca);
+    const bateBusca = correspondeBusca(busca, s.nome, s.matricula);
     
     // 2. Filtro de Lotação
     const bateLotacao = !lotacao || s.lotacao === lotacao;
@@ -3185,12 +3203,12 @@ async function excluirLancamentoInterface_(linhaPlanilha) {
  * Filtra a tabela de lançamentos de RH em tempo real
  */
 function filtrarTabelaLancamentos() {
-  const busca = document.getElementById('filtro-busca-lancamento').value.toLowerCase().trim();
+  const busca = normalizarTextoBusca(document.getElementById('filtro-busca-lancamento').value);
   const tipo = document.getElementById('filtro-tipo-lancamento').value;
   const status = document.getElementById('filtro-status-lancamento').value;
   
   const filtrados = AppState.lancamentos.filter(l => {
-    const bateBusca = !busca || l.nome.toLowerCase().includes(busca) || l.matricula.toLowerCase().includes(busca) || l.idoc.toLowerCase().includes(busca);
+    const bateBusca = correspondeBusca(busca, l.nome, l.matricula, l.idoc);
     const bateTipo = !tipo || l.tipo === tipo;
     
     let bateStatus = false;
@@ -3362,7 +3380,7 @@ function buscarServidorAutocomplete() {
   const txtMatricula = document.getElementById('lanc-matricula');
   const painelInfo = document.getElementById('lanc-servidor-info');
   
-  const termo = input.value.toLowerCase().trim();
+  const termo = normalizarTextoBusca(input.value);
   txtMatricula.value = ""; // Limpa a matrícula até selecionar
   painelInfo.style.display = "none";
   
@@ -3373,7 +3391,7 @@ function buscarServidorAutocomplete() {
   
   // Filtra servidores ativos apenas
   const sugestoes = AppState.servidores.filter(s => 
-    s.status !== 'Inativo' && (s.nome.toLowerCase().includes(termo) || s.matricula.toLowerCase().includes(termo))
+    s.status !== 'Inativo' && correspondeBusca(termo, s.nome, s.matricula)
   ).slice(0, 5); // Limita em 5 sugestões
   
   if (sugestoes.length === 0) {
@@ -4031,9 +4049,9 @@ function renderizarTabelaProtocolos(listaFiltrada, mantemPagina = false) {
  * Filtra protocolos localmente
  */
 function filtrarTabelaProtocolos() {
-  const busca = document.getElementById('filtro-busca-protocolo').value.toLowerCase().trim();
+  const busca = normalizarTextoBusca(document.getElementById('filtro-busca-protocolo').value);
   const filtrados = AppState.protocolos.filter(p => {
-    const bateBusca = !busca || p.id.toLowerCase().includes(busca);
+    const bateBusca = correspondeBusca(busca, p.id);
     return bateBusca;
   });
   
@@ -5174,12 +5192,12 @@ function renderizarTabelaLogs(listaFiltrada) {
  * Filtra tabela de logs no cliente em tempo real
  */
 function filtrarLogsAuditoria() {
-  const busca = document.getElementById('log-filtro-busca').value.toLowerCase().trim();
+  const busca = normalizarTextoBusca(document.getElementById('log-filtro-busca').value);
   const modulo = document.getElementById('log-filtro-modulo').value;
   const acao = document.getElementById('log-filtro-acao').value;
   
   const filtrados = AppState.logs.filter(l => {
-    const bateBusca = !busca || l.usuario.toLowerCase().includes(busca) || l.descricao.toLowerCase().includes(busca) || l.idRegistro.toLowerCase().includes(busca);
+    const bateBusca = correspondeBusca(busca, l.usuario, l.descricao, l.idRegistro);
     const bateModulo = !modulo || l.modulo === modulo;
     const bateAcao = !acao || l.acao === acao;
     return bateBusca && bateModulo && bateAcao;
@@ -10218,7 +10236,7 @@ function renderizarListaRep() {
   const listContainer = document.getElementById('rep-servidores-list');
   if (!listContainer) return;
 
-  const searchTerm = (searchInput?.value || '').toLowerCase();
+  const searchTerm = normalizarTextoBusca(searchInput?.value || '');
   const statusFilter = filterStatus?.value || 'all';
   const conferenciaFilter = document.getElementById('rep-filter-conferencia')?.value || 'all';
   const lotacaoFilter = document.getElementById('rep-filter-lotacao')?.value || 'all';
@@ -10228,7 +10246,7 @@ function renderizarListaRep() {
   const contextoVisual = criarContextoVisualRep_(dadosRepProcessados);
   const filtered = dadosRepProcessados.filter(emp => {
     const pisNormalizado = normalizarPisRep(emp.pis);
-    const matchesSearch = emp.nome.toLowerCase().includes(searchTerm) || emp.pis.includes(searchTerm);
+    const matchesSearch = correspondeBusca(searchTerm, emp.nome, emp.pis);
     let matchesStatus = true;
     if (statusFilter === 'pending') {
       matchesStatus = emp.resumo.pendencias > 0 || (contextoVisual.apontamentosPorPis.get(pisNormalizado) || []).some(item => item.status !== 'CONCLUIDO');
