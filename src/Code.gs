@@ -7,6 +7,23 @@
  * Função executada ao acessar a URL pública do Web App
  */
 function doGet(e) {
+  const abrirVersaoAnterior = Boolean(
+    e && e.parameter && String(e.parameter.versaoAnterior || "") === "1"
+  );
+
+  // O endereço histórico permanece válido. Ele tenta encaminhar para o sistema
+  // atualizado e oferece um botão caso o navegador bloqueie a navegação
+  // automática do iframe do Apps Script. A versão anterior continua disponível
+  // por ?versaoAnterior=1 para permitir retorno imediato em uma emergência.
+  if (!abrirVersaoAnterior) {
+    const redirecionamento = HtmlService.createTemplateFromFile("Redirect");
+    redirecionamento.urlDestino = "https://script.google.com/macros/s/AKfycby0FlCTrL0QIJbFrZD883rn6PKhzpMea5JL7eqz_bN9aglWajMIFZ021uxsi8aDEyAhCw/exec";
+    return redirecionamento.evaluate()
+      .setTitle("RH SETUR — abrindo sistema atualizado")
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
+      .addMetaTag("viewport", "width=device-width, initial-scale=1");
+  }
+
   // Configuração para servir o HTML principal
   const template = HtmlService.createTemplateFromFile("index");
   template.modoLaboratorioEntidade = Boolean(

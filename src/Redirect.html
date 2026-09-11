@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; color: #e8f5f1; background: radial-gradient(circle at 50% 35%, #12372f 0, #091713 38%, #050b09 100%); }
+    main { width: min(430px, 100%); padding: 34px; text-align: center; background: rgba(16, 27, 24, .92); border: 1px solid rgba(52, 211, 153, .25); border-radius: 20px; box-shadow: 0 24px 70px rgba(0, 0, 0, .42); }
+    .marca { width: 48px; height: 48px; margin: 0 auto 18px; display: grid; place-items: center; color: #07110e; font-size: 24px; font-weight: 900; background: #34d399; border-radius: 14px; box-shadow: 0 0 28px rgba(52, 211, 153, .35); }
+    h1 { margin: 0 0 8px; font-size: 22px; }
+    p { margin: 0; color: #a7bbb5; font-size: 14px; line-height: 1.5; }
+    .carregando { margin-top: 22px; color: #6ee7b7; font-size: 13px; }
+    .barra { height: 4px; margin-top: 10px; overflow: hidden; background: #263833; border-radius: 999px; }
+    .barra::after { content: ""; display: block; width: 42%; height: 100%; background: linear-gradient(90deg, transparent, #34d399, transparent); animation: progresso 1.25s ease-in-out infinite; }
+    #fallback { display: none; margin-top: 24px; opacity: 0; transform: translateY(8px); transition: opacity .3s ease, transform .3s ease; }
+    #fallback.visivel { display: block; opacity: 1; transform: translateY(0); }
+    a { display: block; width: 100%; padding: 13px 18px; color: #052e24; font-weight: 800; text-decoration: none; background: #34d399; border-radius: 11px; }
+    small { display: block; margin-top: 11px; color: #78908a; line-height: 1.4; }
+    @keyframes progresso { from { transform: translateX(-120%); } to { transform: translateX(340%); } }
+    @media (prefers-reduced-motion: reduce) { .barra::after { animation: none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="marca" aria-hidden="true">RH</div>
+    <h1>Abrindo o sistema atualizado</h1>
+    <p>Seus dados permanecem na mesma base oficial.</p>
+    <div class="carregando">Redirecionando…</div>
+    <div class="barra" aria-hidden="true"></div>
+    <div id="fallback">
+      <a href="<?= urlDestino ?>">Entrar no sistema</a>
+      <small>O navegador impediu a abertura automática. Use o botão acima.</small>
+    </div>
+  </main>
+  <script>
+    const DESTINO = <?!= JSON.stringify(urlDestino) ?>;
+    const fallback = document.getElementById('fallback');
+    setTimeout(function() { fallback.classList.add('visivel'); }, 5000);
+    setTimeout(function() {
+      try { window.top.location.replace(DESTINO); } catch (erro) {}
+    }, 120);
+  </script>
+</body>
+</html>
