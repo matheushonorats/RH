@@ -5,3 +5,4 @@
 **/.agents/**
 **/.codex/**
 **/.entidade-docs-update/**
+!appsscript.json
