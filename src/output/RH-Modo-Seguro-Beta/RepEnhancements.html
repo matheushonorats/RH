@@ -1876,7 +1876,7 @@ async function limparMarcacoesServidorRep_(pis, datas, motivo) {
   } catch (erro) { estados.forEach(e => { e.p.desconsiderada=e.desconsiderada;e.p.ajusteJustificativa=e.ajusteJustificativa; }); throw erro; }
 }
 async function limparDiaServidorRep_(pis, data) {
-  const emp = (dadosRepProcessados || []).find(e => normalizarPisRep(e.pis) === normalizarPisRep(pis));
+  const emp = (dadosRepProcessados || []).find(e => normalizarPisRep(e.pis) === normalizarPisRep(pis)) || { nome: dadosRepCache?.employees?.get(normalizarPisRep(pis)) || 'Servidor' };
   if (!emp || !confirm('Retirar todas as marcações de ' + emp.nome + ' em ' + data.split('-').reverse().join('/') + '?\nOs registros originais permanecem na auditoria e podem ser restaurados em Ajustar.')) return;
   try { await limparMarcacoesServidorRep_(pis,[data],'Todas as marcações do dia retiradas pelo operador.'); atualizarProcessamentoRep({notificarEntidade:false}); }
   catch(e) { mostrarToast(mensagemErro(e),'error'); }
@@ -1885,6 +1885,58 @@ async function invalidarTrabalhoAusenciaRep_(pis,data) {
   if (!confirm('Desconsiderar as batidas de trabalho deste dia e suas horas extras? O afastamento do RH será mantido.')) return;
   try { await limparMarcacoesServidorRep_(pis,[data],'Trabalho desconsiderado durante afastamento do RH.'); atualizarProcessamentoRep({notificarEntidade:false}); }
   catch(e) { mostrarToast(mensagemErro(e),'error'); }
+}
+async function restaurarServidorMesRep_(pis) {
+  const competencia = obterCompetenciaAtualRep_();
+  const identificador = normalizarPisRep(pis);
+  const emp = (dadosRepProcessados || []).find(e => normalizarPisRep(e.pis) === identificador) || { nome: dadosRepCache?.employees?.get(identificador) || 'Servidor' };
+  if (!competencia || repOnlineCarregando) return mostrarToast('Selecione a pessoa e o mês após concluir a leitura.', 'warning');
+  if (repTemAlteracoesPendentes_()) return mostrarToast('Aguarde a fila terminar antes de restaurar.', 'warning');
+  if (!confirm('Restaurar o espelho de ' + emp.nome + ' em ' + competencia.split('-').reverse().join('/') + '?\n\nTodas as marcações originais do relógio (AFD) serão restauradas.\nMarcações manuais, compensações e descartes deste mês serão limpos.')) return;
+  const ano = Number(competencia.slice(0, 4)), mes = Number(competencia.slice(5));
+  const datas = Array.from({ length: new Date(ano, mes, 0).getDate() }, (_, i) => competencia + '-' + String(i + 1).padStart(2, '0'));
+  const conjuntoDatas = new Set(datas);
+  try {
+    exibirLoader(true, 'Restaurando marcações originais do relógio...');
+    (dadosRepCache.punches || []).forEach(p => {
+      if (normalizarPisRep(p.pis) === identificador) {
+        const d = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia) : toDateStringRep(p.datetime);
+        if (conjuntoDatas.has(d)) {
+          if (!p.manual) {
+            p.desconsiderada = false;
+            p.desconsideradaCompartilhada = false;
+            delete p.ajusteJustificativa;
+          }
+        }
+      }
+    });
+    dadosRepCache.punches = (dadosRepCache.punches || []).filter(p => {
+      if (normalizarPisRep(p.pis) !== identificador) return true;
+      const d = String(p.ajusteOrigemData || p.dataReferencia || toDateStringRep(p.datetime));
+      return !(p.manual && conjuntoDatas.has(d));
+    });
+    ajustesCompartilhadosRep = (ajustesCompartilhadosRep || []).filter(item => !(normalizarPisRep(item.pis) === identificador && item.competencia === competencia));
+    await salvarAjustesCompetenciaRep_(pis, competencia, [], datas);
+    const mesmo = item => normalizarPisRep(item.pis) === identificador && String(item.data || '').slice(0, 7) === competencia;
+    const grupos = [
+      ['COMPENSACAO', compensacoesRep, { minutos: 0, origens: [], observacao: '' }],
+      ['AUTORIZACAO_COMPENSACAO', autorizacoesCompensacaoRep, { minutos: 0, ordem: 0 }],
+      ['VALIDACAO', validacoesRep, { validado: false, observacao: '' }],
+      ['DESCARTE_HE', descartesHoraExtraRep, { descartado: false, saldoAjustado: false }]
+    ];
+    grupos.forEach(([tipo, lista, dados]) => lista.filter(mesmo).forEach(item => enfileirarAlteracaoRep_(tipo, { pis, data: item.data, ...dados }, tipo + '|' + identificador + '|' + item.data)));
+    validacoesRep = validacoesRep.filter(i => !mesmo(i));
+    descartesHoraExtraRep = descartesHoraExtraRep.filter(i => !mesmo(i));
+    compensacoesRep = compensacoesRep.filter(i => !mesmo(i));
+    autorizacoesCompensacaoRep = autorizacoesCompensacaoRep.filter(i => !mesmo(i));
+    aplicarAjustesCompartilhadosRep_();
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast('Espelho de ' + emp.nome + ' restaurado com sucesso.', 'success');
+  } catch (e) {
+    mostrarToast(mensagemErro(e), 'error');
+  } finally {
+    exibirLoader(false);
+  }
 }
 async function resetarServidorMesRep_(pis) {
   const competencia = obterCompetenciaAtualRep_();

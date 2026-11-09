@@ -8707,7 +8707,7 @@ function atualizarHorasDevidasRep_(emp, dias) {
   emp.resumo.horasDevidas = (dias || []).reduce((total, dia) => total + obterDeficitDiaRep_(dia), 0);
 }
 
-function processDataRep(employees, punches, lotacoes) {
+function processDataRep(employees, punches, lotacoes, servidoresExtras) {
   const dataByPisSeguro = new Map();
   const jornadaReferencia = obterJornadaReferenciaRep_();
   const intervaloPresumidoInput = document.getElementById('rep-intervalo-presumido-horas');
@@ -8716,6 +8716,22 @@ function processDataRep(employees, punches, lotacoes) {
     ? intervaloPresumidoInformado
     : 1;
   const feriados = obterFeriadosRep();
+
+  if (servidoresExtras && typeof servidoresExtras.forEach === 'function') {
+    servidoresExtras.forEach(function(pisBruto) {
+      const pis = normalizarPisRep(pisBruto);
+      if (!pis || dataByPisSeguro.has(pis)) return;
+      const nomeConhecido = employees && typeof employees.get === 'function' ? employees.get(pis) : '';
+      dataByPisSeguro.set(pis, {
+        pis: pis,
+        nome: nomeConhecido || `PIS nao conciliado (${pis})`,
+        lotacao: (lotacoes && typeof lotacoes.get === 'function' && lotacoes.get(pis)) || 'Não informada',
+        naoConciliado: !nomeConhecido,
+        dias: new Map(),
+        resumo: { trabalhadas: 0, saldo: 0, extras: 0, horasExtras: 0, valeRefeicao: 0, vr: 0, pendencias: 0 }
+      });
+    });
+  }
 
   for (const punch of punches.slice().sort((a, b) => a.datetime - b.datetime)) {
     const pis = normalizarPisRep(punch.pis);
@@ -9928,6 +9944,32 @@ function atualizarProcessamentoRep(opcoes) {
   const pessoas = repContextoProcessamento_ === contexto && Array.isArray(opcoes.pessoas) && opcoes.pessoas.length
     ? new Set(opcoes.pessoas.map(normalizarPisRep)) : null;
 
+  const pessoasCompetencia = new Set();
+  (dadosRepCache.punches || []).forEach(p => {
+    const pis = normalizarPisRep(p.pis);
+    if (!pis) return;
+    if (pessoas && !pessoas.has(pis)) return;
+    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
+    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
+    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
+    if (anoSel !== 'all' && y !== anoSel) return;
+    if (mesSel !== 'all' && m !== mesSel) return;
+    if (localSel !== 'all' && !String(p.clock || '').split(', ').includes(localSel)) return;
+    pessoasCompetencia.add(pis);
+  });
+  if (anoSel !== 'all' && mesSel !== 'all') {
+    const compSel = `${anoSel}-${mesSel}`;
+    (ajustesCompartilhadosRep || []).forEach(a => {
+      if (String(a.competencia || '') === compSel) {
+        const pis = normalizarPisRep(a.pis);
+        if (pis && (!pessoas || pessoas.has(pis))) pessoasCompetencia.add(pis);
+      }
+    });
+  }
+  if (pisSelecionadoRep && (!pessoas || pessoas.has(normalizarPisRep(pisSelecionadoRep)))) {
+    pessoasCompetencia.add(normalizarPisRep(pisSelecionadoRep));
+  }
+
   const punchesFiltrados = dadosRepCache.punches.filter(p => {
     if (pessoas && !pessoas.has(normalizarPisRep(p.pis))) return false;
     if (p.desconsiderada) return false;
@@ -9941,7 +9983,7 @@ function atualizarProcessamentoRep(opcoes) {
     return true;
   });
 
-  const recalculados = processDataRep(dadosRepCache.employees, punchesFiltrados, dadosRepCache.lotacoes);
+  const recalculados = processDataRep(dadosRepCache.employees, punchesFiltrados, dadosRepCache.lotacoes, pessoasCompetencia);
   dadosRepProcessados = pessoas
     ? dadosRepProcessados.filter(p => !pessoas.has(normalizarPisRep(p.pis))).concat(recalculados).sort((a,b) => a.nome.localeCompare(b.nome))
     : recalculados;
@@ -11325,12 +11367,19 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
 
   const avisoFiltro = filtroDiasRepAtual === 'todos' ? '' : `<div class="rep-filtro-dias-ativo"><span>Exibindo ${rotulosFiltro[filtroDiasRepAtual]}: <b>${diasFiltrados.length}</b></span><button type="button" onclick="definirFiltroDiasRep('todos')">Mostrar todos os dias</button></div>`;
   const painelApontamentosServidor = apontamentosServidor.length ? `<section class="rep-apontamentos-servidor"><header><b>Apontamentos do servidor nesta competência</b><button type="button" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Novo apontamento</button></header>${htmlApontamentosRep_(apontamentosServidor)}</section>` : '';
+  const competenciaAtualPainel_ = obterCompetenciaAtualRep_();
+  const temMarcacoesOriginaisDesconsideradas_ = (dadosRepCache?.punches || []).some(p => {
+    if (normalizarPisRep(p.pis) !== normalizarPisRep(selecionado.pis) || !p.desconsiderada || p.manual) return false;
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia) : toDateStringRep(p.datetime);
+    return d.slice(0, 7) === competenciaAtualPainel_;
+  });
+  const avisoDesconsideradas_ = temMarcacoesOriginaisDesconsideradas_ ? `<div class="rep-aviso-desconsideradas" style="margin: 10px 0; padding: 10px 14px; border-radius: 8px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-primary);"><div style="display: flex; align-items: center; gap: 8px;"><span data-lucide="rotate-ccw" style="color: #f59e0b; width: 18px; height: 18px; flex-shrink: 0;"></span><span><strong>Marcações desconsideradas neste mês:</strong> As batidas do relógio (AFD) foram retiradas nesta competência.</span></div><button type="button" class="btn btn-secondary" onclick="restaurarServidorMesRep_('${selecionado.pis}')" style="white-space: nowrap; font-weight: 700; color: var(--brand-primary);"><span data-lucide="rotate-ccw"></span> Restaurar marcações originais</button></div>` : '';
 
   container.innerHTML = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
       <div class="rep-identidade-fixa"><strong>${escapeHtml(selecionado.nome)}</strong><span>${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')} · ${escapeHtml(selecionado.lotacao || 'Não informada')}</span></div>
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><div class="rep-identidade-titulo"><h3>${escapeHtml(selecionado.nome)}</h3>${obterVinculoVisualRep_(cadastroSelecionado, false)}</div><strong class="rep-identidade-cargo">${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')}</strong><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<details class="rep-menu-dia rep-menu-servidor"><summary>Mais ações</summary><div><button type="button" class="rep-unir-registros" onclick="resetarServidorMesRep_('${selecionado.pis}')">Resetar este mês</button></div></details>${botaoWhatsappServidorRep_(cadastroSelecionado, selecionado.pis)}<button type="button" class="rep-conferencia-cabecalho ${conferenciaSelecionado ? 'conferido' : ''}" onclick="alternarConferenciaServidorRep('${selecionado.pis}', this)" title="${conferenciaSelecionado ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferenciaSelecionado ? 'circle-check-big' : 'circle-check'}"></span>${conferenciaSelecionado ? 'Conferido' : 'Conferir'}</button><button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button></div></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><div class="rep-identidade-titulo"><h3>${escapeHtml(selecionado.nome)}</h3>${obterVinculoVisualRep_(cadastroSelecionado, false)}</div><strong class="rep-identidade-cargo">${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')}</strong><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<details class="rep-menu-dia rep-menu-servidor"><summary>Mais ações</summary><div><button type="button" class="rep-unir-registros" onclick="restaurarServidorMesRep_('${selecionado.pis}')" style="color:var(--brand-primary);font-weight:700;">Restaurar batidas originais deste mês</button><button type="button" class="rep-unir-registros" onclick="resetarServidorMesRep_('${selecionado.pis}')">Zerar/retirar marcações deste mês</button></div></details>${botaoWhatsappServidorRep_(cadastroSelecionado, selecionado.pis)}<button type="button" class="rep-conferencia-cabecalho ${conferenciaSelecionado ? 'conferido' : ''}" onclick="alternarConferenciaServidorRep('${selecionado.pis}', this)" title="${conferenciaSelecionado ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferenciaSelecionado ? 'circle-check-big' : 'circle-check'}"></span>${conferenciaSelecionado ? 'Conferido' : 'Conferir'}</button><button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button></div></div>
         <div class="rep-grupo-resumo">
           <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Horas extras válidas</small><b>${formatHoursRep(selecionado.resumo.horasExtras || 0)}h</b><em>Saldo para compensação: ${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h já usadas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada considerada ≥ 6h em dia não útil</em></button>
@@ -11339,6 +11388,7 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
           <button type="button" class="rep-indicador-resumo apontamentos ${apontamentosAbertos.length ? 'tem-apontamento' : ''} ${filtroDiasRepAtual === 'apontamentos' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('apontamentos')" aria-pressed="${filtroDiasRepAtual === 'apontamentos'}"><small>Apontamentos abertos</small><b>${apontamentosAbertos.length}</b><em>${apontamentosConcluidos} concluído(s)</em></button>
         </div>
       </header>
+      ${avisoDesconsideradas_}
       ${painelApontamentosServidor}
       ${avisoFiltro}
       <div class="rep-table-wrap rep-tabela-detalhe-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações (registrada → considerada)</th><th title="Total considerado após entradas, saídas e intervalo">Horas trabalhadas</th><th title="Diferença entre as horas trabalhadas e a jornada.">Horas extras</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
