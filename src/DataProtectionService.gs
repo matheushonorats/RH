@@ -4,14 +4,18 @@
  */
 const PROTECAO_DADOS_RH_ = {
   pasta: 'SETUR_RH_Backups_Automaticos',
+  pastaId: '1ivZTQCwtjvirIZ_NqAo5MUEv-pMOoO3W',
   prefixo: 'RH_BACKUP_AUTOMATICO_',
   abasCriticas: [['Usuarios'], ['Servidores'], ['Lançamentos', 'Lancamentos'], ['Configuracoes']],
   intervaloMs: 20 * 60 * 60 * 1000
 };
 
 function obterPastaBackupsRh_() {
-  const pastas = DriveApp.getFoldersByName(PROTECAO_DADOS_RH_.pasta);
-  return pastas.hasNext() ? pastas.next() : DriveApp.createFolder(PROTECAO_DADOS_RH_.pasta);
+  try {
+    return DriveApp.getFolderById(PROTECAO_DADOS_RH_.pastaId);
+  } catch (erro) {
+    throw new Error('A pasta institucional de cópias de segurança não está acessível. Verifique o compartilhamento da pasta ' + PROTECAO_DADOS_RH_.pasta + '.');
+  }
 }
 
 function verificarIntegridadeEstruturalRh_(ss) {

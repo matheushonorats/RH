@@ -831,13 +831,58 @@ window.addEventListener('beforeunload', (e) => {
 // outro usuário realmente grava uma alteração.
 let pollingInterval;
 let repUltimaSincronizacaoCompartilhadaEm_ = 0;
+let versaoAtualizacaoPendente_ = '';
+let consultaAtualizacaoEmAndamento_ = false;
+let consultaAtualizacaoExpiracao_ = null;
+let consultaAtualizacaoId_ = 0;
+
+function atualizarVersaoAberta_(versaoServidor) {
+  const versaoAberta = String(document.body?.dataset.appVersion || '');
+  const novaVersao = String(versaoServidor || '');
+  if (!versaoAberta || !novaVersao || novaVersao === versaoAberta) return;
+  versaoAtualizacaoPendente_ = novaVersao;
+  let aviso = document.getElementById('aviso-atualizacao-app');
+  if (!aviso) {
+    aviso = document.createElement('div');
+    aviso.id = 'aviso-atualizacao-app';
+    aviso.className = 'aviso-atualizacao-app';
+    aviso.innerHTML = '<span>Uma atualização do sistema está disponível.</span><button type="button">Atualizar agora</button>';
+    aviso.querySelector('button').addEventListener('click', function() {
+      if (existemGravacoesPendentes_()) return mostrarToast('Aguarde a confirmação das alterações pendentes antes de atualizar.', 'warning');
+      window.location.reload();
+    });
+    document.body.appendChild(aviso);
+  }
+  const pendente = existemGravacoesPendentes_();
+  aviso.querySelector('span').textContent = pendente
+    ? `Versão ${novaVersao} disponível. A atualização aguardará seus envios pendentes.`
+    : `Versão ${novaVersao} disponível. Atualize para continuar com a versão mais recente.`;
+  aviso.querySelector('button').disabled = pendente;
+  // Atualiza automaticamente apenas fora de formulários e sem dados na fila.
+  // Um formulário já preenchido, ainda sem salvar, nunca deve ser descartado.
+  const areaSegura = currentView === 'dashboard' || currentView === 'relatorios';
+  if (!pendente && areaSegura && !document.querySelector('.modal.active') && !document.activeElement?.matches?.('input, textarea, select')) {
+    const chave = 'entidade_tentou_atualizar_' + novaVersao;
+    if (sessionStorage.getItem(chave) !== 'sim') {
+      sessionStorage.setItem(chave, 'sim');
+      window.location.reload();
+    }
+  }
+}
 function iniciarPolling() {
   if (pollingInterval) clearInterval(pollingInterval);
   pollingInterval = setInterval(() => {
-    if (!localStorage.getItem('rh_token') || document.visibilityState !== 'visible' || !navigator.onLine || existemGravacoesPendentes_()) return;
+    if (!localStorage.getItem('rh_token') || document.visibilityState !== 'visible' || !navigator.onLine || consultaAtualizacaoEmAndamento_) return;
+    consultaAtualizacaoEmAndamento_ = true;
+    const consultaId = ++consultaAtualizacaoId_;
+    consultaAtualizacaoExpiracao_ = setTimeout(function() { if (consultaId === consultaAtualizacaoId_) consultaAtualizacaoEmAndamento_ = false; }, 60 * 1000);
     backendApi()
-      .withSuccessHandler(function(versao) {
-        versao = String(versao || '');
+      .withSuccessHandler(function(estado) {
+        if (consultaId !== consultaAtualizacaoId_) return;
+        clearTimeout(consultaAtualizacaoExpiracao_);
+        consultaAtualizacaoEmAndamento_ = false;
+        const versao = String(estado?.versaoDados || '');
+        atualizarVersaoAberta_(estado?.versaoAplicacao);
         const mudou = Boolean(versao && AppState.versaoDados && versao !== AppState.versaoDados);
         if (!AppState.versaoDados) AppState.versaoDados = versao;
         const editorRepAtivo = currentView === 'pre-leitura-rep' && (
@@ -846,15 +891,15 @@ function iniciarPolling() {
         );
         if (editorRepAtivo) return;
         if (currentView === 'pre-leitura-rep' && typeof sincronizarAlteracoesRepSegundoPlano_ === 'function') {
-          // Proteção contra atrasos do timestamp do Drive: a cada minuto, busca
-          // apenas os dados compartilhados do REP, sem reler arquivos AFD.
-          if (mudou || Date.now() - repUltimaSincronizacaoCompartilhadaEm_ >= 60000) sincronizarAlteracoesRepSegundoPlano_(versao);
-        } else if (mudou) {
+          // Revisão compartilhada avisa alterações reais; uma conferência
+          // periódica cobre escritores antigos sem sobrecarregar a navegação.
+          if (mudou || Date.now() - repUltimaSincronizacaoCompartilhadaEm_ >= 5 * 60 * 1000) sincronizarAlteracoesRepSegundoPlano_(versao);
+        } else if (mudou && !existemGravacoesPendentes_()) {
           sincronizarEmSegundoPlano(currentView);
         }
       })
-      .withFailureHandler(function(erro) { console.warn('Não foi possível consultar mudanças compartilhadas:', mensagemErro(erro)); })
-      .obterVersaoDados();
+      .withFailureHandler(function(erro) { if (consultaId !== consultaAtualizacaoId_) return; clearTimeout(consultaAtualizacaoExpiracao_); consultaAtualizacaoEmAndamento_ = false; console.warn('Não foi possível consultar mudanças compartilhadas:', mensagemErro(erro)); })
+      .obterEstadoAtualizacaoCliente();
   }, 30 * 1000);
 }
 
@@ -2240,7 +2285,15 @@ function montarCenasPainelDashboard_(insight) {
   }).filter(Boolean).sort((a,b) => a.dias - b.dias || String(a.servidor.nome).localeCompare(String(b.servidor.nome), 'pt-BR'));
   cenas.push({ eyebrow: 'PRÓXIMOS 30 DIAS', title: 'Aniversariantes da equipe', icon: 'cake-slice', accent: 'roxo', html: montarListaPainelDashboard_(aniversarios.map(function(item, indice) { const proximidade = item.dias === 0 ? 'HOJE' : item.dias === 1 ? 'AMANHÃ' : `EM ${item.dias} DIAS`; return `<button type="button" class="billboard-list-item billboard-birthday-item" onclick="abrirFichaServidor('${escapeHtml(String(item.servidor.matricula || ''))}')"><b>${indice + 1}</b><span><strong>${escapeHtml(item.servidor.nome)}</strong><small>${escapeHtml(item.servidor.lotacao || 'Lotação não informada')}</small></span><em><strong>${formatarDataPainelDashboard_(item.data)}</strong><small>${proximidade}</small></em></button>`; }), 'Nenhum aniversário nos próximos 30 dias'), footer: 'Em ordem cronológica, do mais próximo ao mais distante', counter: `${aniversarios.length} pessoas` });
 
-  if (insight && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta)) cenas.push({ eyebrow: 'A ENTIDADE OBSERVOU', title: 'Prioridades e pontos de atenção', icon: 'ghost', accent: 'verde', html: `<div class="billboard-entidade-texto">${renderizarMarkdownSeguroEntidade(limparComandosEntidade(insight.resposta))}</div>`, footer: 'Leitura automática dos dados atuais', counter: 'Entidade' });
+  if (insight && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta)) {
+    const ocorrencias = (insight.ocorrencias || []).slice(0, 3);
+    const htmlOcorrencias = ocorrencias.length ? montarListaPainelDashboard_(ocorrencias.map(function(item) {
+      const rotulo = item.matricula ? item.nome + ' · ' + item.matricula : item.nome;
+      return `<button type="button" class="billboard-list-item" onclick="abrirOcorrenciaEntidade_('${escapeHtml(item.id)}')"><span><strong>${escapeHtml(item.titulo)}</strong><small>${escapeHtml(rotulo)}</small></span><em>${item.lida ? 'Lido' : 'Novo'}</em></button>`;
+    }), 'Nenhuma ocorrência ativa') : `<div class="billboard-entidade-texto">${renderizarMarkdownSeguroEntidade(limparComandosEntidade(insight.resposta))}</div>`;
+    cenas.push({ eyebrow: 'A ENTIDADE OBSERVOU', title: 'Prioridades e pontos de atenção', icon: 'ghost', accent: insight.estadoMonitor === 'indisponivel' ? 'laranja' : 'verde', html: htmlOcorrencias, footer: insight.estadoMonitor === 'indisponivel' ? 'Última leitura válida · atualização temporariamente indisponível' : 'Clique em um caso para abrir o registro', counter: `${Number(insight.totalOcorrencias || ocorrencias.length)} pendências` });
+  }
+  else if (insight && insight.estadoMonitor === 'indisponivel') cenas.push({ eyebrow: 'STATUS DA ENTIDADE', title: 'Atualização temporariamente indisponível', icon: 'ghost', accent: 'laranja', html: '<div class="billboard-empty"><span data-lucide="refresh-cw-off"></span><strong>Não foi possível concluir uma nova conferência. Tente atualizar novamente.</strong></div>', footer: 'Nenhum diagnóstico anterior foi apagado', counter: 'Atenção' });
   const temasPorIcone = {
     'map-pinned': 'lotacoes', 'file-warning': 'documentos', 'calendar-warning': 'ferias',
     'users-round': 'ausencias', 'contact-round': 'equipe', 'cake-slice': 'aniversarios', 'ghost': 'entidade'
@@ -2301,6 +2354,60 @@ function abrirLancamentoDoPainelDashboard_(linhaPlanilha) {
   const linha = Number(linhaPlanilha || 0);
   if (!linha) return navegarPara('lancamentos');
   abrirViewLancamento(linha);
+}
+
+function encontrarOcorrenciaEntidadeCliente_(id) {
+  const insight = AppState.insightEntidade || {};
+  return (insight.ocorrencias || []).find(function(item) { return item.id === id; }) || null;
+}
+
+function marcarOcorrenciaEntidadeLidaNoCliente_(item) {
+  if (!item || item.lida) return;
+  item.lida = true;
+  backendApi().withFailureHandler(function(erro) {
+    item.lida = false;
+    console.warn('Não foi possível registrar a leitura da ocorrência:', erro);
+  }).marcarOcorrenciaEntidadeComoLida(item.id, item.revisao);
+}
+
+function abrirOcorrenciaEntidade_(id) {
+  const item = encontrarOcorrenciaEntidadeCliente_(id);
+  if (!item) return;
+  marcarOcorrenciaEntidadeLidaNoCliente_(item);
+  const acao = item.acao || {};
+  const linhas = Array.isArray(acao.linhasPlanilha) ? acao.linhasPlanilha.filter(Number) : [];
+  if (acao.tipo === 'SERVIDOR' && item.matricula) return abrirFichaServidor(item.matricula);
+  if (Number(acao.linhaPlanilha || 0)) return abrirLancamentoDoPainelDashboard_(Number(acao.linhaPlanilha));
+  if (linhas.length) return abrirLancamentoDoPainelDashboard_(linhas[0]);
+  navegarPara('lancamentos');
+  const busca = document.getElementById('filtro-busca-lancamento');
+  if (busca && item.matricula) {
+    busca.value = item.matricula;
+    if (typeof filtrarTabelaLancamentos === 'function') filtrarTabelaLancamentos();
+  }
+}
+
+function assumirOcorrenciaEntidadeCliente_(id) {
+  if (!encontrarOcorrenciaEntidadeCliente_(id)) return;
+  backendApi().withSuccessHandler(function() {
+    mostrarToast('Conferência atribuída a você.', 'success');
+    consultarInsightEntidade();
+  }).withFailureHandler(function(erro) {
+    mostrarToast('Não foi possível assumir a conferência: ' + mensagemErro(erro), 'error');
+  }).assumirOcorrenciaEntidade(id);
+}
+
+function adiarOcorrenciaEntidadeCliente_(id) {
+  const data = window.prompt('Adiar até qual data? Use DD/MM/AAAA.');
+  if (!data) return;
+  const motivo = window.prompt('Informe brevemente o motivo do adiamento.');
+  if (!motivo) return;
+  backendApi().withSuccessHandler(function() {
+    mostrarToast('Ocorrência adiada até ' + data + '.', 'success');
+    consultarInsightEntidade();
+  }).withFailureHandler(function(erro) {
+    mostrarToast('Não foi possível adiar: ' + mensagemErro(erro), 'error');
+  }).adiarOcorrenciaEntidade(id, data, motivo);
 }
 
 function alternarMapaPainelDashboard_() {
@@ -2453,7 +2560,6 @@ function fecharMensagemEntidadeNoCard() {
   const insightVisivel = insight && insight.mostrar !== false && insight.temAlertas && insight.resposta && alertaDashboardEntidadeAcionavel(insight.resposta);
   if (insightVisivel) {
     AppState.mensagemEntidadeOculta = 'insight:' + String(insight.geradoEm || '') + ':' + String(insight.resposta || '').slice(0, 80);
-    if (insight.fingerprint) backendApi().withFailureHandler(function() {}).marcarInsightEntidadeComoVisto(insight.fingerprint);
   } else if (briefing && briefing.disponivel && briefing.resposta) {
     AppState.mensagemEntidadeOculta = 'briefing:' + String(briefing.data || '') + ':' + String(briefing.geradoEm || '');
     backendApi().withFailureHandler(function() {}).marcarBriefingDiarioEntidadeComoVisto();
@@ -6391,7 +6497,7 @@ function avaliarRespostaEntidade(interacaoId, util, botao) {
         area.classList.add('avaliado');
         area.innerHTML = util ? '<span>Obrigado. Resposta marcada como útil.</span>' : '<span>Obrigado. A correção foi registrada.</span>';
       }
-      mostrarToast('Feedback enviado para a memória da Entidade.', 'success');
+      mostrarToast('Feedback registrado. Ele não altera o conhecimento sem aprovação administrativa.', 'success');
     })
     .withFailureHandler(function(erro) {
       mostrarToast('Não foi possível registrar o feedback: ' + mensagemErro(erro), 'error');
@@ -6486,11 +6592,6 @@ function consultarInsightEntidade() {
       if (res && !mensagemEntidadeEhValida_(res.resposta)) {
         res = { temAlertas: false, resposta: '' };
       }
-      const resumoAcabouDeSerNotificado = Boolean(res && res.mostrar !== false && entidadeUltimoResumoNotificadoEm && (Date.now() - entidadeUltimoResumoNotificadoEm) < 15000);
-      if (resumoAcabouDeSerNotificado) {
-        res.mostrar = false;
-        if (res.fingerprint) backendApi().withFailureHandler(function() {}).marcarInsightEntidadeComoVisto(res.fingerprint);
-      }
       AppState.insightEntidade = res || { temAlertas: false, resposta: '' };
       renderizarCardInteligenteDashboard(AppState.insightEntidade);
       if (res && res.mostrar !== false && res.temAlertas && res.resposta) {
@@ -6500,20 +6601,27 @@ function consultarInsightEntidade() {
           addMensagemEntidade(res.resposta);
           exibirBadgeNotificacao();
           exibirInsightStatus(res.resposta);
-          if (res.fingerprint) backendApi().withFailureHandler(function() {}).marcarInsightEntidadeComoVisto(res.fingerprint);
-
           const chipsDiv = document.getElementById('entidade-chips');
-          chipsDiv.innerHTML = `
-            <div class="entidade-chip" onclick="enviarMensagemEntidade('Quero resolver isso agora')">Resolver</div>
-            <div class="entidade-chip" onclick="enviarMensagemEntidade('Mostrar detalhes dos avisos atuais')">Detalhes</div>
-          `;
-          chipsDiv.style.display = 'flex';
+          const primeira = (res.ocorrencias || [])[0];
+          if (primeira) {
+            chipsDiv.innerHTML = `
+              <div class="entidade-chip" onclick="abrirOcorrenciaEntidade_('${escapeHtml(primeira.id)}')">Ver registro</div>
+              <div class="entidade-chip" onclick="assumirOcorrenciaEntidadeCliente_('${escapeHtml(primeira.id)}')">Assumir</div>
+              <div class="entidade-chip" onclick="adiarOcorrenciaEntidadeCliente_('${escapeHtml(primeira.id)}')">Adiar</div>
+            `;
+            chipsDiv.style.display = 'flex';
+          }
         }
       }
     })
     .withFailureHandler(function(erro) {
       console.warn('Não foi possível carregar os avisos da Entidade:', erro);
-      AppState.insightEntidade = { temAlertas: false, resposta: '' };
+      const anterior = AppState.insightEntidade || {};
+      AppState.insightEntidade = Object.assign({}, anterior, {
+        estadoMonitor: 'indisponivel',
+        erroAtualizacao: mensagemErro(erro),
+        verificadoEm: Date.now()
+      });
       renderizarCardInteligenteDashboard(AppState.insightEntidade);
     })
     .obterInsightEntidadeAtual();
@@ -6546,6 +6654,19 @@ function exibirInsightStatus(texto) {
 // MÓDULO PRÉ-LEITURA REP (processamento no navegador + colaboração compartilhada)
 // ==========================================
 let dadosRepCache = { employees: new Map(), lotacoes: new Map(), vinculos: new Map(), vinculosCarregados: false, punches: [], punchesBrutos: [], arquivos: [], fusoes: [] };
+let locaisEditadosRep = [];
+
+function chaveArquivoLocalRep_(numeroRep, nome, arquivoDriveId) {
+  if (arquivoDriveId) return 'ARQUIVO_ID:' + arquivoDriveId;
+  const rep = String(numeroRep || '').replace(/[^0-9A-Za-z_-]/g, '').toUpperCase();
+  const arquivo = String(nome || 'AFD').trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120) || 'AFD';
+  return rep && rep !== 'REPDESCONHECIDO' ? 'REP:' + rep + '|ARQUIVO:' + arquivo : 'ARQUIVO:' + arquivo;
+}
+
+function localExibidoRep_(arquivoChave, localOriginal) {
+  const ajuste = locaisEditadosRep.find(item => item.arquivoChave === arquivoChave && item.localOriginal === localOriginal);
+  return ajuste?.localExibido || localOriginal;
+}
 let dadosRepProcessados = [];
 let paginaRepAtual = 1;
 let pisSelecionadoRep = '';
@@ -6751,7 +6872,8 @@ async function carregarModuloRepOnline(forcar) {
       chamarBackendPromessa_('listarFeriadosRep', []),
       chamarBackendPromessa_('listarAjustesRep', []),
       chamarBackendPromessa_('listarConferenciasRep', []),
-      chamarBackendPromessa_('obterConfiguracaoCalculoRep', [])
+      chamarBackendPromessa_('obterConfiguracaoCalculoRep', []),
+      chamarBackendPromessa_('listarLocaisEditadosRep', [])
     ];
     const arquivosRecebidos = await promessaArquivosEntrada;
     const arquivosEntrada = Array.isArray(arquivosRecebidos) ? arquivosRecebidos : [];
@@ -6770,12 +6892,13 @@ async function carregarModuloRepOnline(forcar) {
     ajustesCompartilhadosRep = Array.isArray(resultados[7]) ? resultados[7] : [];
     conferenciasRep = Array.isArray(resultados[8]) ? resultados[8] : [];
     aplicarConfiguracaoCalculoRep_(resultados[9] || { arredondamentoAtivo: true });
+    locaisEditadosRep = Array.isArray(resultados[10]) ? resultados[10] : [];
     atualizarCampoFeriadosCompartilhadosRep_();
     repOnlineCarregado = true;
     falhasIntegridadeRep = [];
     const statusPasta = document.getElementById('rep-pasta-status');
     const detalhePasta = document.getElementById('rep-pasta-detalhe');
-    if (statusPasta) statusPasta.textContent = `${arquivosEntrada.length} arquivo(s) encontrado(s) em ${infoPastaEntradaRep?.nome || 'RHV2 - Entrada de AFDs'}`;
+    if (statusPasta) statusPasta.textContent = `${arquivosEntrada.length} arquivo(s) encontrado(s) em ${String(infoPastaEntradaRep?.nome || 'Entidade.V1 - Entrada de AFDs').replace(/^RHV2\b/i, 'Entidade.V1')}`;
     if (detalhePasta) detalhePasta.textContent = `Verificação iniciada em ${new Date().toLocaleString('pt-BR')}. Comparando tamanho e SHA-256 de cada arquivo.`;
     if (arquivosEntrada.length) {
       limparEstadoLeituraRep_();
@@ -6827,23 +6950,51 @@ function normalizarPisRep(valor) {
 }
 
 let repAtualizacaoLeveEmAndamento_ = false;
+function combinarPendenciasCompartilhadasRep_(tipo, remotos, chaveRegistro, criarRegistro) {
+  const lista = Array.isArray(remotos) ? remotos.slice() : [];
+  repAlteracoesPendentes_.forEach(function(item) {
+    if (item.tipo !== tipo) return;
+    const dados = item.dados || {};
+    const chave = chaveRegistro(dados);
+    for (let indice = lista.length - 1; indice >= 0; indice--) {
+      if (chaveRegistro(lista[indice]) === chave) lista.splice(indice, 1);
+    }
+    const pendente = criarRegistro(dados);
+    if (pendente) lista.push(pendente);
+  });
+  return lista;
+}
+
+function aplicarEstadoCompartilhadoRep_(resultados) {
+  resultados = resultados || {};
+  const chaveDia = item => normalizarPisRep(item.pis) + '|' + String(item.data || '');
+  apontamentosRep = Array.isArray(resultados.apontamentos) ? resultados.apontamentos : [];
+  justificativasLancamentoRep = Array.isArray(resultados.justificativas) ? resultados.justificativas : [];
+  compensacoesRep = combinarPendenciasCompartilhadasRep_('COMPENSACAO', resultados.compensacoes, chaveDia,
+    dados => Number(dados.minutos || 0) ? dados : null);
+  autorizacoesCompensacaoRep = combinarPendenciasCompartilhadasRep_('AUTORIZACAO_COMPENSACAO', resultados.autorizacoesCompensacao, chaveDia,
+    dados => Number(dados.minutos || 0) ? dados : null);
+  validacoesRep = combinarPendenciasCompartilhadasRep_('VALIDACAO', resultados.validacoes, chaveDia,
+    dados => dados.validado ? { ...dados, atualizadoPor: 'Envio pendente' } : null);
+  descartesHoraExtraRep = combinarPendenciasCompartilhadasRep_('DESCARTE_HE', resultados.descartesHoraExtra, chaveDia,
+    dados => dados.descartado || dados.saldoAjustado ? { ...dados, atualizadoPor: 'Envio pendente' } : null);
+  feriadosCompartilhadosRep = Array.isArray(resultados.feriados) ? resultados.feriados : [];
+  ajustesCompartilhadosRep = combinarPendenciasCompartilhadasRep_('AJUSTES', resultados.ajustes,
+    item => normalizarPisRep(item.pis) + '|' + String(item.competencia || ''),
+    dados => Array.isArray(dados.ajustes) && dados.ajustes.length ? { ...dados, atualizadoPor: 'Envio pendente' } : null);
+  conferenciasRep = Array.isArray(resultados.conferencias) ? resultados.conferencias : [];
+  aplicarConfiguracaoCalculoRep_(resultados.configuracaoCalculo || { arredondamentoAtivo: true });
+  atualizarCampoFeriadosCompartilhadosRep_();
+  aplicarAjustesCompartilhadosRep_();
+}
+
 async function sincronizarAlteracoesRepSegundoPlano_(versaoDetectada) {
-  if (repAtualizacaoLeveEmAndamento_ || repTemAlteracoesPendentes_()) return false;
+  if (repAtualizacaoLeveEmAndamento_) return false;
   repAtualizacaoLeveEmAndamento_ = true;
   atualizarTextoSync('Atualizando alterações compartilhadas do REP...', true, 'spinner');
   try {
     const resultados = await chamarBackendPromessa_('obterAtualizacoesCompartilhadasRep', []);
-    apontamentosRep = Array.isArray(resultados.apontamentos) ? resultados.apontamentos : [];
-    justificativasLancamentoRep = Array.isArray(resultados.justificativas) ? resultados.justificativas : [];
-    compensacoesRep = Array.isArray(resultados.compensacoes) ? resultados.compensacoes : [];
-    validacoesRep = Array.isArray(resultados.validacoes) ? resultados.validacoes : [];
-    descartesHoraExtraRep = Array.isArray(resultados.descartesHoraExtra) ? resultados.descartesHoraExtra : [];
-    feriadosCompartilhadosRep = Array.isArray(resultados.feriados) ? resultados.feriados : [];
-    ajustesCompartilhadosRep = Array.isArray(resultados.ajustes) ? resultados.ajustes : [];
-    conferenciasRep = Array.isArray(resultados.conferencias) ? resultados.conferencias : [];
-    aplicarConfiguracaoCalculoRep_(resultados.configuracaoCalculo || { arredondamentoAtivo: true });
-    atualizarCampoFeriadosCompartilhadosRep_();
-    aplicarAjustesCompartilhadosRep_();
+    aplicarEstadoCompartilhadoRep_(resultados);
     AppState.versaoDados = String(versaoDetectada || AppState.versaoDados || '');
     repUltimaSincronizacaoCompartilhadaEm_ = Date.now();
     if (typeof agendarReprocessamentoRepLeve_ === 'function') agendarReprocessamentoRepLeve_(220);
@@ -7902,7 +8053,12 @@ function processDataRep(employees, punches, lotacoes) {
       const batidas = eventos.map(evento => evento.arredondada);
       const isImpar = batidas.length % 2 !== 0;
       const batidasExcedentes = batidas.length > 6;
-      const conflitoArredondamento = arredondamentoRepAtivo && new Set(batidas.map(d => d.getTime())).size !== batidas.length;
+      // Se a saída para o intervalo e o retorno caem no mesmo bloco de
+      // arredondamento, continuam sendo duas batidas reais válidas. Colisão só
+      // bloqueia quando ocorre dentro do próprio par entrada/saída.
+      const conflitoArredondamento = arredondamentoRepAtivo && batidas.some((batida, indice) => {
+        return indice > 0 && indice % 2 === 1 && batida.getTime() === batidas[indice - 1].getTime();
+      });
       const chavesMomento = new Map();
       eventos.forEach(evento => {
         const chave = evento.original.getTime();
@@ -7966,7 +8122,8 @@ function processDataRep(employees, punches, lotacoes) {
       else if (colisaoReps) status = 'colisao_reps';
       else if (conflitoArredondamento) status = 'conflito_arredondamento';
       else if (intervaloPresumido) status = diaExtra ? 'extra_intervalo_presumido' : 'intervalo_presumido';
-      else if (descontoIntervalo > 0) status = 'intervalo_inferior_minimo';
+      // Intervalo curto, mas com saída e retorno registrados, é aceito
+      // automaticamente. O complemento de cálculo permanece, sem criar alerta.
       else if (diaExtra) status = 'extra_dia_nao_util';
       else if (saldoDia > 0) status = 'saldo_positivo';
       else if (jornadaIncompleta) status = 'jornada_incompleta';
@@ -8278,7 +8435,14 @@ async function processarArquivosRep(files, opcoes) {
     const leitura = parseAFDRep(text, file.name);
     const { employees, punches, clocks, audit, metadata } = leitura;
     const arquivoDriveId = String(file.repIntegridade?.arquivoId || '');
-    punches.forEach(item => { item.sourceFileId = arquivoDriveId; });
+    const arquivoChaveLocal = chaveArquivoLocalRep_(metadata.deviceSerial, file.name, arquivoDriveId);
+    const locaisOriginais = Array.from(new Set([...clocks, ...punches.map(item => item.clock).filter(Boolean)]));
+    punches.forEach(item => {
+      item.sourceFileId = arquivoDriveId;
+      item.arquivoChaveLocal = arquivoChaveLocal;
+      item.clockOriginal = item.clock;
+      item.clock = localExibidoRep_(arquivoChaveLocal, item.clockOriginal);
+    });
     let salvoOnline = Boolean(opcoes.origemOnline);
     for (const [pis, nome] of employees.entries()) {
       if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
@@ -8328,12 +8492,14 @@ async function processarArquivosRep(files, opcoes) {
       nome: file.name, chaveArquivo: `${arquivoDriveId}|${file.name}|${file.size}|${file.lastModified}`,
       salvoOnline,
       arquivoDriveId,
+      arquivoChaveLocal,
       integridadeConfirmada: Boolean(file.repIntegridade?.confirmada),
       sha256Drive: file.repIntegridade?.sha256Drive || '',
       sha256Recebido: file.repIntegridade?.sha256Recebido || '',
       tamanhoDrive: Number(file.repIntegridade?.tamanhoDrive || file.size || 0),
       tamanhoRecebido: Number(file.repIntegridade?.tamanhoRecebido || file.size || 0),
-      locais: clocks.length ? clocks : ['Relógio não identificado'],
+      locaisOriginais: locaisOriginais.length ? locaisOriginais : ['Relógio não identificado'],
+      locais: (locaisOriginais.length ? locaisOriginais : ['Relógio não identificado']).map(local => localExibidoRep_(arquivoChaveLocal, local)),
       linhasLidas: audit.linhasLidas,
       linhasArquivo: audit.linhasArquivo,
       linhasVazias: audit.linhasVazias,
@@ -8507,6 +8673,7 @@ function aplicarAjustesCompartilhadosRep_() {
       if (ajuste.tipo !== 'ADICIONAR') return;
       const data = criarDataAjusteRep(ajuste.data, ajuste.hora);
       if (!data || isNaN(data)) return;
+      if (ajuste.id && dadosRepCache.punches.some(item => item.manual && String(item.eventId || '') === String(ajuste.id) && normalizarPisRep(item.pis) === pis)) return;
       const cartaoManual = ajuste.origem === 'CARTAO_MANUAL';
       dadosRepCache.punches.push({
         pis, datetime: data, clock: ajuste.local || 'Local informado manualmente',
@@ -8767,6 +8934,66 @@ function adicionarArquivosRep() {
   input.click();
 }
 
+function abrirEdicaoLocalRep_(botao) {
+  const linha = botao.closest('.rep-local-edicao');
+  const editor = linha?.querySelector('.rep-local-formulario');
+  if (!editor) return;
+  editor.hidden = false;
+  botao.hidden = true;
+  editor.querySelector('input')?.focus();
+}
+
+function cancelarEdicaoLocalRep_(botao) {
+  const linha = botao.closest('.rep-local-edicao');
+  linha.querySelector('.rep-local-formulario').hidden = true;
+  linha.querySelector('.rep-local-abrir').hidden = false;
+}
+
+async function salvarEdicaoLocalRep_(botao, restaurar) {
+  const linha = botao.closest('.rep-local-edicao');
+  const arquivo = dadosRepCache.arquivos[Number(linha?.dataset.arquivoIndice)];
+  const localOriginal = arquivo?.locaisOriginais?.[Number(linha?.dataset.localIndice)];
+  if (!arquivo?.arquivoChaveLocal || !localOriginal) return mostrarToast('Local não encontrado. Sincronize os arquivos novamente.', 'error');
+  const campo = linha.querySelector('input');
+  const nome = restaurar ? '' : String(campo.value || '').trim();
+  if (!restaurar && !nome) return mostrarToast('Informe o nome do local ou use Restaurar original.', 'warning');
+  if (nome.length > 120) return mostrarToast('Use até 120 caracteres no nome do local.', 'warning');
+  if (repTemAlteracoesPendentes_() && !(await salvarAlteracoesPendentesRep_({ manual: false }))) {
+    return mostrarToast('Conclua a sincronização das alterações pendentes antes de renomear o local.', 'warning');
+  }
+  const botoes = linha.querySelectorAll('button');
+  botoes.forEach(item => { item.disabled = true; });
+  try {
+    const resultado = await chamarBackendPromessa_('salvarLocalEditadoRep', [{ arquivoChave: arquivo.arquivoChaveLocal, localOriginal, localExibido: nome }]);
+    locaisEditadosRep = locaisEditadosRep.filter(item => !(item.arquivoChave === resultado.arquivoChave && item.localOriginal === resultado.localOriginal));
+    if (resultado.localExibido) locaisEditadosRep.push(resultado);
+    dadosRepCache.punchesBrutos.forEach(item => {
+      if (item.arquivoChaveLocal === resultado.arquivoChave && item.clockOriginal === resultado.localOriginal) {
+        item.clock = resultado.localExibido || resultado.localOriginal;
+      }
+    });
+    dadosRepCache.arquivos.forEach(item => {
+      item.locais = (item.locaisOriginais || item.locais || []).map(local => localExibidoRep_(item.arquivoChaveLocal, local));
+    });
+    dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punchesBrutos);
+    aplicarAjustesCompartilhadosRep_();
+    const filtro = document.getElementById('rep-filter-local');
+    if (filtro) {
+      const anterior = filtro.value;
+      const locais = Array.from(new Set(dadosRepCache.punches.map(item => item.clock).filter(Boolean))).sort();
+      filtro.innerHTML = '<option value="all">Todos os locais/relógios</option>';
+      locais.forEach(local => filtro.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(local)}">${escapeHtml(local)}</option>`));
+      filtro.value = locais.includes(anterior) ? anterior : (anterior === localOriginal && locais.includes(resultado.localExibido) ? resultado.localExibido : 'all');
+    }
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    mostrarToast(resultado.localExibido ? 'Nome do local atualizado nas marcações.' : 'Nome original do arquivo restaurado.', 'success');
+  } catch (erro) {
+    mostrarToast('Não foi possível salvar o local: ' + mensagemErro(erro), 'error');
+  } finally {
+    botoes.forEach(item => { item.disabled = false; });
+  }
+}
+
 function renderizarAuditoriaArquivosRep() {
   const container = document.getElementById('rep-auditoria-arquivos');
   if (!container) return;
@@ -8782,11 +9009,20 @@ function renderizarAuditoriaArquivosRep() {
   const integridadeFisica = arquivos.length > 0 && arquivos.every(item => item.integridadeConfirmada && item.sha256Drive === item.sha256Recebido && item.tamanhoDrive === item.tamanhoRecebido) && falhas.length === 0;
   const leituraIntegral = arquivos.length > 0 && arquivos.every(item => item.leituraCompleta && !item.marcacoesInvalidas && !item.quebrasNsr) && falhas.length === 0;
   const conciliado = integridadeFisica && leituraIntegral && totalEncontradas === totalValidas + totalInvalidas;
-  const linhas = arquivos.map(item => {
+  const linhas = arquivos.map((item, indiceArquivo) => {
     const problemas = Array.isArray(item.errosLeitura) ? item.errosLeitura : [];
     const detalheProblemas = problemas.length ? `<details class="rep-detalhes-problemas"><summary>Ver linhas</summary><ul>${problemas.slice(0, 10).map(erro => `<li>Linha ${Number(erro.linha || 0).toLocaleString('pt-BR')}: ${escapeHtml(erro.motivo || 'Inconsistência')}</li>`).join('')}</ul>${problemas.length > 10 ? `<small>Mais ${problemas.length - 10} ocorrência(s) no arquivo.</small>` : ''}</details>` : '';
+    const locais = (item.locaisOriginais || item.locais || []).map((original, indiceLocal) => {
+      const exibido = localExibidoRep_(item.arquivoChaveLocal, original);
+      return `<div class="rep-local-edicao" data-arquivo-indice="${indiceArquivo}" data-local-indice="${indiceLocal}">
+        <span>${escapeHtml(exibido)}${exibido !== original ? `<small>Original no arquivo: ${escapeHtml(original)}</small>` : ''}</span>
+        <button type="button" class="rep-local-abrir" onclick="abrirEdicaoLocalRep_(this)" aria-label="Editar nome deste local">Editar</button>
+        <div class="rep-local-formulario" hidden><input type="text" maxlength="120" value="${escapeHtml(exibido)}" aria-label="Novo nome do local" onkeydown="if(event.key==='Enter'){event.preventDefault();salvarEdicaoLocalRep_(this,false)}">
+          <button type="button" onclick="salvarEdicaoLocalRep_(this,false)">Salvar</button><button type="button" onclick="salvarEdicaoLocalRep_(this,true)">Restaurar original</button><button type="button" onclick="cancelarEdicaoLocalRep_(this)">Cancelar</button></div>
+      </div>`;
+    }).join('');
     return `<tr>
-    <td><strong>REP ${escapeHtml(item.numeroRep || 'não identificado')} <i class="rep-online-status ${item.integridadeConfirmada ? '' : 'falhou'}">${item.integridadeConfirmada ? 'SHA-256 confirmado' : 'Sem verificação criptográfica'}</i></strong><small>${escapeHtml(item.locais.join(' → '))}</small><small>${escapeHtml(item.nome)}</small></td>
+    <td><strong>REP ${escapeHtml(item.numeroRep || 'não identificado')} <i class="rep-online-status ${item.integridadeConfirmada ? '' : 'falhou'}">${item.integridadeConfirmada ? 'SHA-256 confirmado' : 'Sem verificação criptográfica'}</i></strong>${locais}<small>${escapeHtml(item.nome)}</small></td>
     <td><span class="rep-integridade-selo ${item.integridadeConfirmada ? 'ok' : 'erro'}">${item.integridadeConfirmada ? 'Arquivo íntegro' : 'Não confirmado'}</span><small>${item.sha256Drive ? escapeHtml(item.sha256Drive.slice(0, 16)) + '…' : '-'}</small></td>
     <td>${item.marcacoesEncontradas.toLocaleString('pt-BR')}</td>
     <td>${item.marcacoesValidas.toLocaleString('pt-BR')}</td>
@@ -9842,26 +10078,11 @@ async function recarregarApontamentosRep_() {
 }
 
 function atualizarApontamentosRepSegundoPlano_() {
-  if (repTemAlteracoesPendentes_() || gravacoesBackendEmAndamento_ > 0) {
-    setTimeout(atualizarApontamentosRepSegundoPlano_, 500);
-    return;
-  }
+  if (gravacoesBackendEmAndamento_ > 0) return;
   const revisaoAoIniciar = revisaoMutacoesCliente_;
   chamarBackendPromessa_('obterAtualizacoesCompartilhadasRep', []).then(function(resultados) {
-    if (revisaoAoIniciar !== revisaoMutacoesCliente_ || repTemAlteracoesPendentes_() || gravacoesBackendEmAndamento_ > 0) {
-      setTimeout(atualizarApontamentosRepSegundoPlano_, 500);
-      return;
-    }
-    apontamentosRep = Array.isArray(resultados.apontamentos) ? resultados.apontamentos : [];
-    justificativasLancamentoRep = Array.isArray(resultados.justificativas) ? resultados.justificativas : [];
-    compensacoesRep = Array.isArray(resultados.compensacoes) ? resultados.compensacoes : [];
-    validacoesRep = Array.isArray(resultados.validacoes) ? resultados.validacoes : [];
-    descartesHoraExtraRep = Array.isArray(resultados.descartesHoraExtra) ? resultados.descartesHoraExtra : [];
-    feriadosCompartilhadosRep = Array.isArray(resultados.feriados) ? resultados.feriados : [];
-    ajustesCompartilhadosRep = Array.isArray(resultados.ajustes) ? resultados.ajustes : [];
-    conferenciasRep = Array.isArray(resultados.conferencias) ? resultados.conferencias : [];
-    atualizarCampoFeriadosCompartilhadosRep_();
-    aplicarAjustesCompartilhadosRep_();
+    if (revisaoAoIniciar !== revisaoMutacoesCliente_ || gravacoesBackendEmAndamento_ > 0) return;
+    aplicarEstadoCompartilhadoRep_(resultados);
     if (currentView === 'pre-leitura-rep' && dadosRepCache.punches.length) atualizarProcessamentoRep({ notificarEntidade: false });
     else if (currentView === 'pre-leitura-rep' && dadosRepProcessados.length) renderizarListaRep();
   }).catch(function(erro) { console.warn('Dados complementares do REP não puderam ser atualizados:', mensagemErro(erro)); });
@@ -10715,7 +10936,7 @@ function exportarRelatorioAlertasRep_(escopo) {
   janela.document.open();
   janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Alertas REP - ${escapeHtml(individual ? selecionado.nome : rotuloCompetencia)}</title><style>
     @page{size:A4 portrait;margin:13mm 12mm 14mm}*{box-sizing:border-box}body{margin:0;background:#eef2f0;color:#19241f;font-family:"Segoe UI",Arial,sans-serif;font-size:9.5px}.folha{width:210mm;max-width:100%;min-height:297mm;margin:0 auto;padding:13mm 12mm 14mm;background:#fff}.acoes{position:fixed;z-index:5;top:12px;right:14px;border:0;border-radius:5px;padding:9px 13px;background:#087f5b;color:#fff;font-weight:700;cursor:pointer;box-shadow:0 5px 18px rgba(0,0,0,.18)}.topo{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding-bottom:8px;border-bottom:3px solid #087f5b}.marca{display:inline-block;margin-bottom:5px;padding:3px 6px;background:#087f5b;color:#fff;font-weight:800;letter-spacing:.45px}.topo h1{margin:0;font-size:17px;line-height:1.1}.topo p{margin:3px 0 0;color:#65736c}.identificacao{max-width:46%;text-align:right}.identificacao b{display:block;font-size:11px}.identificacao span{display:block;margin-top:3px;color:#65736c;line-height:1.35}.competencia{display:flex;justify-content:space-between;gap:12px;margin:9px 0 7px}.competencia b{font-size:12px}.competencia span{color:#65736c}.resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:7px}.resumo div{padding:7px 8px;border:1px solid #d7e1dc;background:#f7faf8}.resumo span{display:block;color:#65736c;font-size:7.5px;text-transform:uppercase;letter-spacing:.3px}.resumo b{display:block;margin-top:2px;color:#17251f;font-size:15px}.tipos{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 8px}.tipos span{display:inline-flex;gap:4px;align-items:center;padding:3px 5px;border:1px solid #dce5e1;background:#f9fbfa;color:#4f5e56;font-size:7px}.tipos b{color:#9f2525;font-size:8px}table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{padding:5px 6px;background:#1e4f3e;color:#fff;text-align:left;font-size:7px;text-transform:uppercase;letter-spacing:.35px}th:nth-child(1){width:16%}${individual ? 'th:nth-child(2){width:27%}th:nth-child(3){width:57%}' : 'th:nth-child(2){width:25%}th:nth-child(3){width:23%}th:nth-child(4){width:36%}'}td{padding:5px 6px;border:1px solid #dce4e0;vertical-align:top;line-height:1.35;overflow-wrap:anywhere}tr{break-inside:avoid}tbody tr:nth-child(even){background:#f8faf9}tbody tr.critico td:first-child{border-left:3px solid #c43737}tbody tr.atencao td:first-child{border-left:3px solid #d58a16}.data b,.servidor b{display:block}.data small,.servidor small{display:block;margin-top:2px;color:#6b7771;font-size:7px}.tipo{font-weight:700;color:#273c33}.detalhe{color:#3f4f47}.sem-alertas{text-align:center;padding:22px;color:#087f5b}.sem-alertas b,.sem-alertas span{display:block}.sem-alertas span{margin-top:4px;color:#65736c}.nota{margin-top:8px;padding:7px 8px;border-left:3px solid #087f5b;background:#f3f8f5;color:#56665e;line-height:1.45}.orientacao{height:20mm;margin-top:9px;padding:7px;border:1px solid #ccd8d2}.orientacao b{color:#53645b}.assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:38px;margin-top:17mm}.assinaturas.uma{grid-template-columns:1fr;width:45%;margin-left:auto}.assinaturas div{padding-top:4px;border-top:1px solid #65736c;text-align:center;color:#65736c}.rodape{margin-top:8px;padding-top:5px;border-top:1px solid #d9e1dd;color:#738078;font-size:7px}.rodape span{float:right}@media print{body{background:#fff}.folha{width:auto;min-height:0;margin:0;padding:0}.acoes{display:none}.orientacao{break-inside:avoid}.assinaturas{break-inside:avoid}}@media(max-width:700px){.folha{padding:18px}.topo,.competencia{display:block}.identificacao{max-width:none;margin-top:10px;text-align:left}.resumo{grid-template-columns:1fr}.acoes{position:sticky;float:right}.servidor{word-break:break-word}}
-  </style></head><body><button class="acoes" onclick="window.print()">Imprimir / salvar PDF</button><main class="folha"><header class="topo"><div><span class="marca">SETUR · DGP</span><h1>Relatório de alertas e inconsistências do ponto</h1><p>Documento de apoio para orientação e conferência mensal</p></div>${cabecalhoServidor}</header><div class="competencia"><b>Competência: ${escapeHtml(rotuloCompetencia)}</b><span>Emitido em ${new Date().toLocaleString('pt-BR')}</span></div><section class="resumo"><div><span>Alertas ativos</span><b>${alertas.length}</b></div><div><span>Servidores afetados</span><b>${pessoasAfetadas}</b></div><div><span>Validações manuais</span><b>excluídas</b></div></section>${resumoTipos ? `<div class="tipos">${resumoTipos}</div>` : ''}<table><thead><tr><th>Data</th>${colunaServidor}<th>Ocorrência</th><th>Detalhes para orientação</th></tr></thead><tbody>${corpo}</tbody></table><div class="nota"><b>Política usada no cálculo:</b> ${escapeHtml(politicaCalculo)}<br><b>Critério do relatório:</b> reúne somente alertas ativos calculados pelo Leitor REP na competência selecionada. Dias validados manualmente foram desconsiderados. O documento não altera o AFD, as marcações, os saldos ou a conferência registrada no sistema.</div>${individual ? '<div class="orientacao"><b>Orientações prestadas / ciência:</b></div>' : ''}${assinaturas}<footer class="rodape">Relatório auxiliar de conferência do espelho de ponto.<span>Página impressa pelo RHv2</span></footer></main></body></html>`);
+  </style></head><body><button class="acoes" onclick="window.print()">Imprimir / salvar PDF</button><main class="folha"><header class="topo"><div><span class="marca">SETUR · DGP</span><h1>Relatório de alertas e inconsistências do ponto</h1><p>Documento de apoio para orientação e conferência mensal</p></div>${cabecalhoServidor}</header><div class="competencia"><b>Competência: ${escapeHtml(rotuloCompetencia)}</b><span>Emitido em ${new Date().toLocaleString('pt-BR')}</span></div><section class="resumo"><div><span>Alertas ativos</span><b>${alertas.length}</b></div><div><span>Servidores afetados</span><b>${pessoasAfetadas}</b></div><div><span>Validações manuais</span><b>excluídas</b></div></section>${resumoTipos ? `<div class="tipos">${resumoTipos}</div>` : ''}<table><thead><tr><th>Data</th>${colunaServidor}<th>Ocorrência</th><th>Detalhes para orientação</th></tr></thead><tbody>${corpo}</tbody></table><div class="nota"><b>Política usada no cálculo:</b> ${escapeHtml(politicaCalculo)}<br><b>Critério do relatório:</b> reúne somente alertas ativos calculados pelo Leitor REP na competência selecionada. Dias validados manualmente foram desconsiderados. O documento não altera o AFD, as marcações, os saldos ou a conferência registrada no sistema.</div>${individual ? '<div class="orientacao"><b>Orientações prestadas / ciência:</b></div>' : ''}${assinaturas}<footer class="rodape">Relatório auxiliar de conferência do espelho de ponto.<span>Página impressa pelo Entidade.V1</span></footer></main></body></html>`);
   janela.document.close();
   janela.focus();
 }

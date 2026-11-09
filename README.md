@@ -510,6 +510,21 @@ Invariantes:
 - o botão Conferir grava por PIS e competência;
 - operações em lote validam tudo antes e retornam reconhecimento parcial quando apenas parte foi confirmada.
 
+#### Leitura assistida do cartão manual por IA
+
+Na inclusão de cartão manual, o operador pode enviar duas imagens: frente (dias 1 a 15) e verso (dias 16 a 31). O navegador reduz as imagens antes do envio e o servidor as mantém apenas na memória da requisição; o aplicativo não grava as fotos no Drive, em planilhas, cache ou propriedades. A IA devolve somente uma proposta de transcrição e nunca salva marcações automaticamente.
+
+Regras que devem ser preservadas:
+
+- cada dia possui seis posições fixas: manhã entrada/saída, tarde entrada/saída e extra entrada/saída;
+- células ilegíveis ficam vazias e horários incertos são destacados para revisão humana;
+- valores já preenchidos e marcações AFD protegidas não podem ser sobrescritos;
+- uma redução de horário só sugere virada `+1` quando a nova marcação estiver entre `00:00` e `05:00`;
+- a competência escolhida na tela prevalece sobre qualquer cabeçalho manuscrito ou ilegível;
+- o operador precisa conferir a proposta antes de usar o salvamento normal do cartão.
+
+O provedor principal usa `GROQ_API_KEY`. O modelo visual pode ser alterado por `GROQ_MODEL_VISAO`; sem configuração explícita, usa o modelo visual compatível definido no serviço. Como alternativa, `OPENROUTER_API_KEY` só participa desse fluxo quando `OPENROUTER_MODEL_VISAO` também estiver configurado. Nunca registre o conteúdo base64 das imagens em logs.
+
 ### 17.6 Regra de compensação
 
 Há três limites diferentes e todos precisam ser respeitados:

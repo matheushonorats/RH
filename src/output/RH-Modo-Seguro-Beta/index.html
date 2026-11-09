@@ -1,0 +1,1741 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <!-- Lucide Icons para ícones modernos e limpos (sem emojis) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script>if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+    <script>window.__MODO_LABORATORIO_ENTIDADE__ = <?!= modoLaboratorioEntidade ? 'true' : 'false' ?>;</script>
+    <?!= incluir("Styles"); ?>
+    <?!= incluir("SafeMode"); ?>
+    <?!= incluir("WorkspaceLayout"); ?>
+  </head>
+  <body class="dark-mode" data-app-version="<?= APP_VERSION ?>" data-app-url="https://script.google.com/macros/s/AKfycby0FlCTrL0QIJbFrZD883rn6PKhzpMea5JL7eqz_bN9aglWajMIFZ021uxsi8aDEyAhCw/exec">
+    
+    <!-- TELA DE LOGIN CUSTOMIZADO -->
+    <div id="login-container" class="login-overlay" style="display: none;">
+      <div class="login-box">
+        <div class="login-header">
+          <img src="https://www.turismosaosebastiao.com.br/img/sao-sebastiao/logo-rodape-horizontal.png" alt="Prefeitura e SETUR" style="height: 40px; margin-bottom: 16px; max-width: 100%; object-fit: contain;">
+          <h2>Gestão de Pessoas</h2>
+          <p>Central de Documentos</p>
+        </div>
+        
+        <!-- Formulário Padrão para gerenciadores de senha -->
+        <form id="login-form" onsubmit="processarLogin(event)">
+          <div class="form-group">
+            <label class="form-label" for="login-email">E-mail Corporativo</label>
+            <input type="email" id="login-email" name="email" class="form-control" placeholder="seu.email@saosebastiao.sp.gov.br" required autocomplete="username">
+          </div>
+          
+          <div class="form-group" id="login-senha-container" style="display: none;">
+            <label class="form-label" for="login-senha" id="label-login-senha">Senha de Acesso</label>
+            <input type="password" id="login-senha" name="password" class="form-control" placeholder="••••••••" autocomplete="current-password">
+            <div id="login-senha-hint" style="display: none; font-size: 11px; color: var(--text-secondary); margin-top: 6px;">Este é seu primeiro acesso. Digite a senha que deseja cadastrar (mínimo 6 caracteres).</div>
+          </div>
+          
+          <div id="login-error" class="login-error" style="display: none; color: #ef4444; background: #fef2f2; padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; border: 1px solid #fecaca; text-align: center;"></div>
+          
+          <button type="submit" class="btn btn-primary" id="btn-login-submit" style="width: 100%; justify-content: center; margin-top: 10px; padding: 12px;">
+            Continuar
+          </button>
+        </form>
+        
+        <div class="login-footer" style="margin-top: 24px; text-align: center; font-size: 11px; color: var(--text-muted);">
+          <p>Secretaria Municipal de Turismo de São Sebastião/SP<br>A sessão expira após 7 dias sem uso. Em computador compartilhado, saia da conta ao terminar.</p>
+        </div>
+      </div>
+    </div>
+    <div class="app-container">
+      <header class="app-header">
+        <div class="brand-block">
+          <svg id="sidebar-logo" class="brand-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" role="img" aria-label="Entidade.V1"><rect x="2" y="2" width="60" height="60" rx="18" fill="#28cba0"/><path d="M18 46V27a14 14 0 0 1 28 0v19l-7-4-7 4-7-4z" fill="#092b2e"/><circle cx="27" cy="28" r="3" fill="#28cba0"/><circle cx="38" cy="28" r="3" fill="#28cba0"/><text x="76" y="39" font-family="Arial,sans-serif" font-size="25" font-weight="700" fill="#28cba0">Entidade.V1</text></svg>
+          <span class="brand-divider"></span>
+          <div class="brand-copy">
+            <strong>Gestão de Pessoas</strong>
+            <span>Central de Documentos</span>
+          </div>
+          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão <?= APP_VERSION ?></a>
+        </div>
+
+        <nav class="desktop-navigation" aria-label="Navegação principal">
+          <a class="menu-link active" data-view="dashboard" onclick="navegarPara('dashboard')"><span data-lucide="layout-dashboard"></span>Visão Geral</a>
+          <a class="menu-link" data-view="servidores" onclick="navegarPara('servidores')"><span data-lucide="users"></span>Servidores</a>
+          <a class="menu-link" data-view="lancamentos" onclick="navegarPara('lancamentos')"><span data-lucide="file-text"></span>Lançamentos</a>
+          <a class="menu-link" data-view="protocolos" onclick="navegarPara('protocolos')"><span data-lucide="clipboard-list"></span>Protocolos</a>
+          <a class="menu-link" data-view="relatorios" onclick="navegarPara('relatorios')"><span data-lucide="bar-chart-3"></span>Relatórios</a>
+          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Leitor REP</a>
+          <a class="menu-link admin-only" data-view="admin" style="display: none;" onclick="navegarPara('admin')"><span data-lucide="settings"></span>Administração</a>
+        </nav>
+
+        <div class="header-actions">
+          <button class="header-icon-button" onclick="toggleDarkMode()" title="Alternar tema" aria-label="Alternar tema"><span data-lucide="moon" id="theme-icon"></span></button>
+          <div class="user-info" style="cursor: pointer; position: relative;" onclick="toggleUserMenu(event)">
+            <div class="user-avatar" id="current-user-avatar">U</div>
+            <div class="user-details">
+              <div class="user-name" id="current-user-name">Carregando...</div>
+              <div class="user-role" id="current-user-role">Acessando...</div>
+            </div>
+            
+            <div id="user-dropdown-menu" class="dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); padding: 8px 0; z-index: 1000; min-width: 220px; margin-top: 10px;">
+              <a href="#" onclick="abrirModalPerfil(event)" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px; white-space: nowrap;"><span data-lucide="user" style="width: 14px; height: 14px;"></span> Meu Perfil</a>
+              <a href="#" onclick="sincronizarDadosLimpos(event)" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; color: var(--text-primary); text-decoration: none; font-size: 14px; white-space: nowrap;"><span data-lucide="refresh-ccw" style="width: 14px; height: 14px;"></span> Sincronizar (Limpar Cache)</a>
+              <div style="height: 1px; background: var(--border-color); margin: 4px 0;"></div>
+              <a href="#" onclick="logoutUser(event)" style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; color: var(--danger); text-decoration: none; font-size: 14px; white-space: nowrap;"><span data-lucide="log-out" style="width: 14px; height: 14px;"></span> Sair da Conta</a>
+            </div>
+          </div>
+          <button class="mobile-menu-button" onclick="alternarMenuMobile(true)" aria-label="Abrir menu"><span data-lucide="menu"></span></button>
+        </div>
+      </header>
+
+      <div id="sync-detailed-status" class="sync-detailed-status">
+        <div class="sync-ticker-wrapper">
+          <div class="sync-ticker-content" id="sync-detailed-text"></div>
+        </div>
+      </div>
+
+      <!-- Barra de status de sincronização (discreta) -->
+      <div id="sync-status-bar" class="sync-bar" style="display: none;"></div>
+
+      <!-- Monitor local da beta: mostra a fila sem interromper o trabalho. -->
+      <aside id="beta-sync-monitor" class="beta-sync-monitor is-collapsed" aria-live="polite" aria-label="Status da sincronização">
+        <button type="button" class="sync-refresh-button beta-sync-refresh-button" onclick="sincronizarDados(true)" title="Atualizar dados" aria-label="Atualizar dados"><span data-lucide="refresh-cw" id="btn-sync-icon"></span></button>
+        <button type="button" class="beta-sync-monitor-button" onclick="abrirModalFilaSincronizacao()" title="Ver detalhes da fila de sincronização">
+          <span id="beta-sync-monitor-light" class="beta-sync-monitor-light is-ok" aria-hidden="true"><span data-lucide="ghost"></span></span>
+          <span class="beta-sync-monitor-copy">
+            <strong id="beta-sync-monitor-title">Sem alterações pendentes</strong>
+            <small id="beta-sync-monitor-detail">Nenhum envio aguardando confirmação</small>
+            <small id="beta-sync-monitor-breakdown" class="beta-sync-monitor-breakdown">Fila local: 0 · servidor: 0 · REP: 0</small>
+          </span>
+          <span id="beta-sync-monitor-count" class="beta-sync-monitor-count">0</span>
+        </button>
+      </aside>
+
+      <div class="mobile-drawer-backdrop" id="mobile-drawer-backdrop" onclick="alternarMenuMobile(false)"></div>
+      <aside class="mobile-drawer" id="mobile-drawer" aria-label="Menu móvel">
+        <div class="mobile-drawer-header">
+          <div class="brand-copy"><strong>Menu</strong><span>RH · Central de Documentos</span></div>
+          <button class="header-icon-button" onclick="alternarMenuMobile(false)" aria-label="Fechar menu"><span data-lucide="x"></span></button>
+        </div>
+        <nav class="mobile-navigation">
+          <a class="menu-link active" data-view="dashboard" onclick="navegarPara('dashboard')"><span data-lucide="layout-dashboard"></span>Visão Geral</a>
+          <a class="menu-link" data-view="servidores" onclick="navegarPara('servidores')"><span data-lucide="users"></span>Servidores</a>
+          <a class="menu-link" data-view="lancamentos" onclick="navegarPara('lancamentos')"><span data-lucide="file-text"></span>Lançamentos</a>
+          <a class="menu-link" data-view="protocolos" onclick="navegarPara('protocolos')"><span data-lucide="clipboard-list"></span>Protocolos</a>
+          <a class="menu-link" data-view="relatorios" onclick="navegarPara('relatorios')"><span data-lucide="bar-chart-3"></span>Relatórios</a>
+          <a class="menu-link" data-view="pre-leitura-rep" onclick="navegarPara('pre-leitura-rep')"><span data-lucide="clock"></span>Leitor REP</a>
+          <a class="menu-link admin-only" data-view="admin" style="display: none;" onclick="navegarPara('admin')"><span data-lucide="settings"></span>Administração</a>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="topbar-title">
+            <span class="page-eyebrow">RH · Central de Documentos</span>
+            <h1 id="view-title">Visão Geral</h1>
+          </div>
+          <div class="topbar-context">
+            <span data-lucide="calendar-days"></span>
+            <span id="current-date-label"></span>
+            <span class="topbar-clock-separator" aria-hidden="true">&bull;</span>
+            <time id="current-time-label" datetime="">--:--:--</time>
+          </div>
+        </header>
+        
+        <!-- Container das Telas (Views) -->
+        <div class="view-container">
+          <!-- Spinner de Carregamento Geral -->
+          <div class="loader-overlay" id="global-loader">
+            <div class="loader-card">
+              <div id="loader-entidade" class="loader-entidade" aria-hidden="true"><span data-lucide="ghost"></span></div>
+              <div id="loader-frase" class="loader-frase" aria-live="polite"></div>
+              <div id="loader-percentage" style="color: var(--brand-primary); font-weight: 600; font-size: 16px;">0%</div>
+              <div class="loader-progress-track"><div id="loader-progress-fill" class="loader-progress-fill"></div></div>
+              <div id="loader-afd-progress" class="loader-afd-progress" aria-label="Progresso individual dos AFDs" hidden></div>
+              <div id="loader-text" style="color: var(--text-secondary); font-size: 13px;">Sincronizando base de dados...</div>
+            </div>
+          </div>
+          
+          <!-- View 1: Dashboard -->
+          <section id="view-dashboard" class="view-section active">
+            <div class="dashboard-welcome">
+              <div><span class="page-eyebrow">PAINEL EXECUTIVO</span><h2 id="dashboard-greeting">Olá, seja bem-vindo.</h2><p>Acompanhe os principais indicadores e movimentações da equipe.</p></div>
+              <button class="btn btn-primary" onclick="abrirModalLancamento()"><span data-lucide="plus"></span>Novo lançamento</button>
+            </div>
+
+            <div class="dashboard-grid">
+              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('ativos')"><div class="metric-icon metric-green"><span data-lucide="users"></span></div><div><div class="card-title">Servidores ativos</div><div class="card-value" id="dash-servidores-ativos">0</div><span class="metric-caption" id="dash-servidores-breakdown">Equipe cadastrada</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
+              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('compulsorias')"><div class="metric-icon metric-red"><span data-lucide="triangle-alert"></span></div><div><div class="card-title">Férias compulsórias</div><div class="card-value status-danger" id="dash-ferias-compulsorias">0</div><span class="metric-caption">Exigem atenção</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
+              <div class="card metric-card"><div class="metric-icon metric-blue"><span data-lucide="calendar-off"></span></div><div><div class="card-title">Ausentes hoje</div><div class="card-value" id="dash-ausentes-hoje">0</div><span class="metric-caption">Afastamentos ativos</span></div></div>
+              <div class="card metric-card clickable-card" onclick="aplicarFiltroDashboard('pendentes')"><div class="metric-icon metric-amber"><span data-lucide="file-warning"></span></div><div><div class="card-title">Sem 1DOC</div><div class="card-value status-warning" id="dash-protocolos-pendentes">0</div><span class="metric-caption">Lançamentos pendentes</span></div><span class="metric-arrow" data-lucide="arrow-up-right"></span></div>
+            </div>
+
+            <div class="dashboard-content-grid">
+              <div class="table-container dashboard-table-card">
+              <div class="table-header">
+                  <div><div class="table-title">Ausências hoje</div><span class="table-subtitle">Servidores com afastamento vigente na data atual</span></div>
+                  <button class="text-button" onclick="navegarPara('lancamentos')">Ver lançamentos <span data-lucide="arrow-right"></span></button>
+              </div>
+                <div class="table-scroll"><table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Ações</th>
+                    <th>1Doc / Protocolo</th>
+                    <th>Servidor</th>
+                    <th>Matrícula</th>
+                    <th>Tipo</th>
+                    <th>Período</th>
+                    <th>Dias</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-tabela-ausencias">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-secondary);">Nenhuma ausência registrada para hoje.</td>
+                  </tr>
+                </tbody>
+                </table></div>
+              </div>
+
+              <aside class="dashboard-side-column">
+                <div class="smart-dashboard-card" id="smart-dashboard-card" onmouseenter="suspenderPainelDashboard_()" onmouseleave="retomarPainelDashboard_()">
+                  <div class="smart-card-header">
+                    <div>
+                      <span class="page-eyebrow" id="smart-card-eyebrow">DISTRIBUIÇÃO DA EQUIPE</span>
+                      <h3 id="smart-card-title">Servidores por lotação</h3>
+                      <span id="smart-card-location" class="smart-card-location" hidden></span>
+                    </div>
+                    <div class="smart-card-header-actions">
+                      <span class="smart-card-icon" id="smart-card-icon"><span data-lucide="map-pinned"></span></span>
+                      <button class="smart-card-dismiss" type="button" onclick="alternarPausaPainelDashboard_()" title="Pausar ou retomar painel" aria-label="Pausar ou retomar painel"><span id="dashboard-billboard-pause-icon" data-lucide="pause"></span></button>
+                    </div>
+                  </div>
+
+                  <div id="dashboard-billboard-stage" class="dashboard-billboard-stage" aria-live="polite">
+                    <div id="dashboard-billboard-content" class="dashboard-billboard-content"></div>
+                    <div id="dashboard-billboard-entidade" class="dashboard-billboard-entidade" aria-hidden="true"><span data-lucide="ghost"></span></div>
+                  </div>
+                  <div class="dashboard-billboard-nav">
+                    <button type="button" onclick="mudarCenaPainelDashboard_(-1)" aria-label="Informação anterior"><span data-lucide="chevron-left"></span></button>
+                    <div class="dashboard-billboard-picker">
+                      <button id="dashboard-billboard-picker-toggle" type="button" onclick="alternarMapaPainelDashboard_()" title="Localizar uma informação no painel" aria-label="Localizar uma informação no painel" aria-expanded="false"><span data-lucide="list-filter"></span></button>
+                      <div id="dashboard-billboard-picker-list" class="dashboard-billboard-picker-list" aria-label="Informações disponíveis no painel"></div>
+                    </div>
+                    <div id="dashboard-billboard-dots" class="dashboard-billboard-dots"></div>
+                    <button type="button" onclick="mudarCenaPainelDashboard_(1)" aria-label="Próxima informação"><span data-lucide="chevron-right"></span></button>
+                  </div>
+                </div>
+
+                <div class="quick-actions-card" style="margin-top: 24px;">
+                  <div class="insight-header"><div><span class="page-eyebrow">ATALHOS</span><h3>Ações rápidas</h3></div></div>
+                  <div class="quick-actions-grid">
+                    <button onclick="abrirModalServidor()"><span data-lucide="user-plus"></span><span>Novo servidor</span></button>
+                    <button onclick="abrirModalLancamento()"><span data-lucide="file-plus-2"></span><span>Novo lançamento</span></button>
+                    <button onclick="abrirModalCriarProtocolo()"><span data-lucide="clipboard-plus"></span><span>Criar protocolo</span></button>
+                    <button onclick="navegarPara('relatorios')"><span data-lucide="chart-no-axes-combined"></span><span>Emitir relatório</span></button>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </section>
+          
+          <!-- View 2: Servidores -->
+          <section id="view-servidores" class="view-section">
+            <!-- Barra de Pesquisa e Filtros -->
+            <div class="filter-bar">
+              <div class="search-input-wrapper">
+                <span class="search-icon-inside" data-lucide="search"></span>
+                <input type="text" id="filtro-busca-servidor" class="form-control" placeholder="Buscar por nome ou matrícula..." oninput="filtrarTabelaServidores()">
+              </div>
+              <select id="filtro-lotacao-servidor" class="form-control filter-select" onchange="filtrarTabelaServidores()">
+                <option value="">Todas Lotações</option>
+              </select>
+              <select id="filtro-situacao-servidor" class="form-control filter-select" onchange="filtrarTabelaServidores()">
+                <option value="">Todas Situações</option>
+                <option value="ESTATUTÁRIO">Estatutário</option>
+                <option value="COMISSIONADO">Comissionado</option>
+                <option value="ESTAGIÁRIO">Estagiário</option>
+                <option value="PEAD">PEAD</option>
+              </select>
+              <select id="filtro-status-servidor" class="form-control filter-select" onchange="filtrarTabelaServidores()">
+                <option value="">Todos Status</option>
+                <option value="Ativo">Ativo</option>
+                <option value="Férias">Férias</option>
+                <option value="Abono">Abono</option>
+                <option value="Inativo">Inativo</option>
+                <option value="Compulsorias">Férias Compulsórias (Risco)</option>
+              </select>
+            </div>
+
+            <div class="table-container">
+              <div class="table-header">
+                <div class="table-title">Servidores Cadastrados</div>
+                <button class="btn btn-primary" onclick="abrirModalServidor()">Incluir Servidor</button>
+              </div>
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Matrícula</th>
+                    <th>Cargo</th>
+                    <th>Lotação</th>
+                    <th>Situação</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-servidores-body">
+                  <tr>
+                    <td colspan="7" style="text-align: center; color: var(--text-secondary);">Buscando servidores...</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div id="paginacao-servidores" style="padding: 0 16px;"></div>
+            </div>
+          </section>
+          
+          <!-- View 3: Lançamentos -->
+          <section id="view-lancamentos" class="view-section">
+            <!-- Barra de Pesquisa e Filtros -->
+            <div class="filter-bar">
+              <div class="search-input-wrapper">
+                <span class="search-icon-inside" data-lucide="search"></span>
+                <input type="text" id="filtro-busca-lancamento" class="form-control" placeholder="Buscar por servidor ou no 1Doc..." oninput="filtrarTabelaLancamentos()">
+              </div>
+              <select id="filtro-status-lancamento" class="form-control filter-select" onchange="filtrarTabelaLancamentos()">
+                <option value="">Todos Status</option>
+                <option value="Ativo">Ativo</option>
+                <option value="Anulado">Anulado</option>
+                <option value="PENDENTE">Pendente</option>
+                <option value="AGUARDANDO ASSINATURA">Aguardando Assinatura</option>
+                <option value="ASSINADO">Assinado</option>
+                <option value="SEM 1DOC">Sem Nº 1DOC</option>
+              </select>
+              <select id="filtro-tipo-lancamento" class="form-control filter-select" onchange="filtrarTabelaLancamentos()">
+                <option value="">Todos Documentos</option>
+                <option value="Férias">Férias</option>
+                <option value="Férias (1/3 Pecúnia)">Férias (1/3 Pecúnia)</option>
+                <option value="Abonada">Abonada</option>
+                <option value="Abonada Natalícia">Abonada Natalícia</option>
+                <option value="Abonada Eleitoral">Abonada Eleitoral</option>
+                <option value="Licença Prêmio">Licença Prêmio</option>
+                <option value="Atestado">Atestado</option>
+                <option value="Declaração de Horas">Declaração de Horas</option>
+                <option value="Hora Extra">Hora Extra</option>
+                <option value="Avaliação do Estágio Probatório">Avaliação Estágio Probatório</option>
+                <option value="Não Efetivado (Anulado)">Não Efetivado</option>
+                <option value="Ajuste / Penalidade de Saldo">Ajuste / Penalidade de Saldo</option>
+              </select>
+            </div>
+
+            <div class="table-container">
+              <div class="table-header">
+                <div class="table-title">Histórico de Lançamentos</div>
+                <button class="btn btn-primary" onclick="abrirModalLancamento()">Novo Lançamento</button>
+              </div>
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th style="width: 70px; text-align: center;"><span data-lucide="zap" style="width: 14px; height: 14px;"></span></th>
+                    <th>1Doc / Protocolo</th>
+                    <th>Data Solicitação</th>
+                    <th>Tipo de Documento</th>
+                    <th>Servidor</th>
+                    <th>Data Saída/Falta</th>
+                    <th style="text-align: center;">Dias/Qtd</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-lancamentos-body">
+                  <tr>
+                    <td colspan="9" style="text-align: center; color: var(--text-secondary);">Buscando lançamentos...</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div id="paginacao-lancamentos" style="padding: 0 16px;"></div>
+            </div>
+          </section>
+          
+          <!-- View 4: Protocolos -->
+          <section id="view-protocolos" class="view-section">
+            <!-- Barra de Pesquisa e Filtros -->
+            <div class="filter-bar">
+              <div class="search-input-wrapper">
+                <span class="search-icon-inside" data-lucide="search"></span>
+                <input type="text" id="filtro-busca-protocolo" class="form-control" placeholder="Buscar por ID do protocolo..." oninput="filtrarTabelaProtocolos()">
+              </div>
+            </div>
+
+            <div class="table-container">
+              <div class="table-header">
+                <div class="table-title">Controle de Protocolos (Documentos Físicos)</div>
+                <button class="btn btn-primary" onclick="abrirModalCriarProtocolo()">Criar Protocolo</button>
+              </div>
+              <table class="custom-table">
+                <thead>
+                  <tr>
+                    <th>ID Protocolo</th>
+                    <th>Data Geração</th>
+                    <th>Qtd Documentos</th>
+                    <th>Emitido Por</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-protocolos-body">
+                  <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-secondary);">Buscando protocolos...</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div id="paginacao-protocolos" style="padding: 0 16px;"></div>
+            </div>
+          </section>
+          
+          <!-- View 5: Relatórios -->
+          <section id="view-relatorios" class="view-section">
+            <div class="card" style="margin-bottom: 24px;">
+              <div class="card-title">Configurar Filtros de Emissão</div>
+              
+              <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                  <label class="form-label">Tipo de Relatório *</label>
+                  <select id="rep-tipo" class="form-control" onchange="ajustarFiltrosRelatorios(); gerarDadosRelatorio();">
+                    <option value="compulsorias">Férias Compulsórias (Risco de 3a Férias)</option>
+                    <option value="situacao_ferias">Situação Geral de Férias</option>
+                    <option value="calendario_ausencias">Calendário / Escala de Ausências</option>
+                    <option value="resumo_mensal">Resumo Mensal de Lançamentos</option>
+                    <option value="abonos_anuais">Controle de Cota de Abonadas</option>
+                  </select>
+                </div>
+                
+                <!-- Filtro de datas condicional (Escalas/Calendário) -->
+                <div class="form-group" id="rep-bloco-datas" style="display: none;">
+                  <label class="form-label">Período (Início e Fim)</label>
+                  <div style="display: flex; gap: 8px;">
+                    <input type="date" id="rep-data-inicio" class="form-control" onchange="gerarDadosRelatorio()">
+                    <input type="date" id="rep-data-fim" class="form-control" onchange="gerarDadosRelatorio()">
+                  </div>
+                </div>
+
+                <!-- Filtro de mês/ano condicional (Resumo Mensal) -->
+                <div class="form-group" id="rep-bloco-mesano" style="display: none;">
+                  <label class="form-label">Mês e Ano</label>
+                  <div style="display: flex; gap: 8px;">
+                    <select id="rep-mes" class="form-control" onchange="gerarDadosRelatorio()">
+                      <option value="JANEIRO">Janeiro</option>
+                      <option value="FEVEREIRO">Fevereiro</option>
+                      <option value="MARÇO">Março</option>
+                      <option value="ABRIL">Abril</option>
+                      <option value="MAIO">Maio</option>
+                      <option value="JUNHO">Junho</option>
+                      <option value="JULHO">Julho</option>
+                      <option value="AGOSTO">Agosto</option>
+                      <option value="SETEMBRO">Setembro</option>
+                      <option value="OUTUBRO">Outubro</option>
+                      <option value="NOVEMBRO">Novembro</option>
+                      <option value="DEZEMBRO">Dezembro</option>
+                    </select>
+                    <input type="number" id="rep-ano" class="form-control" value="2026" min="2020" max="2035" onchange="gerarDadosRelatorio()">
+                  </div>
+                </div>
+              </div>
+              
+              <div style="display: none;">
+                <button class="btn btn-primary" onclick="gerarDadosRelatorio()">
+                  <span data-lucide="play"></span> Gerar Relatório
+                </button>
+              </div>
+            </div>
+
+            <!-- Painel de Resultados do Relatório -->
+            <div class="table-container" id="rep-resultado-container" style="display: none;">
+              <div class="table-header">
+                <div class="table-title" id="rep-resultado-titulo">Resultado do Relatório</div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary" onclick="exportarRelatorioExcel()">
+                    <span data-lucide="download"></span> Exportar Excel
+                  </button>
+                  <button class="btn btn-primary" onclick="imprimirRelatorioLocal()">
+                    <span data-lucide="printer"></span> Imprimir PDF
+                  </button>
+                </div>
+              </div>
+              <div id="rep-conteudo-area" style="overflow-x: auto;">
+                <table class="custom-table" id="tabela-relatorio">
+                  <thead id="tabela-relatorio-head"></thead>
+                  <tbody id="tabela-relatorio-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+          
+          <!-- View: Pré-Leitura REP -->
+          <section id="view-pre-leitura-rep" class="view-section">
+            <div class="dashboard-welcome rep-page-header" style="margin-bottom: 20px;">
+              <div>
+                <span class="page-eyebrow">PRÉ-PROCESSAMENTO COMPARTILHADO · DRIVE</span>
+                <h2>Leitor REP</h2>
+                <p>Os AFDs são lidos diretamente da pasta compartilhada. Arquivos de coletas e períodos diferentes permanecem auditados separadamente, mesmo quando pertencem ao mesmo REP.</p>
+              </div>
+              <div class="rep-page-actions">
+                <button class="btn btn-primary" onclick="abrirPastaEntradaRep()" title="Abrir a pasta compartilhada onde os AFDs devem ser colocados">
+                  <span data-lucide="folder-open"></span> Abrir pasta dos AFDs
+                </button>
+                <button id="rep-btn-sincronizar-pasta" class="btn btn-secondary" onclick="resetarLeituraRep()" title="Buscar novamente os AFDs e apontamentos compartilhados">
+                  <span data-lucide="refresh-cw"></span> Sincronizar pasta
+                </button>
+                <button id="rep-btn-cartao-manual" class="btn btn-secondary" hidden onclick="abrirInclusaoCartaoManualRep_()" title="Incluir um servidor que preenche cartão de ponto manual">
+                  <span data-lucide="clipboard-pen-line"></span> Incluir cartão manual
+                </button>
+                <button id="rep-btn-add" class="btn btn-secondary" style="display: none;" onclick="adicionarArquivosRep()">
+                  <span data-lucide="file-plus-2"></span> Adicionar AFDs
+                </button>
+                <details class="rep-actions-menu" id="rep-actions-menu" hidden>
+                  <summary class="btn btn-secondary"><span data-lucide="ellipsis"></span> Mais ações</summary>
+                  <div class="rep-actions-menu-panel">
+                    <button id="rep-btn-lancamento-lote" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); abrirLancamentosLoteRep_()">
+                      <span data-lucide="list-plus"></span> Ajustes de ponto em lote
+                    </button>
+                    <button id="rep-btn-lancamento" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); abrirLancamentoDiretoRep_()">
+                      <span data-lucide="plus-circle"></span> Novo lançamento
+                    </button>
+                    <button id="rep-btn-pdf" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRepPdf()">
+                      <span data-lucide="file-down"></span> PDF do servidor
+                    </button>
+                    <button id="rep-btn-alertas-servidor" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRelatorioAlertasRep_('servidor')">
+                      <span data-lucide="file-warning"></span> Alertas do servidor (PDF)
+                    </button>
+                    <button id="rep-btn-alertas-geral" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRelatorioAlertasRep_('geral')">
+                      <span data-lucide="files"></span> Alertas gerais do mês (PDF)
+                    </button>
+                    <button id="rep-btn-autorizacao-he" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarAutorizacaoHorasExtrasRep_()">
+                      <span data-lucide="file-signature"></span> Autorização de HE
+                    </button>
+                    <button id="rep-btn-relatorio-he" class="btn btn-secondary" onclick="fecharMenuAcoesRep_(); abrirRelatorioMensalHeRep_()">
+                      <span data-lucide="table-properties"></span> Relatório mensal de HE
+                    </button>
+                    <button id="rep-btn-export" class="btn btn-secondary" style="display: none;" onclick="fecharMenuAcoesRep_(); exportarRepExcel()">
+                      <span data-lucide="file-spreadsheet"></span> Exportar auditoria (.xlsx)
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </div>
+
+            <div class="rep-drive-folder-card" id="rep-drive-folder-card">
+              <span data-lucide="shield-check"></span>
+              <div><strong id="rep-pasta-status">Pasta compartilhada do Drive</strong><p id="rep-pasta-detalhe">Coloque os AFDs na pasta e clique em <b>Sincronizar pasta</b>. Cada arquivo será conferido por SHA-256 antes da leitura.</p></div>
+
+            </div>
+
+            <div class="upload-zone rep-upload-emergencia" id="rep-upload-zone" onclick="document.getElementById('rep-file-input').click()" style="display:none;">
+              <input type="file" id="rep-file-input" multiple accept=".txt,.afd" hidden onchange="processarArquivosRep(this.files)">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                <span data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--brand-primary);"></span>
+                <h3 style="font-size: 18px; font-weight: 600;">Arraste os arquivos de ponto (.txt / AFD) aqui</h3>
+                <p style="font-size: 13px; color: var(--text-secondary);">ou clique para selecionar e salvar online os arquivos brutos colhidos dos relógios</p>
+              </div>
+            </div>
+
+            <div id="rep-results-container" style="display: none;">
+              <div id="rep-auditoria-arquivos" class="rep-auditoria-arquivos" aria-live="polite"></div>
+              <div class="rep-resumo-processamento">
+                <span>Servidores <b id="rep-total-servidores">0</b></span>
+                <span>Marcações <b id="rep-total-marcacoes">0</b></span>
+                <span>Alertas <b id="rep-total-pendencias">0</b></span>
+                <span>Não conciliados <b id="rep-total-nao-conciliados">0</b></span>
+                <label id="rep-status-arredondamento" class="rep-status-arredondamento" title="Alterar o arredondamento usado nos cálculos do REP">
+                  <span class="rep-rounding-text">Arredondamento ativo</span>
+                  <input id="rep-rounding-toggle" type="checkbox" checked onchange="alterarArredondamentoRepNoPainel_(this)">
+                  <i class="rep-rounding-track" aria-hidden="true"></i>
+                </label>
+                <button type="button" class="btn btn-secondary rep-salvar-alteracoes" onclick="salvarAlteracoesPendentesRep_({ manual: true })" id="btn-rep-salvar-manual" disabled>Nenhuma alteração pendente</button>
+              </div>
+
+              <div class="filters-bar rep-filters-bar">
+                <div style="flex: 2; min-width: 200px;">
+                  <label class="rep-filter-label" for="rep-search-input">Servidor</label>
+                  <input type="text" id="rep-search-input" class="form-control" placeholder="Buscar por nome ou PIS/CPF..." oninput="agendarRenderizacaoListaRep_()">
+                </div>
+                <div style="width: 140px;">
+                  <label class="rep-filter-label" for="rep-filter-ano">Ano</label>
+                  <select id="rep-filter-ano" class="form-control" onchange="aoAlterarCompetenciaRep()">
+                    <option value="all">Todos os Anos</option>
+                  </select>
+                </div>
+                <div style="width: 150px;">
+                  <label class="rep-filter-label" for="rep-filter-mes">Mês</label>
+                  <select id="rep-filter-mes" class="form-control" onchange="aoAlterarCompetenciaRep()">
+                    <option value="all">Todos os Meses</option>
+                    <option value="01">Janeiro</option>
+                    <option value="02">Fevereiro</option>
+                    <option value="03">Março</option>
+                    <option value="04">Abril</option>
+                    <option value="05">Maio</option>
+                    <option value="06">Junho</option>
+                    <option value="07">Julho</option>
+                    <option value="08">Agosto</option>
+                    <option value="09">Setembro</option>
+                    <option value="10">Outubro</option>
+                    <option value="11">Novembro</option>
+                    <option value="12">Dezembro</option>
+                  </select>
+                </div>
+                <details class="rep-filtros-avancados">
+                  <summary><span data-lucide="sliders-horizontal"></span> Mais filtros e regras</summary>
+                  <div class="rep-filtros-avancados-grid">
+                <div style="min-width: 190px;">
+                  <label class="rep-filter-label" for="rep-filter-lotacao">Lotação</label>
+                  <select id="rep-filter-lotacao" class="form-control" onchange="renderizarListaRep()">
+                    <option value="all">Todas as lotações</option>
+                  </select>
+                </div>
+                <div style="width: 190px;">
+                  <label class="rep-filter-label" for="rep-filter-status">Situação</label>
+                  <select id="rep-filter-status" class="form-control" onchange="renderizarListaRep()">
+                    <option value="all">Todos os Status</option>
+                    <option value="pending">Com pendências</option>
+                    <option value="unmatched">PIS/CPF não conciliado</option>
+                    <option value="saldo">Com saldo estimado positivo</option>
+                  </select>
+                </div>
+                <div style="width: 190px;">
+                  <label class="rep-filter-label" for="rep-filter-conferencia">Conferência</label>
+                  <select id="rep-filter-conferencia" class="form-control" onchange="renderizarListaRep()">
+                    <option value="all">Todos</option>
+                    <option value="pending">Ainda não conferidos</option>
+                    <option value="checked">Já conferidos</option>
+                  </select>
+                </div>
+                <div style="min-width: 220px;">
+                  <label class="rep-filter-label" for="rep-filter-local">Local histórico</label>
+                  <select id="rep-filter-local" class="form-control" onchange="atualizarProcessamentoRep()">
+                    <option value="all">Todos os locais/relógios</option>
+                  </select>
+                </div>
+                <div style="width: 185px;">
+                  <label class="rep-filter-label" for="rep-jornada-horas">Jornada de referência</label>
+                  <input type="number" id="rep-jornada-horas" class="form-control" min="1" max="12" step="0.5" value="8" title="Jornada de referência (horas)" onchange="atualizarProcessamentoRep()" aria-label="Jornada de referência em horas">
+                </div>
+                <div style="width: 185px;">
+                  <label class="rep-filter-label" for="rep-intervalo-presumido-horas">Intervalo presumido</label>
+                  <select id="rep-intervalo-presumido-horas" class="form-control" onchange="atualizarProcessamentoRep()" title="Desconto aplicado quando há somente entrada e saída em uma jornada de 7 horas ou mais">
+                    <option value="0.5">30 minutos</option>
+                    <option value="1" selected>1 hora (padrão)</option>
+                    <option value="1.5">1 hora e 30 minutos</option>
+                    <option value="2">2 horas</option>
+                  </select>
+                </div>
+                <button type="button" class="btn btn-secondary rep-configurar-calculo" onclick="abrirPoliticaCalculoRep_()" title="Definir o padrão de tolerância, atrasos e horas extras do Leitor REP"><span data-lucide="calculator"></span> Configurar cálculo</button>
+                <div style="min-width: 245px;">
+                  <label class="rep-filter-label" for="rep-feriados">Feriados da competência</label>
+                  <div style="display:flex; gap:6px;">
+                    <input type="text" id="rep-feriados" class="form-control" placeholder="Digite 09072026 e pressione Enter" title="Digite uma data sem barras e pressione Enter para salvar e adicionar outra" aria-label="Feriados separados por vírgula" oninput="this.dataset.sujo='true'" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); adicionarFeriadoRep(); }">
+                    <button type="button" class="btn btn-secondary" onclick="aplicarFeriadosRep()">Aplicar</button>
+                  </div>
+                </div>
+                <button class="btn btn-secondary" onclick="resetarLeituraRep()"><span data-lucide="rotate-ccw"></span> Limpar & Recarregar</button>
+                  </div>
+                </details>
+              </div>
+
+              <section id="rep-cartao-manual-inline" class="rep-cartao-manual-inline" hidden aria-live="polite"></section>
+              <div id="rep-servidores-list" style="display: flex; flex-direction: column; gap: 16px;">
+                <!-- Cards de Servidores injetados via JS -->
+              </div>
+            </div>
+          </section>
+
+          <div class="modal-overlay" id="modal-ajuste-rep">
+            <div class="modal-content rep-ajuste-modal">
+              <div class="modal-header">
+                <div><span class="page-eyebrow">AJUSTE MANUAL DA PRÉ-LEITURA</span><h3 class="modal-title" id="rep-ajuste-titulo">Ajustar marcações</h3></div>
+                <button class="modal-close" onclick="fecharModal('modal-ajuste-rep')"><span data-lucide="x"></span></button>
+              </div>
+              <div class="modal-body">
+                <p class="form-help">O AFD original não será alterado. Inclusões, correções, mudanças de data e desconsiderações ficam compartilhadas com toda a equipe.</p>
+                <p class="rep-ajuste-virada-dia"><b>Jornada após a meia-noite:</b> na batida de saída, escolha em “Dia da jornada” a data em que o trabalho começou. A data e a hora reais do AFD continuam preservadas.</p>
+                <div id="rep-ajuste-eventos" class="rep-ajuste-eventos"></div>
+                <button type="button" class="btn btn-secondary" onclick="adicionarLinhaAjusteRep()"><span data-lucide="plus"></span> Adicionar marcação</button>
+                <div class="rep-ajuste-ausencia" hidden>
+                  <label class="form-label" for="rep-ajuste-lancamento">Ausência registrada no RH</label>
+                  <div id="rep-ajuste-ausencia-detectada" class="rep-ausencia-detectada"></div>
+                  <select id="rep-ajuste-lancamento" class="form-control"></select>
+                  <small class="form-help">Use esta lista somente se o lançamento correto não tiver sido associado automaticamente.</small>
+                </div>
+                <details id="rep-ajuste-compensacao" class="rep-ajuste-compensacao" hidden>
+                  <summary>Compensação com horas positivas do mês</summary>
+                  <div id="rep-ajuste-compensacao-resumo" class="rep-compensacao-resumo"></div>
+                  <div id="rep-compensacao-origens" class="rep-compensacao-origens"></div>
+                  <div class="rep-compensacao-campos">
+                    <input id="rep-ajuste-compensacao-horas" class="form-control" inputmode="numeric" placeholder="Total retirado" maxlength="5" readonly aria-label="Total bruto retirado para compensação">
+                    <button type="button" class="btn btn-secondary" onclick="preencherCompensacaoMaximaRep_()">Usar saldo disponível</button>
+                    <button type="button" class="btn btn-secondary" onclick="limparOrigensCompensacaoRep_()">Remover compensação</button>
+                  </div>
+                  <input id="rep-ajuste-compensacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a compensação">
+                  <small class="form-help">Em cada origem, informe primeiro o limite total autorizado no documento e depois quanto será usado neste dia. O sistema soma o que já foi usado em outros dias e bloqueia qualquer excesso. A operação não altera o AFD original.</small>
+                </details>
+                <div id="rep-ajuste-validacao" class="rep-ajuste-validacao" hidden>
+                  <label class="rep-validacao-check"><input type="checkbox" id="rep-ajuste-validado"> <span><b>Validar e desconsiderar este alerta</b><small>O AFD e as batidas permanecem visíveis, mas este dia deixa de contar em “Dias a conferir”. Desmarque para reabrir.</small></span></label>
+                  <input id="rep-ajuste-validacao-observacao" class="form-control" maxlength="500" placeholder="Observação opcional sobre a conferência">
+                </div>
+                <div class="form-group" hidden>
+                  <label class="form-label" for="rep-ajuste-justificativa">Justificativa (opcional)</label>
+                  <textarea id="rep-ajuste-justificativa" class="form-control" rows="3" placeholder="Ex.: justificativa entregue por escrito pelo servidor"></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="restaurarAjustesDiaRep()">Restaurar dados originais</button>
+                <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-ajuste-rep')">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarAjustesDiaRep()">Aplicar ajuste</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-overlay" id="modal-fusao-rep">
+            <div class="modal-content rep-fusao-modal">
+              <div class="modal-header">
+                <div><span class="page-eyebrow">VINCULAR AO CADASTRO</span><h3 class="modal-title">Associar registros REP ao servidor</h3></div>
+                <button class="modal-close" onclick="fecharModal('modal-fusao-rep')"><span data-lucide="x"></span></button>
+              </div>
+              <div class="modal-body">
+                <p class="form-help">Escolha a pessoa correta no cadastro. O nome, a lotação e o PIS oficiais serão usados na pré-leitura, sem alterar os AFDs originais.</p>
+                <div class="rep-fusao-dados"><div><span>Registro selecionado no REP</span><strong id="rep-fusao-destino-nome">-</strong><small id="rep-fusao-destino-pis">-</small></div></div>
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label" for="rep-fusao-servidor">Nome correto no cadastro *</label>
+                  <select id="rep-fusao-servidor" class="form-control"></select>
+                </div>
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label" for="rep-fusao-origem">Outro registro PIS/CPF da mesma pessoa (opcional)</label>
+                  <select id="rep-fusao-origem" class="form-control"></select>
+                </div>
+                <p class="form-help">O vínculo vale para os arquivos carregados nesta sessão. A auditoria conservará o identificador original de cada batida.</p>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-fusao-rep')">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="confirmarFusaoRep()"><span data-lucide="link"></span> Vincular e unir</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-overlay" id="modal-apontamento-rep">
+            <div class="modal-content" style="max-width:560px;">
+              <div class="modal-header">
+                <div><span class="page-eyebrow">ACOMPANHAMENTO DA PRÉ-LEITURA</span><h3 class="modal-title" id="rep-apontamento-titulo">Novo apontamento</h3></div>
+                <button class="modal-close" onclick="fecharModal('modal-apontamento-rep')"><span data-lucide="x"></span></button>
+              </div>
+              <div class="modal-body">
+                <div id="rep-apontamento-contexto" class="rep-apontamento-contexto"></div>
+                <input type="hidden" id="rep-apontamento-id">
+                <input type="hidden" id="rep-apontamento-pis">
+                <input type="hidden" id="rep-apontamento-data">
+                <input type="hidden" id="rep-apontamento-escopo">
+                <input type="hidden" id="rep-apontamento-evento">
+                <div class="form-group" style="margin-top:16px;">
+                  <label class="form-label" for="rep-apontamento-texto">Apontamento *</label>
+                  <textarea id="rep-apontamento-texto" class="form-control" rows="5" maxlength="2000" placeholder="Descreva o que precisa ser verificado ou acompanhado."></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-apontamento-rep')">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="salvarApontamentoRepInterface()"><span data-lucide="save"></span> Salvar apontamento</button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- View 6: Administração -->
+          <section id="view-admin" class="view-section">
+            <!-- Navegador de Sub-Abas Admin -->
+            <div class="tab-container">
+              <button class="tab-button active" id="btn-adm-usuarios" onclick="alternarAbaAdmin('adm-usuarios')">Gerenciar Usuários</button>
+              <button class="tab-button" id="btn-adm-configs" onclick="alternarAbaAdmin('adm-configs')">Parametrizações Gerais</button>
+              <button class="tab-button" id="btn-adm-logs" onclick="alternarAbaAdmin('adm-logs')">Logs de Auditoria</button>
+              <button class="tab-button" id="btn-adm-protecao" onclick="alternarAbaAdmin('adm-protecao');carregarProtecaoDados()">Proteção dos dados</button>
+            </div>
+
+            <!-- Sub-Aba 1: Usuários -->
+            <div id="adm-usuarios" class="tab-panel active">
+              <div class="table-container">
+                <div class="table-header">
+                  <div class="table-title">Usuários Autorizados</div>
+                  <button class="btn btn-primary" onclick="abrirModalUsuario()">Novo Usuário</button>
+                </div>
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>E-mail do Usuário</th>
+                      <th>Nome Completo</th>
+                      <th>Papel / Perfil</th>
+                      <th>Ativo?</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabela-adm-usuarios-body">
+                    <tr>
+                      <td colspan="5" style="text-align: center; color: var(--text-secondary);">Buscando usuários...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Sub-Aba 2: Configurações Gerais -->
+            <div id="adm-configs" class="tab-panel">
+              <div class="safe-mode-panel">
+                <div class="safe-mode-panel-copy">
+                  <span class="page-eyebrow">Sistema atualizado - dados oficiais</span>
+                  <h3>Modo de funcionamento</h3>
+                  <p>Esta escolha vale somente para este usuario neste navegador. Os dois modos usam a base oficial; o acelerado abre pela copia local e sincroniza as mudancas em segundo plano.</p>
+                </div>
+                <div class="safe-mode-options">
+                  <label class="safe-mode-option">
+                    <input type="radio" name="safe-mode" id="safe-mode-classic" value="classic" onchange="SafeMode.selectMode('classic')">
+                    <span><strong>Classico</strong><small>Mesmo comportamento da versao atual.</small></span>
+                  </label>
+                  <label class="safe-mode-option">
+                    <input type="radio" name="safe-mode" id="safe-mode-accelerated" value="accelerated" onchange="SafeMode.selectMode('accelerated')">
+                    <span><strong>Acelerado</strong><small>Abre pela última cópia local e confere a nuvem em segundo plano.</small></span>
+                  </label>
+                  <button type="button" class="btn btn-secondary" onclick="SafeMode.emergencyReset()"><span data-lucide="shield-x"></span> Limpar copia local</button>
+                </div>
+                <div class="safe-mode-guarantees">
+                  <span><b>Modo atual:</b> <em data-safe-mode-indicator>Classico</em></span>
+                  <span>Planilha oficial conectada</span>
+                  <span>Drive e REP oficiais conectados</span>
+                  <span>Backup preventivo criado</span>
+                  <span>Retorno imediato ao classico</span>
+                </div>
+              </div>
+              <div class="table-container">
+                <div class="table-header">
+                  <div class="table-title">Configurações Gerais do Sistema</div>
+                </div>
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Chave / Parâmetro</th>
+                      <th>Valor Configurado</th>
+                      <th>Descrição</th>
+                      <th>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabela-adm-configs-body">
+                    <tr>
+                      <td colspan="4" style="text-align: center; color: var(--text-secondary);">Buscando configurações...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Sub-Aba 3: Logs de Auditoria -->
+            <div id="adm-logs" class="tab-panel">
+              <!-- Filtros de Logs -->
+              <div class="filter-bar">
+                <input type="text" id="log-filtro-busca" class="form-control" style="flex: 1; min-width: 200px;" placeholder="Buscar nos logs..." oninput="filtrarLogsAuditoria()">
+                <select id="log-filtro-modulo" class="form-control filter-select" onchange="filtrarLogsAuditoria()">
+                  <option value="">Todos Módulos</option>
+                  <option value="Servidores">Servidores</option>
+                  <option value="Lançamentos">Lançamentos</option>
+                  <option value="Protocolos">Protocolos</option>
+                  <option value="Usuarios">Usuários</option>
+                  <option value="IA_Entidade">IA Entidade</option>
+                </select>
+                <select id="log-filtro-acao" class="form-control filter-select" onchange="filtrarLogsAuditoria()">
+                  <option value="">Todas Ações</option>
+                  <option value="CRIAR_SERVIDOR">Criar Servidor</option>
+                  <option value="EDITAR_SERVIDOR">Editar Servidor</option>
+                  <option value="CRIAR_LANCAMENTO">Criar Lançamento</option>
+                  <option value="EDITAR_LANCAMENTO">Editar Lançamento</option>
+                  <option value="CRIAR_PROTOCOLO">Criar Protocolo</option>
+                  <option value="ROTACAO_LOGS">Rotação de Logs</option>
+                </select>
+              </div>
+
+              <div class="table-container" style="max-height: 450px; overflow-y: auto;">
+                <table class="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Data/Hora</th>
+                      <th>Usuário</th>
+                      <th>Ação</th>
+                      <th>Módulo</th>
+                      <th>Descrição Detalhada</th>
+                      <th>Campo</th>
+                      <th>Antes</th>
+                      <th>Depois</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabela-adm-logs-body">
+                    <tr>
+                      <td colspan="8" style="text-align: center; color: var(--text-secondary);">Buscando logs...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div id="adm-protecao" class="tab-panel">
+              <section class="data-protection-card">
+                <div>
+                  <span class="page-eyebrow">CÓPIA DE SEGURANÇA</span>
+                  <h3 id="protecao-dados-titulo">Verificando a base...</h3>
+                  <p id="protecao-dados-resumo">Aguarde a consulta.</p>
+                  <p id="protecao-dados-capacidade"></p>
+                </div>
+                <div class="data-protection-actions">
+                  <a id="protecao-dados-backup-link" class="btn btn-secondary" target="_blank" rel="noreferrer" hidden>Abrir última cópia</a>
+                  <a id="protecao-dados-pasta-link" class="btn btn-secondary" target="_blank" rel="noreferrer" hidden>Abrir pasta de cópias</a>
+                  <a id="protecao-dados-historico-link" class="btn btn-secondary" target="_blank" rel="noreferrer" hidden>Abrir históricos arquivados</a>
+                  <button type="button" class="btn btn-primary" onclick="criarBackupProtecaoDados(this)">Criar cópia agora</button>
+                </div>
+                <small>O sistema cria cópias completas, acompanha o espaço disponível e retira da área ativa somente dados técnicos antigos já concluídos. O histórico continua guardado; pendências nunca são removidas.</small>
+              </section>
+            </div>
+          </section>
+          
+        </div>
+        
+        <footer id="app-footer" class="app-footer">
+          <span class="app-footer-identidade">Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>Entidade.V1</strong></span>
+          <span class="app-footer-aviso" id="app-footer-aviso" aria-live="polite"><span id="app-footer-aviso-texto"></span></span>
+        </footer>
+      </main>
+      
+    </div>
+
+    <!-- MODAL 1: Cadastro e Edição de Servidor -->
+    <div class="modal-overlay" id="modal-servidor">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-servidor-titulo">Cadastrar Servidor</h3>
+          <button class="modal-close" onclick="fecharModal('modal-servidor')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <form id="form-servidor" onsubmit="salvarDadosServidor(event)">
+          <div class="modal-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Matrícula <span id="serv-matricula-obrigatoria">*</span></label>
+                <input type="text" id="serv-matricula" class="form-control" required placeholder="Ex: 00000">
+              </div>
+              <div class="form-group">
+                <label class="form-label">PIS/CPF usado no REP</label>
+                <input type="text" id="serv-pis" class="form-control" inputmode="numeric" maxlength="12" placeholder="Somente números">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Situação *</label>
+                <select id="serv-situacao" class="form-control" required onchange="toggleCamposObrigatoriosServidor()">
+                  <option value="ESTATUTÁRIO">Estatutário</option>
+                  <option value="COMISSIONADO">Comissionado</option>
+                  <option value="ESTAGIÁRIO">Estagiário</option>
+                  <option value="PEAD">PEAD</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Nome Completo *</label>
+              <input type="text" id="serv-nome" class="form-control" required placeholder="Ex: NOME COMPLETO DO SERVIDOR">
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Cargo</label>
+                <input type="text" id="serv-cargo" class="form-control" placeholder="Ex: CARGO DO SERVIDOR">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Lotação</label>
+                <select id="serv-lotacao" class="form-control" onchange="atualizarCampoNovaLotacaoServidor()">
+                  <option value="Rodoviária">Rodoviária</option>
+                  <option value="Espaço Batuíra">Espaço Batuíra</option>
+                  <option value="Turismo">Turismo</option>
+                  <option value="__NOVA_LOTACAO__">Adicionar nova lotação...</option>
+                </select>
+                <input type="text" id="serv-lotacao-nova" class="form-control" style="display: none; margin-top: 8px;" maxlength="120" placeholder="Digite o nome da nova lotação">
+              </div>
+            </div>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Data de Admissão</label>
+                <input type="date" id="serv-admissao" class="form-control">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Aniversário (dia e mês)</label>
+                <input type="text" id="serv-aniversario" class="form-control" inputmode="numeric" maxlength="5" placeholder="DD/MM" pattern="\d{2}/\d{2}">
+                <p class="form-help">Se ficar vazio, o sistema usa a abonada natalícia mais recente quando existir.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label">E-mail <span id="serv-email-obrigatorio">*</span></label>
+                <input type="email" id="serv-email" class="form-control" required placeholder="Ex: servidor@saosebastiao.sp.gov.br">
+                <p class="form-help" id="serv-identificacao-ajuda" style="display:none;">Matrícula e e-mail são opcionais para Estagiário e PEAD. Se a matrícula ficar vazia, o sistema criará um identificador interno.</p>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group" id="serv-ativo-wrapper" style="display: none;">
+                <label class="form-label">Cadastro Ativo?</label>
+                <select id="serv-ativo" class="form-control" onchange="toggleCamposObrigatoriosServidor()">
+                  <option value="Sim">Sim, servidor ativo</option>
+                  <option value="Não">Não, desativado (Inativo)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row" style="display:none" aria-hidden="true">
+              <div class="form-group">
+                <label class="form-label">Penalidade Férias (Dias)</label>
+                <input type="number" id="serv-penalidade-ferias" class="form-control" placeholder="0" min="0">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Penalidade Abonos (Dias)</label>
+                <input type="number" id="serv-penalidade-abonos" class="form-control" placeholder="0" min="0">
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-servidor')">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-servidor-salvar">Salvar Cadastro</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 2: Ficha Detalhada do Servidor (Tabs) -->
+    <div class="modal-overlay" id="modal-ficha-servidor">
+      <div class="modal-content large">
+        <div class="modal-header">
+          <h3 class="modal-title">Ficha Individual do Servidor</h3>
+          <button class="modal-close" onclick="fecharModal('modal-ficha-servidor')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- Cabeçalho Rápido do Perfil -->
+          <div class="profile-header">
+            <div class="profile-avatar-placeholder">
+              <span data-lucide="user" style="width: 32px; height: 32px;"></span>
+            </div>
+            <div class="profile-info">
+              <div class="ficha-campo-copiavel ficha-nome-copiavel">
+                <h3 id="ficha-nome">NOME DO SERVIDOR</h3>
+                <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-nome', 'Nome')" title="Copiar nome" aria-label="Copiar nome">
+                  <span data-lucide="copy"></span>
+                </button>
+              </div>
+              <div class="ficha-metadados">
+                <span class="ficha-campo-copiavel">
+                  <span id="ficha-cargo">CARGO</span>
+                  <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-cargo', 'Cargo')" title="Copiar cargo" aria-label="Copiar cargo"><span data-lucide="copy"></span></button>
+                </span>
+                <span class="ficha-separador">|</span>
+                <span>Lotação:</span>
+                <span class="ficha-campo-copiavel">
+                  <span id="ficha-lotacao">LOTAÇÃO</span>
+                  <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-lotacao', 'Lotação')" title="Copiar lotação" aria-label="Copiar lotação"><span data-lucide="copy"></span></button>
+                </span>
+                <span class="ficha-separador">|</span>
+                <span>Matrícula:</span>
+                <span class="ficha-campo-copiavel">
+                  <strong id="ficha-matricula">00000</strong>
+                  <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-matricula', 'Matrícula')" title="Copiar matrícula" aria-label="Copiar matrícula"><span data-lucide="copy"></span></button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Navegação das Abas -->
+          <div class="tab-container">
+            <button class="tab-button active" onclick="alternarAbaFicha('tab-dados')">Dados de Cadastro</button>
+            <button class="tab-button" onclick="alternarAbaFicha('tab-ferias')">Controle de Saldo e Ausências</button>
+            <button class="tab-button" onclick="alternarAbaFicha('tab-historico')">Histórico de Lançamentos</button>
+          </div>
+
+          <!-- Aba 1: Dados de Cadastro -->
+          <div id="tab-dados" class="tab-panel active">
+            <table class="custom-table" style="border: 1px solid var(--border-color); border-radius: 6px;">
+              <tbody>
+                <tr>
+                  <td style="font-weight: 600; width: 200px; color: var(--text-secondary);">Situação Regimental:</td>
+                  <td id="ficha-dados-situacao">-</td>
+                </tr>
+                <tr>
+                  <td style="font-weight: 600; color: var(--text-secondary);">Data de Admissão:</td>
+                  <td id="ficha-dados-admissao">-</td>
+                </tr>
+                <tr>
+                  <td style="font-weight: 600; color: var(--text-secondary);">E-mail Cadastrado:</td>
+                  <td>
+                    <span class="ficha-campo-copiavel">
+                      <span id="ficha-dados-email">-</span>
+                      <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('ficha-dados-email', 'E-mail')" title="Copiar e-mail" aria-label="Copiar e-mail"><span data-lucide="copy"></span></button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-weight: 600; color: var(--text-secondary);">Aniversário:</td>
+                  <td id="ficha-dados-aniversario">-</td>
+                </tr>
+                <tr>
+                  <td style="font-weight: 600; color: var(--text-secondary);">Status de Cadastro:</td>
+                  <td><span id="ficha-dados-status" class="badge badge-ativo">ATIVO</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Aba 2: Controle de Saldo e Ausências -->
+          <div id="tab-ferias" class="tab-panel">
+            <div style="margin-bottom: 20px; display: flex; gap: 16px; flex-wrap: wrap;">
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--primary-color);">
+                <div class="card-title">Saldo Disponível de Férias (Hoje)</div>
+                <div class="card-value" id="ficha-ferias-saldo" style="font-size: 20px;">0 dias</div>
+              </div>
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--accent-color);">
+                <div class="card-title">Abonadas Normais (Ano Atual)</div>
+                <div class="card-value" id="ficha-abonadas-normais" style="font-size: 20px;">0 / 5</div>
+              </div>
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--warning-color);">
+                <div class="card-title">Abonada Natalícia (Ano Atual)</div>
+                <div class="card-value" id="ficha-abonadas-natalicias" style="font-size: 20px;">○</div>
+              </div>
+              <div class="card" style="flex: 1; padding: 16px; border-left: 4px solid var(--danger-color);">
+                <div class="card-title">Penalidade de Abonos</div>
+                <div class="card-value" id="ficha-penalidade-abonos" style="font-size: 20px;">0 dias</div>
+                <button type="button" class="btn btn-secondary btn-small" id="ficha-btn-penalidade-abonos">Ajustar</button>
+              </div>
+            </div>
+            
+            <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-secondary);">Histórico de Períodos Aquisitivos de Férias</h4>
+            <div class="periods-grid" id="ficha-ferias-periodos">
+              <!-- Cards de períodos gerados via JS -->
+            </div>
+          </div>
+
+          <!-- Aba 3: Histórico de Lançamentos -->
+          <div id="tab-historico" class="tab-panel">
+            <table class="custom-table" style="border: 1px solid var(--border-color); border-radius: 6px;">
+              <thead>
+                <tr>
+                  <th>Ações</th>
+                  <th>1Doc / Proc.</th>
+                  <th>Tipo</th>
+                  <th>Data Saída/Falta</th>
+                  <th>Dias</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="ficha-historico-tabela">
+                <!-- Linhas inseridas via JS -->
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="fecharModal('modal-ficha-servidor')">Fechar Ficha</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 3: Cadastro e Edição de Lançamento (Formulário Inteligente) -->
+    <div class="modal-overlay" id="modal-lancamento">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-lancamento-titulo">Cadastrar Lançamento de Documento</h3>
+          <button class="modal-close" onclick="fecharModal('modal-lancamento')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <form id="form-lancamento" onsubmit="salvarDadosLancamento(event)">
+          <input type="hidden" id="lanc-linha" value="">
+                    <div class="modal-body">
+            
+            <!-- Etapa 1: Dados Básicos -->
+            <div id="lanc-step-1" class="wizard-step">
+              <h4 style="margin-bottom: 16px; font-size: 14px; color: var(--brand-primary);">Etapa 1 de 3: Identificação</h4>
+              <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                  <label class="form-label">Tipo de Documento *</label>
+                  <select id="lanc-tipo" class="form-control" required onchange="ajustarCamposFormularioLancamento()">
+                    <option value="Férias">Férias</option>
+                    <option value="Férias (1/3 Pecúnia)">Férias (1/3 Pecúnia)</option>
+                    <option value="Abonada">Abonada</option>
+                    <option value="Abonada Natalícia">Abonada Natalícia</option>
+                    <option value="Abonada Eleitoral">Abonada Eleitoral</option>
+                    <option value="Licença Prêmio">Licença Prêmio</option>
+                    <option value="Atestado">Atestado</option>
+                    <option value="Declaração de Horas">Declaração de Horas</option>
+                    <option value="Autorização de Horas Extras">Autorização de Horas Extras</option>
+                    <option value="Avaliação do Estágio Probatório">Avaliação Estágio Probatório</option>
+                    <option value="Não Efetivado (Anulado)">Não Efetivado (Anulado)</option>
+                  </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label">Data de Solicitação *</label>
+                  <input type="date" id="lanc-data-solicitacao" class="form-control" required>
+                </div>
+              </div>
+
+              <!-- Seleção de Servidor com Autocomplete -->
+              <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label">Servidor *</label>
+                <div style="position: relative;">
+                  <input type="text" id="lanc-busca-servidor" class="form-control" required placeholder="Digite o nome ou matrícula do servidor..." oninput="buscarServidorAutocomplete()">
+                  <input type="hidden" id="lanc-matricula" value="">
+                  <div id="autocomplete-lista" style="position: absolute; width: 100%; max-height: 200px; overflow-y: auto; background-color: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 0 0 6px 6px; z-index: 1001; display: none;"></div>
+                </div>
+                <p class="form-help" id="lanc-servidor-info" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; display: none;">
+                  Cargo: <span id="info-serv-cargo">-</span> | Lotação: <span id="info-serv-lotacao">-</span> | Saldo Férias: <strong id="info-serv-saldo">-</strong> | Abonadas: <strong id="info-serv-abonadas">-</strong>
+                </p>
+              </div>
+            </div>
+
+            <!-- Etapa 2: Detalhes do Período e Anexos -->
+            <div id="lanc-step-2" class="wizard-step" style="display: none;">
+              <h4 style="margin-bottom: 16px; font-size: 14px; color: var(--brand-primary);">Etapa 2 de 3: Período e Documentos</h4>
+              
+              <!-- Bloco 1: Campos Específicos de Férias e Licença Prêmio -->
+              <div class="form-row" id="bloco-ferias">
+                <div class="form-group">
+                  <label class="form-label">Data de Início *</label>
+                  <input type="date" id="lanc-data-inicio" class="form-control">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" id="lanc-dias-label">Quantidade de Dias *</label>
+                  <input type="number" id="lanc-dias" class="form-control" min="1" max="90" oninput="sugerirDespacho()">
+                </div>
+                <div class="form-group" id="bloco-dias-pecunia" style="display: none;">
+                  <label class="form-label">Dias em Pecúnia *</label>
+                  <input type="number" id="lanc-dias-pecunia" class="form-control" value="0" min="1" max="90" oninput="sugerirDespacho()">
+                  <p class="form-help">Reduzem o saldo, mas não ampliam o período de afastamento.</p>
+                </div>
+              </div>
+
+              <!-- Bloco 2: Campos Específicos de Falta/Abono/Probatório -->
+              <div class="form-group" id="bloco-falta" style="display: none;">
+                <label class="form-label">Data da Falta / Afastamento *</label>
+                <input type="date" id="lanc-data-falta" class="form-control">
+              </div>
+              <section class="form-group" id="bloco-abono-eleitoral" style="display:none;">
+                <label class="form-label">Pleito eleitoral *</label><input type="text" id="lanc-pleito-eleitoral" class="form-control" placeholder="Ex.: Eleições municipais 2024">
+                <div class="form-row" style="margin-top:10px;"><div class="form-group"><label class="form-label">O que deseja fazer? *</label><select id="lanc-movimento-eleitoral" class="form-control" onchange="ajustarCamposAbonoEleitoral_()"><option value="CREDITO_USO">Conceder dias e já usar folga(s)</option><option value="USO">Usar dias concedidos anteriormente</option></select></div><div class="form-group" id="bloco-eleitoral-quantidade"><label class="form-label">Dias concedidos *</label><input type="number" id="lanc-quantidade-eleitoral" class="form-control" min="1" value="4"></div></div>
+                <div class="form-group" id="bloco-eleitoral-datas"><label class="form-label">Datas em que usará a(s) folga(s) *</label><div class="form-row"><input type="date" id="lanc-data-eleitoral-nova" class="form-control"><button type="button" class="btn btn-secondary" onclick="adicionarDataAbonoEleitoral_()">+ Adicionar data</button></div><input type="hidden" id="lanc-datas-eleitoral"><div id="lanc-datas-eleitoral-lista" class="eleitoral-datas-lista"></div><p class="form-help">Adicione uma ou mais datas individuais. Ex.: 4 dias concedidos com 1 data utilizada deixam saldo de 3 dias.</p></div>
+                <div id="lanc-resumo-eleitoral" class="eleitoral-resumo"><small>Selecione o servidor para consultar os saldos por pleito.</small></div>
+              </section>
+
+              <!-- Bloco 3: Horas Extras -->
+              <div class="form-row" id="bloco-horas" style="display: none; align-items: flex-end;">
+                <div class="form-group" style="flex: 2;">
+                  <label class="form-label" id="lanc-qtd-horas-label">Quantidade de Horas *</label>
+                  <input type="text" id="lanc-qtd-horas" class="form-control" placeholder="Ex: 02:00" oninput="sugerirDespacho()">
+                </div>
+                <div class="form-group" id="lanc-mes-he-grupo" style="flex: 2;">
+                  <label class="form-label">Mês (HE)</label>
+                  <select id="lanc-mes-he" class="form-control" onchange="sugerirDespacho()">
+                    <option value="">Automático</option>
+                    <option value="Janeiro">Janeiro</option>
+                    <option value="Fevereiro">Fevereiro</option>
+                    <option value="Março">Março</option>
+                    <option value="Abril">Abril</option>
+                    <option value="Maio">Maio</option>
+                    <option value="Junho">Junho</option>
+                    <option value="Julho">Julho</option>
+                    <option value="Agosto">Agosto</option>
+                    <option value="Setembro">Setembro</option>
+                    <option value="Outubro">Outubro</option>
+                    <option value="Novembro">Novembro</option>
+                    <option value="Dezembro">Dezembro</option>
+                  </select>
+                </div>
+                <div class="form-group" id="lanc-ano-he-grupo" style="flex: 1;">
+                  <label class="form-label">Ano (HE)</label>
+                  <input type="number" id="lanc-ano-he" class="form-control" placeholder="Ex: 2026" oninput="sugerirDespacho()">
+                </div>
+              </div>
+
+              <!-- Uploads de Anexos (Até 3 PDFs) -->
+              <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label">Anexar Documentos (PDF)</label>
+                <div class="anexo-dropzone-lista">
+                  <label class="anexo-dropzone" data-file-input="lanc-file-1" for="lanc-file-1">
+                    <input type="file" id="lanc-file-1" accept="application/pdf,.pdf">
+                    <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Anexo 1 — clique ou arraste o PDF</span>
+                  </label>
+                  <label class="anexo-dropzone" data-file-input="lanc-file-2" for="lanc-file-2">
+                    <input type="file" id="lanc-file-2" accept="application/pdf,.pdf">
+                    <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Anexo 2 — clique ou arraste o PDF</span>
+                  </label>
+                  <label class="anexo-dropzone" data-file-input="lanc-file-3" for="lanc-file-3">
+                    <input type="file" id="lanc-file-3" accept="application/pdf,.pdf">
+                    <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Anexo 3 — clique ou arraste o PDF</span>
+                  </label>
+                </div>
+                <div id="anexos-existentes" style="margin-top: 10px; display: none;">
+                  <p style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Anexos cadastrados:</p>
+                  <ul id="lista-anexos-existentes" style="list-style: none; font-size: 13px; margin-top: 4px;"></ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- Etapa 3: Finalização -->
+            <div id="lanc-step-3" class="wizard-step" style="display: none;">
+              <h4 style="margin-bottom: 16px; font-size: 14px; color: var(--brand-primary);">Etapa 3 de 3: Finalização</h4>
+              
+              <!-- Despacho e Observação -->
+              <div class="form-group">
+                <label class="form-label">Despacho Individual</label>
+                <input type="text" id="lanc-despacho" class="form-control" placeholder="Ex: 1º Abono, Férias Deferidas, etc...">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Observações</label>
+                <textarea id="lanc-observacao" class="form-control" rows="3" placeholder="Insira observações relevantes..."></textarea>
+              </div>
+
+              <div class="form-group" style="margin-top: 24px; padding-top: 16px; border-top: 1px dashed var(--border-color);">
+                <label class="form-label">Informar No 1Doc / Protocolo (Opcional)</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="lanc-idoc" class="form-control" placeholder="Ex: 14.129/2026">
+                  <button type="button" class="btn btn-secondary" style="flex-shrink: 0; padding: 0 12px; height: 36px;" title="Deixar sem número" onclick="document.getElementById('lanc-idoc').value = '-'">-</button>
+                </div>
+                <p class="form-help" style="font-size: 11px; margin-top: 4px; color: var(--text-muted);">Pode ser deixado em branco e preenchido depois pela ação Rápida na tabela.</p>
+              </div>
+            </div>
+
+          </div>
+          <div class="modal-footer" style="justify-content: space-between;">
+            <div>
+              <button type="button" class="btn btn-secondary" id="btn-lanc-voltar" style="display: none;" onclick="voltarPassoLancamento()">
+                <span data-lucide="arrow-left" style="width:16px; height:16px;"></span> Voltar
+              </button>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-lancamento')">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="btn-lanc-avancar" onclick="avancarPassoLancamento()">
+                Próxima Etapa <span data-lucide="arrow-right" style="width:16px; height:16px; margin-left:4px;"></span>
+              </button>
+              <button type="submit" class="btn btn-primary" id="btn-lanc-salvar" style="display: none;">
+                <span data-lucide="save" style="width:16px; height:16px; margin-right:4px;"></span> Salvar Lançamento
+              </button>
+            </div>
+          </div>
+
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 4: Visualizador de Anexos -->
+    <div class="modal-overlay" id="modal-anexos">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Visualizar Documentos</h3>
+          <button class="modal-close" onclick="fecharModal('modal-anexos')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Clique nos links abaixo para abrir os documentos armazenados no Google Drive:</p>
+          <ul id="lista-links-anexos" style="list-style: none; display: flex; flex-direction: column; gap: 12px;"></ul>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="fecharModal('modal-anexos')">Fechar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 5: Criar Novo Protocolo (Wizard com Checkbox) -->
+    <div class="modal-overlay" id="modal-criar-protocolo">
+      <div class="modal-content large">
+        <div class="modal-header">
+          <h3 class="modal-title" id="titulo-modal-protocolo">Criar Protocolo de Encaminhamento</h3>
+          <button class="modal-close" onclick="fecharModal('modal-criar-protocolo')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p id="descricao-modal-protocolo" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Selecione os lançamentos de documentos físicos pendentes que serão agrupados nesta folha de protocolo:</p>
+          
+          <div class="table-container" style="max-height: 350px; overflow-y: auto;">
+            <table class="custom-table">
+              <thead>
+                <tr>
+                  <th style="width: 40px; text-align: center;"><input type="checkbox" id="check-todos-pendentes" onchange="marcarTodosLancamentosPendentes(this)"></th>
+                  <th>Servidor (Matrícula)</th>
+                  <th>Documento</th>
+                  <th>Data Saída/Falta</th>
+                  <th>Qtd/Dias</th>
+                  <th>No 1Doc</th>
+                </tr>
+              </thead>
+              <tbody id="tabela-pendentes-protocolo-body">
+                <!-- Inserido dinamicamente via JS -->
+              </tbody>
+            </table>
+          </div>
+          
+          <div style="margin-top: 16px; background-color: var(--bg-tertiary); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 14px; color: var(--text-secondary);">Documentos selecionados para encaminhamento: <strong id="lbl-qtd-selecionados">0</strong></span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="fecharModal('modal-criar-protocolo')">Cancelar</button>
+          <button class="btn btn-primary" id="btn-gerar-protocolo" onclick="confirmarGeracaoProtocolo()">Gerar Folha de Protocolo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 6: Preview da Folha de Protocolo para Impressão -->
+    <div class="modal-overlay" id="modal-folha-protocolo">
+      <div class="modal-content large" style="background-color: #fff; color: #000;">
+        <div class="modal-header" style="border-bottom-color: #ddd; background-color: #f8f9fa; color: #000;">
+          <h3 class="modal-title" style="color: #000;">Folha de Protocolo Timbrada</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-primary" onclick="imprimirFolhaProtocoloLocal()">
+              <span data-lucide="printer"></span> Imprimir
+            </button>
+            <button class="modal-close" onclick="fecharModal('modal-folha-protocolo')" style="color: #000;">
+              <span data-lucide="x"></span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-body" id="print-area-protocolo" style="padding: 0; background-color: #fff; overflow-y: auto;">
+          <!-- HTML timbrado inserido aqui -->
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Notificação Preventiva de Férias Compulsórias -->
+    <div class="modal-overlay" id="modal-notificacao-ferias">
+      <div class="modal-content large" style="background-color: #fff; color: #000;">
+        <div class="modal-header" style="border-bottom-color: #ddd; background-color: #f8f9fa; color: #000;">
+          <h3 class="modal-title" style="color: #000;">Comunicado para Programação de Férias</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-primary" onclick="imprimirNotificacaoFeriasCompulsorias()">
+              <span data-lucide="printer"></span> Imprimir
+            </button>
+            <button class="modal-close" onclick="fecharModal('modal-notificacao-ferias')" style="color: #000;">
+              <span data-lucide="x"></span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-body" id="print-area-notificacao-ferias" style="padding: 0; background-color: #fff; overflow-y: auto;">
+          <!-- Notificação individual inserida aqui -->
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 7: Cadastro e Edição de Usuário Admin -->
+    <div class="modal-overlay" id="modal-usuario">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title" id="modal-usuario-titulo">Gerenciar Usuário</h3>
+          <button class="modal-close" onclick="fecharModal('modal-usuario')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <form id="form-usuario" onsubmit="salvarDadosUsuario(event)">
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">E-mail Google *</label>
+              <input type="email" id="usr-email" class="form-control" required placeholder="Ex: supervisor@saosebastiao.sp.gov.br">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Nome Completo *</label>
+              <input type="text" id="usr-nome" class="form-control" required placeholder="Ex: MARCOS DE SOUZA">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Papel / Nível *</label>
+                <select id="usr-papel" class="form-control" required>
+                  <option value="Administrador">Administrador</option>
+                  <option value="Operador">Operador</option>
+                  <option value="Consulta">Consulta</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Status *</label>
+                <select id="usr-ativo" class="form-control" required>
+                  <option value="Sim">Sim, Acesso Ativo</option>
+                  <option value="Não">Não, Bloquear Acesso</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-usuario')">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-usuario-salvar">Salvar Usuário</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 7B: Visualizar Perfil do Usuário Logado -->
+    <div class="modal-overlay" id="modal-perfil">
+      <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-header">
+          <h3 class="modal-title">Meu Perfil</h3>
+          <button class="modal-close" onclick="fecharModal('modal-perfil')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body" style="padding: 24px;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <div id="perfil-avatar" style="width: 72px; height: 72px; border-radius: 50%; background-color: var(--primary-color, #10b981); color: #fff; font-size: 32px; font-weight: bold; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">U</div>
+            <h4 id="perfil-nome" style="margin: 0; font-size: 20px; font-weight: 600; color: var(--text-primary);">NOME</h4>
+            <p id="perfil-papel" style="margin: 6px 0 0 0; font-size: 14px; font-weight: 500; color: var(--text-muted);">PAPEL</p>
+          </div>
+          <div style="border-top: 1px solid var(--border-color); padding-top: 16px; display: flex; flex-direction: column; gap: 16px;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; display: block;">E-mail Google</label>
+              <div id="perfil-email" style="font-size: 14px; color: var(--text-secondary);">email@saosebastiao.sp.gov.br</div>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; display: block;">Permissões do Sistema</label>
+              <div id="perfil-permissoes" style="font-size: 13px; color: var(--text-secondary); line-height: 1.5; background: var(--bg-tertiary, #f3f4f6); padding: 12px; border-radius: 8px;">permissões descritas...</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid var(--border-color);">
+          <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-perfil')">Fechar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 8: Preview de Relatório para Impressão PDF -->
+    <div class="modal-overlay" id="modal-relatorio-impressao">
+      <div class="modal-content large" style="background-color: #fff; color: #000;">
+        <div class="modal-header" style="border-bottom-color: #ddd; background-color: #f8f9fa; color: #000;">
+          <h3 class="modal-title" style="color: #000;">Relatório Geral</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-primary" onclick="imprimirRelatorioLocalNativo()">
+              <span data-lucide="printer"></span> Imprimir
+            </button>
+            <button class="modal-close" onclick="fecharModal('modal-relatorio-impressao')" style="color: #000;">
+              <span data-lucide="x"></span>
+            </button>
+          </div>
+        </div>
+        <div class="modal-body" id="print-area-relatorio" style="padding: 40px; background-color: #fff; overflow-y: auto;">
+          <!-- Relatório impresso é colocado aqui -->
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 8: Visualizador Completo (View) -->
+    <div class="modal-overlay" id="modal-view-lancamento">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Detalhes do Lançamento</h3>
+          <button class="modal-close" onclick="fecharModal('modal-view-lancamento')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 16px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px;">
+              <div><strong style="color: var(--text-secondary);">Servidor:</strong> <br><span id="view-servidor"></span></div>
+              <div><strong style="color: var(--text-secondary);">Matrícula:</strong> <br><span id="view-matricula"></span></div>
+              <div><strong style="color: var(--text-secondary);">Tipo:</strong> <br><span id="view-tipo"></span></div>
+              <div><strong style="color: var(--text-secondary);">Data Solicitação:</strong> <br><span id="view-data-sol"></span></div>
+              <div><strong style="color: var(--text-secondary);">Início / Falta:</strong> <br><span id="view-data-ini"></span></div>
+              <div><strong style="color: var(--text-secondary);">Quantidade:</strong> <br><span id="view-qtd"></span></div>
+              <div><strong style="color: var(--text-secondary);">1Doc / Protocolo:</strong> <br><strong id="view-idoc" style="color: var(--brand-primary);"></strong></div>
+              <div><strong style="color: var(--text-secondary);">Status:</strong> <br><span id="view-status"></span></div>
+              <div id="view-protocolo-vinculo-container" style="display: none;"><strong style="color: var(--text-secondary);">Folha de Protocolo:</strong> <br><a id="view-protocolo-vinculo" href="javascript:void(0)" style="color: var(--brand-primary); font-weight: bold; text-decoration: underline;"></a></div>
+            </div>
+            <div style="margin-top: 12px; font-size: 14px;">
+              <strong style="color: var(--text-secondary);">Despacho:</strong> <br><span id="view-despacho"></span>
+            </div>
+            <div style="margin-top: 12px; font-size: 14px;">
+              <strong style="color: var(--text-secondary);">Observações:</strong> <br><span id="view-obs"></span>
+            </div>
+            <div style="margin-top: 12px; font-size: 14px; display: none;" id="view-anexos-container">
+              <strong style="color: var(--text-secondary);">Anexos:</strong> <br><div id="view-anexos" style="margin-top: 6px;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content: space-between;">
+          <button type="button" class="btn btn-secondary" onclick="fecharModal('modal-view-lancamento')">Fechar</button>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-primary" id="btn-view-quick-1doc">Informar 1Doc</button>
+            <button type="button" class="btn btn-secondary" id="btn-view-editar">
+              <span data-lucide="edit-3" style="width:16px; height:16px; margin-right:4px;"></span> Editar Tudo
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 9: Preenchimento Rápido de 1Doc -->
+    <div class="modal-overlay" id="modal-quick-1doc" style="z-index: 10000;">
+      <div class="modal-content small" style="max-width: 540px;">
+        <div class="modal-header">
+          <h3 class="modal-title">Informar Protocolo 1Doc</h3>
+          <button class="modal-close" onclick="fecharModal('modal-quick-1doc')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="quick-1doc-dados-titulo">Dados para preencher o 1Doc</p>
+          <div class="quick-1doc-dados">
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Nome</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-servidor">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-servidor', 'Nome')" title="Copiar nome" aria-label="Copiar nome"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Matrícula</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-matricula">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-matricula', 'Matrícula')" title="Copiar matrícula" aria-label="Copiar matrícula"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Cargo</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-cargo">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-cargo', 'Cargo')" title="Copiar cargo" aria-label="Copiar cargo"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">Lotação</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-lotacao">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-lotacao', 'Lotação')" title="Copiar lotação" aria-label="Copiar lotação"><span data-lucide="copy"></span></button>
+            </div>
+            <div class="quick-1doc-dado">
+              <span class="quick-1doc-dado-rotulo">E-mail</span>
+              <span class="quick-1doc-dado-valor" id="quick-1doc-email">-</span>
+              <button type="button" class="ficha-btn-copiar" onclick="copiarCampoFicha('quick-1doc-email', 'E-mail')" title="Copiar e-mail" aria-label="Copiar e-mail"><span data-lucide="copy"></span></button>
+            </div>
+          </div>
+          <p class="quick-1doc-dados-titulo">Lançamento selecionado</p>
+          <div class="quick-1doc-resumo-lancamento">
+            <div class="quick-1doc-resumo-item quick-1doc-resumo-tipo">
+              <span>Tipo de documento</span>
+              <strong id="quick-1doc-tipo">-</strong>
+            </div>
+            <div class="quick-1doc-resumo-item">
+              <span>Saída / Falta</span>
+              <strong id="quick-1doc-data">-</strong>
+            </div>
+            <div class="quick-1doc-resumo-item">
+              <span>Dias / Qtd.</span>
+              <strong id="quick-1doc-quantidade">-</strong>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nº 1Doc (Protocolo)</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="quick-idoc-input" class="form-control" placeholder="Ex: 14.129/2026">
+              <button type="button" class="btn btn-secondary" style="flex-shrink: 0; padding: 0 12px; height: 36px;" title="Deixar sem número" onclick="document.getElementById('quick-idoc-input').value = '-'">-</button>
+            </div>
+            <input type="hidden" id="quick-idoc-linha" value="">
+          </div>
+          <div class="form-group" id="quick-1doc-anexo-container" style="display: none; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border-color);">
+            <label class="form-label">Adicionar anexo PDF (opcional)</label>
+            <label class="anexo-dropzone" data-file-input="quick-1doc-anexo" for="quick-1doc-anexo">
+              <input type="file" id="quick-1doc-anexo" accept="application/pdf,.pdf">
+              <span data-lucide="upload-cloud"></span><span class="anexo-dropzone-texto">Clique ou arraste o PDF</span>
+            </label>
+            <p class="form-help" style="font-size: 11px; margin-top: 5px; color: var(--text-muted);">Disponível porque este lançamento ainda não possui anexos. Limite de 10 MB.</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="fecharModal('modal-quick-1doc')">Cancelar</button>
+          <button class="btn btn-primary" id="quick-1doc-salvar" onclick="salvarQuick1Doc()">Salvar Protocolo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILA SEGURA DE SINCRONIZAÇÃO -->
+    <div class="modal-overlay" id="modal-fila-sincronizacao" style="z-index: 10001;">
+      <div class="modal-content" style="max-width: 720px;">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">Fila segura de sincronização</h3>
+            <p class="fila-modal-subtitulo">Documentos preservados mesmo após fechar ou recarregar a página.</p>
+          </div>
+          <button class="modal-close" onclick="fecharModal('modal-fila-sincronizacao')" aria-label="Fechar">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div id="fila-sincronizacao-lista" class="fila-sincronizacao-lista"></div>
+          <div class="fila-historico-cabecalho"><strong>Atividade em segundo plano</strong><small>O que o sistema está fazendo nesta sessão</small></div>
+          <div id="fila-sincronizacao-historico" class="fila-sincronizacao-historico"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="carregarOperacoesPendentesServidor(false)">
+            <span data-lucide="refresh-cw"></span> Atualizar
+          </button>
+          <button class="btn btn-primary" onclick="fecharModal('modal-fila-sincronizacao')">Fechar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICATIONS -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- MODAL CUSTOM CONFIRM -->
+    <div class="modal-overlay" id="modal-confirm" style="z-index: 9999;">
+      <div class="modal-content small" style="max-width: 450px;">
+        <div class="modal-header">
+          <h3 class="modal-title" id="confirm-title">Confirmação</h3>
+          <button class="modal-close" onclick="fecharModal('modal-confirm')">
+            <span data-lucide="x"></span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <p id="confirm-message" style="font-size: 14px; margin-bottom: 10px; color: var(--text-secondary);"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="confirm-btn-cancel">Cancelar</button>
+          <button class="btn btn-primary" id="confirm-btn-ok">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- WIDGET ENTIDADE (ASSISTENTE IA) -->
+    <div id="entidade-widget" class="entidade-widget">
+      <!-- Chat Window -->
+      <div id="entidade-chat-window" class="entidade-chat-window" style="display: none;">
+        <div class="entidade-header">
+          <div class="entidade-title">
+            <span data-lucide="ghost" style="width: 17px; height: 17px;"></span>
+            <strong>Entidade</strong>
+            <span class="entidade-status" id="entidade-status-text">Online</span>
+          </div>
+          <button class="entidade-close" onclick="fecharChatEntidade()"><span data-lucide="x" style="width: 18px; height: 18px;"></span></button>
+        </div>
+        
+        <div class="entidade-messages" id="entidade-messages"></div>
+        
+        <div class="entidade-chips" id="entidade-chips" style="display: none;">
+          <!-- Chips gerados dinamicamente via JS -->
+        </div>
+
+        <div class="entidade-input-area">
+          <input type="text" id="entidade-input" placeholder="Pergunte algo ou peça uma ação..." onkeypress="entidadeKeyPress(event)">
+          <button id="entidade-send-btn" onclick="enviarMensagemEntidade()">
+            <span data-lucide="send" style="width: 16px; height: 16px;"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Floating Button -->
+      <button id="entidade-fab" class="entidade-fab" onclick="toggleChatEntidade()" title="Abrir Entidade" aria-label="Abrir Entidade" style="display: none;">
+        <span data-lucide="ghost" id="entidade-fab-icon"></span>
+      </button>
+    </div>
+
+    <!-- AUDIO PARA NOTIFICAÇÃO -->
+    <audio id="entidade-audio" src="https://www.soundjay.com/buttons/sounds/button-10.mp3" preload="auto"></audio>
+
+    <!-- Scripts da Interface -->
+    <?!= incluir("Scripts"); ?>
+    <?!= incluir("HeModelAssets"); ?>
+    <?!= incluir("RepEnhancements"); ?>
+    <?!= incluir("RepHorasExtrasAssets"); ?>
+    <?!= incluir("RepHorasExtras"); ?>
+  </body>
+</html>

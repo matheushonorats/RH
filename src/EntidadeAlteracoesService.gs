@@ -114,55 +114,33 @@ function confirmarAlteracaoAssistidaEntidade(token) {
   const usuario = obterDadosUsuarioLogado();
   if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para confirmar alterações de cadastro.');
   const chave = 'ENTIDADE_PROPOSTA_' + String(token || '');
-  let proposta = null;
-  try { proposta = JSON.parse(PropertiesService.getScriptProperties().getProperty(chave) || 'null'); } catch (e) {}
-  if (!proposta) throw new Error('Esta proposta não existe mais. Peça a alteração novamente.');
-  if (Date.now() > Number(proposta.expiraEm || 0)) {
-    PropertiesService.getScriptProperties().deleteProperty(chave);
-    throw new Error('Esta proposta expirou. Peça a alteração novamente.');
-  }
-  if (String(proposta.usuarioEmail || '').toLowerCase() !== String(usuario.email || '').toLowerCase()) {
-    throw new Error('Esta proposta pertence a outro usuário.');
-  }
-
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  const consumo = iniciarConsumoPropostaEntidade_(chave, String(usuario.email || '').toLowerCase());
+  if (consumo.concluida) return consumo.resultado;
+  const proposta = consumo.proposta;
   try {
-    const ss = obterPlanilha_();
-    const aba = ss.getSheetByName('Servidores');
-    if (!aba || aba.getLastRow() <= 1) throw new Error('A aba Servidores não está disponível.');
-    const dados = aba.getDataRange().getValues();
-    const cabecalho = dados[0];
-    const idxMatricula = indiceCabecalho_(cabecalho, ['MATRICULA']);
-    const configuracao = obterConfiguracaoCampoAssistido_(proposta.campo, cabecalho);
-    if (idxMatricula === -1 || !configuracao || configuracao.indice === -1) throw new Error('A estrutura da aba Servidores foi alterada. Gere uma nova proposta.');
-
-    let linha = -1;
-    for (let i = 1; i < dados.length; i++) {
-      if (normalizarChaveMatricula_(dados[i][idxMatricula]) === normalizarChaveMatricula_(proposta.matricula)) {
-        linha = i + 1;
-        break;
-      }
-    }
-    if (linha === -1) throw new Error('O servidor não foi localizado. Gere uma nova proposta.');
-    const valorAtual = String(dados[linha - 1][configuracao.indice] || '').trim();
+    const atual = obterListaServidores().find(function(item) {
+      return normalizarChaveMatricula_(item.matricula) === normalizarChaveMatricula_(proposta.matricula);
+    });
+    if (!atual) throw new Error('O servidor não foi localizado. Gere uma nova proposta.');
+    const valorAtual = String(atual[proposta.campo] || '').trim();
     if (valorAtual !== String(proposta.valorAntes || '').trim()) {
       throw new Error('O cadastro mudou desde a proposta. Revise e gere uma nova alteração.');
     }
-
-    aba.getRange(linha, configuracao.indice + 1).setValue(proposta.valorDepois);
-    lancarLogSemLock_(
-      'ALTERACAO_ASSISTIDA_IA',
-      'Servidores',
-      'Alteração confirmada pelo usuário a partir de proposta da Entidade: ' + proposta.campoRotulo + ' de ' + proposta.nome + ' (Matrícula: ' + proposta.matricula + ')',
-      proposta.campoRotulo,
-      proposta.valorAntes,
-      proposta.valorDepois,
-      proposta.matricula
-    );
-    PropertiesService.getScriptProperties().deleteProperty(chave);
-    return { sucesso: true, matricula: proposta.matricula, nome: proposta.nome, campoRotulo: proposta.campoRotulo, valorDepois: proposta.valorDepois };
-  } finally {
-    lock.releaseLock();
+    const partesAdmissao = String(atual.admissao || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const dadosServidor = {
+      nome: atual.nome, matricula: atual.matricula, cargo: atual.cargo, lotacao: atual.lotacao,
+      admissao: partesAdmissao ? partesAdmissao[3] + '-' + partesAdmissao[2] + '-' + partesAdmissao[1] : '',
+      situacao: atual.situacao, email: atual.email, pis: atual.pis, aniversario: atual.aniversario,
+      aniversarioInformado: Boolean(atual.aniversario), ativo: atual.status === 'Inativo' ? 'Não' : 'Sim',
+      penalidadeFerias: atual.penalidadeFerias || 0, penalidadeAbono: atual.penalidadeAbono || 0
+    };
+    dadosServidor[proposta.campo] = proposta.valorDepois;
+    salvarServidor(dadosServidor);
+    const resultado = { sucesso: true, matricula: proposta.matricula, nome: proposta.nome, campoRotulo: proposta.campoRotulo, valorDepois: proposta.valorDepois };
+    finalizarConsumoPropostaEntidade_(chave, consumo.dono, resultado);
+    return resultado;
+  } catch (e) {
+    liberarConsumoPropostaEntidade_(chave, consumo.dono);
+    throw e;
   }
 }

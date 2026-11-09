@@ -36,14 +36,21 @@ function localizarServidorAssistido_(servidores, matricula) {
   }) || null;
 }
 
+function dataIsoAssistidaValida_(valor) {
+  const partes = String(valor || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!partes) return false;
+  const data = new Date(Number(partes[1]), Number(partes[2]) - 1, Number(partes[3]));
+  return data.getFullYear() === Number(partes[1]) && data.getMonth() === Number(partes[2]) - 1 && data.getDate() === Number(partes[3]);
+}
+
 function validarPropostaLancamentoAssistido_(proposta, tipos, servidores) {
   const pendencias = [];
   const servidor = localizarServidorAssistido_(servidores, proposta.matricula);
   const tipo = localizarTipoDocumentoAssistido_(tipos, proposta.tipo);
   proposta.matricula = servidor ? String(servidor.matricula) : String(proposta.matricula || '').trim();
   proposta.tipo = tipo ? tipo.nome : String(proposta.tipo || '').trim();
-  proposta.dataInicio = /^\d{4}-\d{2}-\d{2}$/.test(String(proposta.dataInicio || '')) ? proposta.dataInicio : '';
-  proposta.dataSolicitacao = /^\d{4}-\d{2}-\d{2}$/.test(String(proposta.dataSolicitacao || '')) ? proposta.dataSolicitacao : Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  proposta.dataInicio = dataIsoAssistidaValida_(proposta.dataInicio) ? proposta.dataInicio : '';
+  proposta.dataSolicitacao = dataIsoAssistidaValida_(proposta.dataSolicitacao) ? proposta.dataSolicitacao : '';
   proposta.dias = Math.max(0, parseInt(proposta.dias, 10) || 0);
   proposta.qtdHoras = String(proposta.qtdHoras || '').trim();
   proposta.idoc = String(proposta.idoc || '').trim();
@@ -53,6 +60,7 @@ function validarPropostaLancamentoAssistido_(proposta, tipos, servidores) {
   if (!servidor) pendencias.push('Não identifiquei uma matrícula válida do servidor no documento.');
   if (!tipo) pendencias.push('Não identifiquei um tipo de documento cadastrado e ativo.');
   if (!proposta.dataInicio) pendencias.push('Não identifiquei com segurança a data de início/ocorrência.');
+  if (!proposta.dataSolicitacao) pendencias.push('Não identifiquei com segurança a data de solicitação; ela deve ser informada antes da confirmação.');
   if (proposta.tipo === 'Autorização de Horas Extras') {
     if (!/^\d{1,2}:\d{2}$/.test(proposta.qtdHoras)) pendencias.push('Informe a quantidade de horas no formato HH:MM.');
   } else if (proposta.tipo) {
@@ -121,39 +129,29 @@ function confirmarLancamentoAssistidoEntidade(token, arquivoDrive) {
   const usuario = obterDadosUsuarioLogado();
   if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para confirmar lançamentos.');
   const chave = 'ENTIDADE_LANCAMENTO_' + String(token || '');
-  let proposta = null;
-  try { proposta = JSON.parse(PropertiesService.getScriptProperties().getProperty(chave) || 'null'); } catch (e) {}
-  if (!proposta) throw new Error('Esta proposta não existe mais. Analise o PDF novamente.');
-  if (Date.now() > Number(proposta.expiraEm || 0)) {
-    PropertiesService.getScriptProperties().deleteProperty(chave);
-    throw new Error('A proposta expirou. Analise o PDF novamente.');
+  const consumo = iniciarConsumoPropostaEntidade_(chave, obterIdentidadeEntidade_(usuario));
+  if (consumo.concluida) return consumo.resultado;
+  const proposta = consumo.proposta;
+  try {
+    const idArquivo = String(arquivoDrive && arquivoDrive.id || '');
+    if (!idArquivo) throw new Error('O PDF não foi enviado ao Drive.');
+    let arquivo = null;
+    try { arquivo = DriveApp.getFileById(idArquivo); } catch (e) { throw new Error('Não foi possível validar o PDF enviado.'); }
+    if (arquivo.getMimeType() !== MimeType.PDF) throw new Error('O anexo confirmado precisa ser um PDF.');
+
+    salvarLancamento({
+      operacaoId: proposta.token,
+      linhaPlanilha: '', tipo: proposta.tipo, idoc: proposta.idoc, matricula: proposta.matricula,
+      dataSolicitacao: proposta.dataSolicitacao, dataInicio: proposta.dataInicio, dias: proposta.dias,
+      qtdHoras: proposta.qtdHoras, mesHE: '', anoHE: '', despacho: proposta.despacho,
+      observacao: proposta.observacao, anexo1: arquivo.getUrl(), anexo2: '', anexo3: ''
+    });
+    const resultado = { sucesso: true, nome: proposta.nome, tipo: proposta.tipo, matricula: proposta.matricula };
+    finalizarConsumoPropostaEntidade_(chave, consumo.dono, resultado);
+    lancarLog('LANCAMENTO_ASSISTIDO_IA', 'Lançamentos', 'Lançamento confirmado pelo usuário após leitura assistida de PDF: ' + proposta.tipo + ' para ' + proposta.nome, 'Lançamento', '', JSON.stringify({ matricula: proposta.matricula, tipo: proposta.tipo, arquivo: arquivo.getName() }), proposta.matricula);
+    return resultado;
+  } catch (e) {
+    liberarConsumoPropostaEntidade_(chave, consumo.dono);
+    throw e;
   }
-  if (obterIdentidadeEntidade_(usuario) !== String(proposta.usuario || '')) throw new Error('Esta proposta pertence a outro usuário.');
-
-  const idArquivo = String(arquivoDrive && arquivoDrive.id || '');
-  if (!idArquivo) throw new Error('O PDF não foi enviado ao Drive.');
-  let arquivo = null;
-  try { arquivo = DriveApp.getFileById(idArquivo); } catch (e) { throw new Error('Não foi possível validar o PDF enviado.'); }
-  if (arquivo.getMimeType() !== MimeType.PDF) throw new Error('O anexo confirmado precisa ser um PDF.');
-
-  salvarLancamento({
-    linhaPlanilha: '',
-    tipo: proposta.tipo,
-    idoc: proposta.idoc,
-    matricula: proposta.matricula,
-    dataSolicitacao: proposta.dataSolicitacao,
-    dataInicio: proposta.dataInicio,
-    dias: proposta.dias,
-    qtdHoras: proposta.qtdHoras,
-    mesHE: '',
-    anoHE: '',
-    despacho: proposta.despacho,
-    observacao: proposta.observacao,
-    anexo1: arquivo.getUrl(),
-    anexo2: '',
-    anexo3: ''
-  });
-  PropertiesService.getScriptProperties().deleteProperty(chave);
-  lancarLog('LANCAMENTO_ASSISTIDO_IA', 'Lançamentos', 'Lançamento confirmado pelo usuário após leitura assistida de PDF: ' + proposta.tipo + ' para ' + proposta.nome, 'Lançamento', '', JSON.stringify({ matricula: proposta.matricula, tipo: proposta.tipo, arquivo: arquivo.getName() }), proposta.matricula);
-  return { sucesso: true, nome: proposta.nome, tipo: proposta.tipo, matricula: proposta.matricula };
 }

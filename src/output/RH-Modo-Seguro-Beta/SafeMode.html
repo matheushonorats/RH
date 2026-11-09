@@ -1,0 +1,210 @@
+<script>
+/**
+ * Modo Seguro Beta
+ *
+ * Esta camada nunca grava dados de RH no servidor. Ela controla somente a
+ * preferencia local de desempenho e a copia de leitura no IndexedDB.
+ * Todas as mutacoes continuam sendo executadas pelas APIs oficiais existentes.
+ */
+const SafeMode = (() => {
+  const MODE_CLASSIC = 'classic';
+  const MODE_ACCELERATED = 'accelerated';
+  const DB_NAME = 'SETUR_RH_SAFE_BETA';
+  const DB_VERSION = 1;
+  const SNAPSHOT_STORE = 'snapshots';
+  const SCHEMA_VERSION = 1;
+  const MAX_SNAPSHOT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+  function currentEmail() {
+    try {
+      const user = JSON.parse(localStorage.getItem('rh_user') || '{}');
+      return String(user.email || '').toLowerCase().trim();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function preferenceKey(email) {
+    return 'rh_safe_mode_v1_' + encodeURIComponent(email || 'anonymous');
+  }
+
+  function getMode() {
+    const email = currentEmail();
+    if (!email) return MODE_CLASSIC;
+    return localStorage.getItem(preferenceKey(email)) === MODE_ACCELERATED
+      ? MODE_ACCELERATED
+      : MODE_CLASSIC;
+  }
+
+  function setMode(mode) {
+    const email = currentEmail();
+    if (!email) throw new Error('Entre no sistema antes de alterar o modo.');
+    const normalized = mode === MODE_ACCELERATED ? MODE_ACCELERATED : MODE_CLASSIC;
+    localStorage.setItem(preferenceKey(email), normalized);
+    updateIndicators();
+    return normalized;
+  }
+
+  function isAccelerated() {
+    return getMode() === MODE_ACCELERATED;
+  }
+
+  function openDatabase() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error('IndexedDB indisponivel.'));
+      let encerrado = false;
+      const timer = setTimeout(() => {
+        encerrado = true;
+        reject(new Error('O banco local demorou a responder. A abertura seguirá pela nuvem.'));
+      }, 3000);
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = event => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(SNAPSHOT_STORE)) {
+          db.createObjectStore(SNAPSHOT_STORE, { keyPath: 'usuarioEmail' });
+        }
+      };
+      request.onsuccess = () => {
+        clearTimeout(timer);
+        if (encerrado) { request.result.close(); return; }
+        encerrado = true;
+        request.result.onversionchange = () => request.result.close();
+        resolve(request.result);
+      };
+      function falhar(erro) {
+        clearTimeout(timer);
+        encerrado = true;
+        reject(erro);
+      }
+      request.onerror = () => falhar(request.error || new Error('Falha ao abrir o banco local.'));
+      request.onblocked = () => falhar(new Error('Banco local bloqueado por outra aba.'));
+    });
+  }
+
+  async function withStore(mode, callback) {
+    const db = await openDatabase();
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction(SNAPSHOT_STORE, mode);
+        const store = transaction.objectStore(SNAPSHOT_STORE);
+        let result;
+        try { result = callback(store); } catch (error) { reject(error); return; }
+        transaction.oncomplete = () => resolve(result);
+        transaction.onerror = () => reject(transaction.error || new Error('Falha no banco local.'));
+        transaction.onabort = () => reject(transaction.error || new Error('Operacao local cancelada.'));
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  async function saveSnapshot(snapshot) {
+    if (!isAccelerated()) return false;
+    const email = currentEmail();
+    if (!email) return false;
+    const record = Object.assign({}, snapshot, {
+      usuarioEmail: email,
+      schemaVersion: SCHEMA_VERSION,
+      savedAt: Date.now()
+    });
+    await withStore('readwrite', store => store.put(record));
+    return true;
+  }
+
+  async function loadSnapshot() {
+    if (!isAccelerated()) return null;
+    const email = currentEmail();
+    if (!email) return null;
+    const db = await openDatabase();
+    try {
+      const record = await new Promise((resolve, reject) => {
+        const transaction = db.transaction(SNAPSHOT_STORE, 'readonly');
+        const request = transaction.objectStore(SNAPSHOT_STORE).get(email);
+        const timer = setTimeout(() => {
+          reject(new Error('A cópia local demorou a responder. A abertura seguirá pela nuvem.'));
+          try { transaction.abort(); } catch (e) {}
+        }, 3000);
+        request.onsuccess = () => { clearTimeout(timer); resolve(request.result || null); };
+        request.onerror = () => { clearTimeout(timer); reject(request.error || new Error('Falha ao ler a copia local.')); };
+        transaction.onabort = () => { clearTimeout(timer); reject(new Error('A leitura da cópia local foi interrompida.')); };
+      });
+      if (!record) return null;
+      if (record.schemaVersion !== SCHEMA_VERSION) return null;
+      if (String(record.usuarioEmail || '').toLowerCase() !== email) return null;
+      if (!record.savedAt || Date.now() - Number(record.savedAt) > MAX_SNAPSHOT_AGE_MS) return null;
+      if (!Array.isArray(record.servidores) || !Array.isArray(record.lancamentos) || !Array.isArray(record.protocolos)) return null;
+      return record;
+    } finally {
+      db.close();
+    }
+  }
+
+  async function clearSnapshot() {
+    const email = currentEmail();
+    if (!email || !window.indexedDB) return false;
+    try {
+      await withStore('readwrite', store => store.delete(email));
+      return true;
+    } catch (e) {
+      console.warn('Nao foi possivel limpar a copia IndexedDB.', e);
+      return false;
+    }
+  }
+
+  function updateIndicators() {
+    const mode = getMode();
+    document.querySelectorAll('[data-safe-mode-indicator]').forEach(element => {
+      element.textContent = mode === MODE_ACCELERATED ? 'Acelerado - Beta' : 'Classico';
+      element.dataset.mode = mode;
+    });
+    const classic = document.getElementById('safe-mode-classic');
+    const accelerated = document.getElementById('safe-mode-accelerated');
+    if (classic) classic.checked = mode === MODE_CLASSIC;
+    if (accelerated) accelerated.checked = mode === MODE_ACCELERATED;
+  }
+
+  async function selectMode(mode) {
+    const previous = getMode();
+    const normalized = mode === MODE_ACCELERATED ? MODE_ACCELERATED : MODE_CLASSIC;
+    if (previous === normalized) return;
+    const confirmed = await abrirConfirm(
+      normalized === MODE_ACCELERATED
+        ? 'Ativar o modo Acelerado neste navegador? As gravações continuam na base oficial e não é necessário recarregar agora.'
+        : 'Voltar ao modo Clássico neste navegador? Os dados e as pendências serão preservados; a próxima abertura carregará pela nuvem.',
+      'Alterar modo de funcionamento'
+    );
+    if (!confirmed) {
+      updateIndicators();
+      return;
+    }
+    setMode(normalized);
+    // A troca é apenas de estratégia de leitura. Não recarregue o iframe do
+    // Apps Script nem apague dados locais durante uma gravação em andamento.
+    mostrarToast('Modo alterado. A próxima abertura usará essa preferência; você pode continuar trabalhando.', 'success');
+  }
+
+  async function emergencyReset() {
+    const confirmed = await abrirConfirm(
+      'Isso remove somente a copia acelerada deste usuario neste navegador. Nenhum dado das Planilhas ou do Drive sera apagado. Continuar?',
+      'Limpar copia local'
+    );
+    if (!confirmed) return;
+    await clearSnapshot();
+    mostrarToast('Copia local removida. Os dados oficiais permanecem intactos.', 'success');
+  }
+
+  return {
+    MODE_CLASSIC,
+    MODE_ACCELERATED,
+    getMode,
+    setMode,
+    isAccelerated,
+    saveSnapshot,
+    loadSnapshot,
+    clearSnapshot,
+    updateIndicators,
+    selectMode,
+    emergencyReset
+  };
+})();
+</script>

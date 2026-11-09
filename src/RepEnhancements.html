@@ -395,6 +395,8 @@ function garantirModalLancamentosLoteRep_() {
   modal.className = 'modal-overlay';
   modal.id = 'modal-lancamentos-lote-rep';
   modal.innerHTML = `<div class="modal-content rep-lote-modal"><div class="modal-header"><div><h3 class="modal-title">Ajustes de ponto em lote</h3><small id="rep-lote-servidor"></small></div><button class="modal-close" onclick="fecharModal('modal-lancamentos-lote-rep')"><span data-lucide="x"></span></button></div><div class="modal-body"><p class="rep-lote-intro">Registre as marcações na ordem do cartão. Use Tab para avançar entre manhã, tarde e extra.</p><section class="rep-lote-secao"><header><div><strong>Marcações do cartão</strong><small>Manhã, tarde e período extra, com entrada e saída.</small></div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaMarcacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia</button></header><div class="rep-lote-table-wrap"><table class="rep-lote-table rep-lote-marcacoes"><thead><tr><th rowspan="2">Dia</th><th colspan="2">Manhã</th><th colspan="2">Tarde</th><th colspan="2">Extra</th><th rowspan="2">Local</th><th rowspan="2">Motivo (opcional)</th><th rowspan="2"></th></tr><tr><th>Entrada</th><th>Saída</th><th>Entrada</th><th>Saída</th><th>Entrada</th><th>Saída</th></tr></thead><tbody id="rep-lote-marcacoes"></tbody></table></div></section><details class="rep-lote-secao rep-lote-compensacao-detalhes"><summary><span><strong>Compensação de horas</strong><small>Abra somente quando houver autorização do servidor.</small></span></summary><div class="rep-lote-compensacao-conteudo"><div class="rep-lote-autorizacao-cabecalho"><div><strong>Limites autorizados no documento</strong><small>Informe o dia de HE e o teto que o servidor autorizou utilizar.</small></div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaAutorizacaoCompensacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia autorizado</button></div><div id="rep-lote-autorizacoes" class="rep-lote-autorizacoes"></div><header><div><strong>Dias que serão compensados</strong><small>Localize os débitos e preencha automaticamente somente até o limite autorizado.</small></div><div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaCompensacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia</button><button type="button" class="btn btn-secondary" onclick="adicionarDeficitsCompensacaoLoteRep_()"><span data-lucide="search"></span> Localizar débitos</button><button type="button" class="btn btn-primary rep-lote-preencher" onclick="preencherCompensacoesLoteRep_()"><span data-lucide="wand-sparkles"></span> Preencher débitos</button></div></header><div class="rep-lote-table-wrap"><table class="rep-lote-table rep-lote-compensacoes"><thead><tr><th>Dia com atraso/falta</th><th>Compensar com horas extras dos dias</th><th>Total compensado</th><th>Motivo (opcional)</th><th></th></tr></thead><tbody id="rep-lote-compensacoes"></tbody></table></div></div></details><div class="rep-lote-status" id="rep-lote-status"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal('modal-lancamentos-lote-rep')">Cancelar</button><button type="button" class="btn btn-primary" id="rep-lote-salvar" onclick="salvarLancamentosLoteRep_()"><span data-lucide="save"></span> Salvar todos os ajustes</button></div></div>`;
+  const secaoMarcacoes = modal.querySelector('.rep-lote-secao');
+  if (secaoMarcacoes) secaoMarcacoes.insertAdjacentHTML('afterbegin', `<div id="rep-cartao-ia" class="rep-cartao-ia" hidden><div class="rep-cartao-ia-cabecalho"><span class="rep-cartao-ia-icone"><span data-lucide="scan-line"></span></span><div><strong>Ler cartão preenchido com IA</strong><small>Envie duas fotos ou um PDF com as duas páginas. A leitura apenas preenche uma proposta para você conferir; nada é salvo automaticamente.</small></div></div><div class="rep-cartao-ia-arquivos"><label class="rep-cartao-ia-arquivo"><input id="rep-cartao-ia-frente" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" onchange="atualizarArquivoCartaoIA_(this,'frente')"><span data-lucide="file-up"></span><b>Frente ou PDF completo</b><small id="rep-cartao-ia-frente-nome">Escolher foto ou PDF</small></label><label class="rep-cartao-ia-arquivo"><input id="rep-cartao-ia-verso" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" onchange="atualizarArquivoCartaoIA_(this,'verso')"><span data-lucide="file-up"></span><b>Verso · dias 16 a 31</b><small id="rep-cartao-ia-verso-nome">Opcional se o PDF tiver as duas páginas</small></label></div><div class="rep-cartao-ia-acoes"><p><b>Privacidade:</b> os arquivos são enviados à IA configurada somente para esta leitura. Eles não são gravados no Drive nem nas planilhas.</p><button type="button" class="btn btn-primary" id="rep-cartao-ia-analisar" onclick="analisarCartaoManualIA_()"><span data-lucide="wand-sparkles"></span> Ler e preencher horários</button></div><div id="rep-cartao-ia-status" class="rep-cartao-ia-status" aria-live="polite"></div><div id="rep-cartao-ia-resultado" class="rep-cartao-ia-resultado" hidden></div></div>`);
   const cabecalhoDiasCompensacao = modal.querySelector('.rep-lote-compensacao-conteudo > header');
   if (cabecalhoDiasCompensacao) {
     cabecalhoDiasCompensacao.insertAdjacentHTML('beforebegin', `<section class="rep-lote-formato-compensacao"><span><strong>Visualização dos valores</strong><small>Use horas ou minutos nos mesmos campos de autorização e compensação.</small></span><div class="rep-lote-formato-botoes" role="group" aria-label="Formato dos valores"><button type="button" class="ativo" data-formato="horas" onclick="definirFormatoCompensacaoLoteRep_('horas')">HH:MM</button><button type="button" data-formato="minutos" onclick="definirFormatoCompensacaoLoteRep_('minutos')">Minutos</button></div></section>`);
@@ -425,6 +427,172 @@ function adicionarLinhaMarcacaoLoteRep_(data, local, eventosExistentes) {
   corpo.appendChild(tr);
   if (cartaoManual) ativarNavegacaoPlanilhaCartaoManualRep_(tr);
   renderizarIcones();
+}
+
+function atualizarArquivoCartaoIA_(input, lado) {
+  const nome = document.getElementById('rep-cartao-ia-' + lado + '-nome');
+  const arquivo = input && input.files && input.files[0];
+  if (nome) nome.textContent = arquivo ? arquivo.name : (lado === 'verso' ? 'Opcional se o PDF tiver as duas páginas' : 'Escolher foto ou PDF');
+  input?.closest('.rep-cartao-ia-arquivo')?.classList.toggle('selecionado', Boolean(arquivo));
+}
+
+function prepararArquivoCartaoIA_(arquivo) {
+  return new Promise(function(resolve, reject) {
+    const tipo = String(arquivo?.type || '').toLowerCase();
+    if (!arquivo || !/^(image\/(jpeg|png|webp)|application\/pdf)$/i.test(tipo)) return reject(new Error('Use JPG, PNG, WEBP ou PDF.'));
+    if (tipo === 'application/pdf') {
+      if (arquivo.size > 8 * 1024 * 1024) return reject(new Error('O PDF ultrapassa 8 MB. Reduza-o antes de tentar novamente.'));
+      const leitor = new FileReader();
+      leitor.onerror = function() { reject(new Error('Não foi possível abrir o PDF.')); };
+      leitor.onload = function() {
+        const base64 = String(leitor.result || '').split(',')[1] || '';
+        if (!base64) return reject(new Error('Não foi possível preparar o PDF.'));
+        resolve({ mimeType: 'application/pdf', base64: base64, nome: arquivo.name || 'cartao.pdf' });
+      };
+      leitor.readAsDataURL(arquivo);
+      return;
+    }
+    if (arquivo.size > 20 * 1024 * 1024) return reject(new Error('A imagem original ultrapassa 20 MB. Reduza-a antes de tentar novamente.'));
+    const url = URL.createObjectURL(arquivo);
+    const imagem = new Image();
+    imagem.onload = function() {
+      try {
+        const maiorLado = Math.max(imagem.naturalWidth, imagem.naturalHeight);
+        const escalaInicial = Math.min(1, 2400 / Math.max(1, maiorLado));
+        let largura = Math.max(1, Math.round(imagem.naturalWidth * escalaInicial));
+        let altura = Math.max(1, Math.round(imagem.naturalHeight * escalaInicial));
+        let qualidade = 0.9;
+        let dataUrl = '';
+        for (let tentativa = 0; tentativa < 5; tentativa++) {
+          const canvas = document.createElement('canvas');
+          canvas.width = largura;
+          canvas.height = altura;
+          const contexto = canvas.getContext('2d', { alpha: false });
+          if (!contexto) throw new Error('O navegador não conseguiu preparar a imagem. Atualize a página e tente novamente.');
+          contexto.fillStyle = '#ffffff';
+          contexto.fillRect(0, 0, largura, altura);
+          contexto.drawImage(imagem, 0, 0, largura, altura);
+          dataUrl = canvas.toDataURL('image/jpeg', qualidade);
+          if (Math.floor(dataUrl.length * 3 / 4) <= 5.7 * 1024 * 1024) break;
+          largura = Math.max(900, Math.round(largura * 0.82));
+          altura = Math.max(900, Math.round(altura * 0.82));
+          qualidade = Math.max(0.68, qualidade - 0.07);
+        }
+        const base64 = String(dataUrl.split(',')[1] || '');
+        if (!base64) throw new Error('Não foi possível preparar a imagem.');
+        resolve({ mimeType: 'image/jpeg', base64: base64, nome: arquivo.name || 'cartao.jpg' });
+      } catch (erro) {
+        reject(erro);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    imagem.onerror = function() { URL.revokeObjectURL(url); reject(new Error('Não foi possível abrir uma das imagens.')); };
+    imagem.src = url;
+  });
+}
+
+function prepararImagemCartaoIA_(arquivo) {
+  return prepararArquivoCartaoIA_(arquivo);
+}
+
+function aplicarLeituraCartaoIA_(resultado) {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  if (!modal || modal.dataset.modo !== 'cartao-manual') throw new Error('O cartão manual não está aberto.');
+  modal.querySelectorAll('.rep-lote-hora[data-preenchido-ia="sim"]').forEach(function(campo) {
+    if (!campo.dataset.eventId) campo.value = '';
+    delete campo.dataset.preenchidoIa;
+    campo.classList.remove('rep-cartao-ia-alta', 'rep-cartao-ia-incerta');
+  });
+  modal.querySelectorAll('#rep-lote-marcacoes tr').forEach(function(linha) { linha.classList.remove('rep-cartao-ia-revisao'); });
+  let preenchidas = 0;
+  let preservadas = 0;
+  let incertas = 0;
+  (resultado.dias || []).forEach(function(dia) {
+    const sufixo = '-' + String(dia.dia).padStart(2, '0');
+    const linha = Array.from(modal.querySelectorAll('#rep-lote-marcacoes tr')).find(function(item) {
+      return String(item.querySelector('.rep-lote-data')?.value || '').endsWith(sufixo);
+    });
+    if (!linha) return;
+    const campos = Array.from(linha.querySelectorAll('.rep-lote-hora'));
+    (dia.marcacoes || []).slice(0, 6).forEach(function(horario, indice) {
+      if (!horario || !campos[indice] || campos[indice].readOnly) return;
+      const campo = campos[indice];
+      if (campo.value && campo.value !== horario && campo.dataset.preenchidoIa !== 'sim') {
+        preservadas++;
+        linha.classList.add('rep-cartao-ia-revisao');
+        return;
+      }
+      const confianca = String((dia.confiancas || [])[indice] || 'media');
+      campo.value = horario;
+      campo.dataset.preenchidoIa = 'sim';
+      campo.dataset.diaOffset = String(Number((dia.offsets || [])[indice] || 0));
+      campo.classList.toggle('rep-cartao-ia-alta', confianca === 'alta');
+      campo.classList.toggle('rep-cartao-ia-incerta', confianca !== 'alta');
+      campo.title = confianca === 'alta' ? 'Preenchido pela IA com confiança alta; confira antes de salvar.' : 'Leitura incerta da IA; confira esta marcação.';
+      const botaoMaisUm = campo.closest('.rep-cartao-horario')?.querySelector('.rep-dia-seguinte');
+      const offset = Number(campo.dataset.diaOffset || 0);
+      if (botaoMaisUm) {
+        botaoMaisUm.classList.toggle('ativo', offset === 1);
+        botaoMaisUm.setAttribute('aria-pressed', offset === 1 ? 'true' : 'false');
+      }
+      if (confianca !== 'alta') { incertas++; linha.classList.add('rep-cartao-ia-revisao'); }
+      preenchidas++;
+    });
+    if (dia.observacao) {
+      linha.classList.add('rep-cartao-ia-revisao');
+      linha.title = dia.observacao;
+    }
+  });
+  if (preenchidas) modal.dataset.dirty = 'sim';
+  const avisos = Array.isArray(resultado.avisos) ? resultado.avisos : [];
+  const resultadoEl = document.getElementById('rep-cartao-ia-resultado');
+  if (resultadoEl) {
+    resultadoEl.hidden = false;
+    resultadoEl.innerHTML = `<strong>${preenchidas} horário(s) colocado(s) para conferência</strong><span>${incertas ? incertas + ' marcação(ões) destacada(s) em amarelo precisam de atenção.' : 'As leituras estão em verde, mas ainda precisam de sua conferência.'}${preservadas ? ' ' + preservadas + ' campo(s) já preenchido(s) foram preservados.' : ''}</span>${avisos.length ? `<ul>${avisos.slice(0, 6).map(function(item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('')}</ul>` : ''}<small>Nada foi salvo. Revise a tabela e use “Salvar todos os ajustes” somente quando estiver correto.</small>`;
+  }
+  return { preenchidas: preenchidas, incertas: incertas, preservadas: preservadas };
+}
+
+async function analisarCartaoManualIA_() {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const frenteInput = document.getElementById('rep-cartao-ia-frente');
+  const versoInput = document.getElementById('rep-cartao-ia-verso');
+  const frente = frenteInput?.files?.[0];
+  const verso = versoInput?.files?.[0];
+  if (!frente) return mostrarToast('Escolha a frente do cartão ou um PDF com as duas páginas.', 'warning');
+  const frenteEhPdf = String(frente.type || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(frente.name || '');
+  if (!verso && !frenteEhPdf) return mostrarToast('Escolha também o verso ou envie um PDF com as duas páginas.', 'warning');
+  const botao = document.getElementById('rep-cartao-ia-analisar');
+  const status = document.getElementById('rep-cartao-ia-status');
+  if (botao) botao.disabled = true;
+  if (status) status.textContent = 'Preparando os arquivos sem salvá-los...';
+  registrarAtividadeSegundoPlano_('ANALISANDO', 'Leitura do cartão manual', 'Preparando frente e verso para reconhecimento dos horários.');
+  try {
+    const arquivos = await Promise.all([prepararArquivoCartaoIA_(frente)].concat(verso ? [prepararArquivoCartaoIA_(verso)] : []));
+    arquivos[0].lado = 'frente';
+    if (arquivos[1]) arquivos[1].lado = 'verso';
+    if (status) status.textContent = 'A IA está lendo as anotações e conferindo a ordem dos horários...';
+    registrarAtividadeSegundoPlano_('ENVIANDO', 'Leitura do cartão manual', 'Analisando ' + arquivos.length + ' arquivo(s) temporário(s); nenhuma marcação será salva nesta etapa.');
+    const resultado = await new Promise(function(resolve, reject) {
+      backendApi().withSuccessHandler(resolve).withFailureHandler(reject).analisarCartaoPontoManualIA({ competencia: modal?.dataset.competencia || '', arquivos: arquivos });
+    });
+    const resumo = aplicarLeituraCartaoIA_(resultado || {});
+    if (status) status.textContent = 'Leitura concluída. Confira os horários destacados antes de salvar.';
+    registrarAtividadeSegundoPlano_('CONFIRMADA', 'Leitura do cartão manual', resumo.preenchidas + ' horário(s) preparados para conferência; nenhum dado salvo automaticamente.');
+    frenteInput.value = '';
+    versoInput.value = '';
+    atualizarArquivoCartaoIA_(frenteInput, 'frente');
+    atualizarArquivoCartaoIA_(versoInput, 'verso');
+    mostrarToast('A proposta foi preenchida. Confira os horários antes de salvar.', resumo.incertas ? 'warning' : 'success');
+  } catch (erro) {
+    const mensagem = mensagemErro(erro);
+    if (status) status.textContent = 'A leitura não foi concluída: ' + mensagem;
+    registrarAtividadeSegundoPlano_('ERRO', 'Leitura do cartão manual', mensagem);
+    mostrarToast(mensagem, 'error');
+  } finally {
+    if (botao) botao.disabled = false;
+  }
 }
 
 function adicionarLinhaCompensacaoLoteRep_(data, horas) {
@@ -687,6 +855,18 @@ function abrirLancamentosLoteRep_(opcoes) {
   if (intro) intro.textContent = opcoes.cartaoManual
     ? 'As marcações já salvas foram carregadas: AFD fica protegido e manual pode ser corrigido. Use Tab, Enter, setas ou cole do Excel. O +1 só é sugerido automaticamente para horários entre 00:00 e 05:00; fora disso, marque-o se necessário.'
     : 'Registre marcações esquecidas e compense déficits de vários dias em uma única conferência. O AFD original permanece preservado.';
+  const painelCartaoIA = document.getElementById('rep-cartao-ia');
+  if (painelCartaoIA) {
+    painelCartaoIA.hidden = !opcoes.cartaoManual;
+    const frenteIA = document.getElementById('rep-cartao-ia-frente');
+    const versoIA = document.getElementById('rep-cartao-ia-verso');
+    const resultadoIA = document.getElementById('rep-cartao-ia-resultado');
+    const statusIA = document.getElementById('rep-cartao-ia-status');
+    if (frenteIA) { frenteIA.value = ''; atualizarArquivoCartaoIA_(frenteIA, 'frente'); }
+    if (versoIA) { versoIA.value = ''; atualizarArquivoCartaoIA_(versoIA, 'verso'); }
+    if (resultadoIA) { resultadoIA.hidden = true; resultadoIA.replaceChildren(); }
+    if (statusIA) statusIA.textContent = '';
+  }
   document.getElementById('rep-lote-servidor').textContent = emp.nome + ' · ' + emp.pis;
   document.getElementById('rep-lote-marcacoes').innerHTML = '';
   document.getElementById('rep-lote-compensacoes').innerHTML = '';

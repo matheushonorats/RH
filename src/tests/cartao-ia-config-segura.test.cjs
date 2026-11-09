@@ -1,0 +1,21 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const source = fs.readFileSync(path.join(__dirname, '../output/RH-Modo-Seguro-Beta/ConfigService.gs'), 'utf8');
+const trecho = source.slice(source.indexOf('function salvarChaveLeituraCartaoIA('), source.indexOf('function obterListaConfiguracoes('));
+test('chave fica nas propriedades do servidor e não retorna ao cliente', () => {
+  const valores = {};
+  const ctx = { verificarSeEhAdmin: () => true, PropertiesService: { getScriptProperties: () => ({ setProperty: (nome, valor) => { valores[nome] = valor; } }) } };
+  vm.createContext(ctx); vm.runInContext(trecho, ctx);
+  ctx.salvarChaveLeituraCartaoIA('Groq', 'chave-teste-groq-123');
+  const resultado = ctx.salvarChaveLeituraCartaoIA('Gemini', 'chave-teste-gemini-123');
+  assert.equal(valores.GROQ_API_KEY, 'chave-teste-groq-123');
+  assert.equal(valores.GEMINI_API_KEY, 'chave-teste-gemini-123');
+  assert.ok(!JSON.stringify(resultado).includes('chave-teste'));
+  assert.throws(() => ctx.salvarChaveLeituraCartaoIA('__proto__', 'chave-teste-gemini-123'), /válida/);
+  ctx.verificarSeEhAdmin = () => false;
+  assert.throws(() => ctx.salvarChaveLeituraCartaoIA('Gemini', 'chave-teste-gemini-123'), /permissão/);
+});

@@ -11,4 +11,14 @@ Exemplos_REP/
 src/tmp/
 src/.tmp/
 src/work/
-src/output/
+
+# Saídas e backups temporários (mantendo RH-Modo-Seguro-Beta versionado)
+src/output/pdf/
+src/output/*.pdf
+src/output/*.png
+src/output/RH-LocalFirst-V1/
+
+# Binários pesados de compilação/release da portátil (8 GB de executáveis/zips)
+src/portable-entidade/build/
+src/portable-entidade/release/
+src/portable-entidade/backups/

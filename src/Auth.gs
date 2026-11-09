@@ -175,6 +175,7 @@ function obterFuncoesApiPermitidas_() {
   return {
     verificarSessao: verificarSessao,
     obterVersaoDados: obterVersaoDados,
+    obterEstadoAtualizacaoCliente: obterEstadoAtualizacaoCliente,
     obterDadosCompletos: obterDadosCompletos,
     obterConfiguracaoAutorizacaoHorasExtras: obterConfiguracaoAutorizacaoHorasExtras,
     salvarDescricaoAutorizacaoHorasExtras: salvarDescricaoAutorizacaoHorasExtras,
@@ -195,6 +196,8 @@ function obterFuncoesApiPermitidas_() {
     obterInfoPastaEntradaRep: obterInfoPastaEntradaRep,
     listarArquivosPastaEntradaRep: listarArquivosPastaEntradaRep,
     obterParteArquivoPastaEntradaRep: obterParteArquivoPastaEntradaRep,
+    listarLocaisEditadosRep: listarLocaisEditadosRep,
+    salvarLocalEditadoRep: salvarLocalEditadoRep,
     listarApontamentosRep: listarApontamentosRep,
     listarJustificativasLancamentoRep: listarJustificativasLancamentoRep,
     salvarJustificativaLancamentoRep: salvarJustificativaLancamentoRep,
@@ -211,6 +214,7 @@ function obterFuncoesApiPermitidas_() {
     listarAjustesRep: listarAjustesRep,
     salvarAjustesRep: salvarAjustesRep,
     salvarAlteracoesLoteRep: salvarAlteracoesLoteRep,
+    analisarCartaoPontoManualIA: analisarCartaoPontoManualIA,
     obterAtualizacoesCompartilhadasRep: obterAtualizacoesCompartilhadasRep,
     listarConferenciasRep: listarConferenciasRep,
     salvarConferenciaRep: salvarConferenciaRep,
@@ -263,8 +267,17 @@ function obterFuncoesApiPermitidas_() {
     marcarBriefingDiarioEntidadeComoVisto: marcarBriefingDiarioEntidadeComoVisto,
     obterInsightEntidadeAtual: obterInsightEntidadeAtual,
     marcarInsightEntidadeComoVisto: marcarInsightEntidadeComoVisto,
+    listarOcorrenciasEntidade: listarOcorrenciasEntidade,
+    marcarOcorrenciaEntidadeComoLida: marcarOcorrenciaEntidadeComoLida,
+    adiarOcorrenciaEntidade: adiarOcorrenciaEntidade,
+    assumirOcorrenciaEntidade: assumirOcorrenciaEntidade,
     chamarEntidade: chamarEntidade,
-    avaliarInteracaoEntidade: avaliarInteracaoEntidade
+    avaliarInteracaoEntidade: avaliarInteracaoEntidade,
+    aprovarConhecimentoEntidade: aprovarConhecimentoEntidade,
+    obterConfiguracaoGovernancaEntidade: obterConfiguracaoGovernancaEntidade,
+    salvarConfiguracaoGovernancaEntidade: salvarConfiguracaoGovernancaEntidade,
+    obterPlanejamentoCoberturaEntidade: obterPlanejamentoCoberturaEntidade,
+    obterResumoSemanalEntidade: obterResumoSemanalEntidade
   };
 }
 
@@ -288,12 +301,18 @@ function registrarAlteracaoDados_() {
 
 function obterVersaoDados() {
   obterDadosUsuarioLogado();
+  const props = PropertiesService.getScriptProperties();
+  const revisao = props.getProperty("RH_VERSAO_DADOS") || registrarAlteracaoDados_();
   try {
-    return 'base-' + String(DriveApp.getFileById(obterPlanilha_().getId()).getLastUpdated().getTime());
+    return revisao + '|base-' + String(DriveApp.getFileById(obterPlanilha_().getId()).getLastUpdated().getTime());
   } catch (e) {
-    const props = PropertiesService.getScriptProperties();
-    return props.getProperty("RH_VERSAO_DADOS") || registrarAlteracaoDados_();
+    return revisao;
   }
+}
+
+function obterEstadoAtualizacaoCliente() {
+  const versaoPublicada = PropertiesService.getScriptProperties().getProperty('ENTIDADE_VERSAO_PUBLICADA') || APP_VERSION;
+  return { versaoAplicacao: versaoPublicada, versaoDados: obterVersaoDados() };
 }
 
 /**

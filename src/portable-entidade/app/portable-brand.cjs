@@ -1,0 +1,37 @@
+// Transformação exclusiva do pacote portátil. A fonte do sistema web não é editada.
+function marcaPortatil(html) {
+  return html
+    .replaceAll('https://i.ibb.co/v8brz40/manualmarca-pmss25-28-TURISMO-BRANCO.png', 'vendor/entidade.svg')
+    .replaceAll('https://www.turismosaosebastiao.com.br/img/sao-sebastiao/logo-rodape-horizontal.png', 'vendor/entidade.svg')
+    .replaceAll('Prefeitura e SETUR', 'Entidade.V1').replaceAll('SETUR Logo', 'Entidade.V1')
+    .replaceAll('Secretaria Municipal de Turismo de São Sebastião/SP', 'Entidade.V1 · Gestão de Pessoas')
+    .replaceAll('Prefeitura Municipal de São Sebastião', 'Gestão de Pessoas')
+    .replaceAll('Secretaria de Turismo - SETUR', 'Entidade.V1')
+    .replaceAll('<span class="marca">SETUR</span>', '<span class="marca">Entidade.V1</span>')
+    .replaceAll('<span class="marca">SETUR · DGP</span>', '<span class="marca">Entidade.V1</span>')
+    .replaceAll('seu.email@saosebastiao.sp.gov.br', 'seu@email.com')
+    .replaceAll('E-mail Corporativo', 'E-mail de acesso')
+    .replaceAll('servidor@saosebastiao.sp.gov.br', 'pessoa@organizacao.com')
+    .replaceAll('supervisor@saosebastiao.sp.gov.br', 'responsavel@organizacao.com')
+    .replaceAll('email@saosebastiao.sp.gov.br', 'pessoa@organizacao.com')
+    .replaceAll('matheus@saosebastiao.sp.gov.br', 'demo@example.invalid')
+    .replaceAll("['Turismo', 'Rodoviária', 'Espaço Batuíra']", '[]')
+    .replaceAll("config.secretaria || 'SETUR'", "config.secretaria || window.__ENTIDADE_ORGANIZACAO__ || 'Organização'")
+    .replaceAll("config.secretarioNome || 'LEANDRO PEREIRA DA SILVA'", "config.secretarioNome || ''")
+    .replaceAll("config.secretarioCargo || 'Secretário de Turismo'", "config.secretarioCargo || 'Responsável'")
+    .replaceAll('ESTÂNCIA BALNEÁRIA – ESTADO DE SÃO PAULO', 'Gestão de Pessoas · Entidade.V1')
+    .replaceAll('src="${assets.brasao || \'\'}" alt="Brasão"', 'src="entidade://app/vendor/entidade.svg" alt="Entidade.V1"')
+    .replaceAll('<img class="selo" src="${assets.selo || \'\'}" alt="São Sebastião - SP - Brasil">', '')
+    .replaceAll('Rua Prefeito João Cupertino dos Santos, 218 - Centro - CEP 11.608.611 - São Sebastião/SP<br>Tel.: (12) 3891-2160&nbsp;&nbsp;&nbsp; www.saosebastiao.sp.gov.br', 'Documento gerado pelo Entidade.V1')
+    .replaceAll('RH SETUR 2.3', 'Entidade.V1')
+    .replaceAll('RH SETUR', 'Entidade.V1')
+    .replaceAll('RH da Secretaria Municipal de Turismo de São Sebastião/SP (SETUR)', 'gestão de pessoas da organização usuária')
+    .replaceAll('de RH da SETUR', 'de gestão de pessoas da organização usuária')
+    .replaceAll('RH da Entidade.V1 · Gestão de Pessoas (SETUR)', 'gestão de pessoas da organização usuária')
+    .replaceAll("config.SECRETARIA_HORAS_EXTRAS || 'SETUR'", "config.SECRETARIA_HORAS_EXTRAS || 'Organização'")
+    .replaceAll("config.SECRETARIO_NOME || 'LEANDRO PEREIRA DA SILVA'", "config.SECRETARIO_NOME || ''")
+    .replaceAll("config.SECRETARIO_CARGO || 'Secretário de Turismo'", "config.SECRETARIO_CARGO || 'Responsável'")
+    .replaceAll('navigator.onLine', '(window.__ENTIDADE_LOCAL__ === true || navigator.onLine)')
+    .replace(/data-app-url="https:\/\/script\.google\.com\/macros\/s\/[^\"]+"/, 'data-app-url=""');
+}
+module.exports = { marcaPortatil };

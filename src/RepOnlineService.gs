@@ -9,6 +9,8 @@ const REP_ONLINE_ABA_DESCARTES_HE_ = 'REP_Descartes_HE';
 const REP_ONLINE_ABA_FERIADOS_ = 'REP_Feriados';
 const REP_ONLINE_ABA_AJUSTES_ = 'REP_Ajustes';
 const REP_ONLINE_ABA_CONFERENCIAS_ = 'REP_Conferencias';
+const REP_ONLINE_ABA_LOCAIS_ = 'REP_Locais';
+const REP_ONLINE_CABECALHO_LOCAIS_ = ['Arquivo_Chave', 'Local_Original', 'Local_Exibido', 'Atualizado_Em', 'Atualizado_Por', 'Ativo'];
 const REP_ONLINE_PASTA_PROP_ = 'REP_ONLINE_PASTA_ID';
 const REP_ENTRADA_PASTA_PROP_ = 'REP_ENTRADA_PASTA_ID';
 const REP_ENTRADA_NOME_PASTA_ = 'RHV2 - Entrada de AFDs';
@@ -164,6 +166,52 @@ function obterAbaRepOnline_(nome, cabecalho) {
     aba.setFrozenRows(1);
   }
   return aba;
+}
+
+/** Nomes ajustados no app não modificam o AFD original. */
+function listarLocaisEditadosRep() {
+  obterDadosUsuarioLogado();
+  const aba = obterAbaRepOnline_(REP_ONLINE_ABA_LOCAIS_, REP_ONLINE_CABECALHO_LOCAIS_);
+  if (aba.getLastRow() < 2) return [];
+  return aba.getRange(2, 1, aba.getLastRow() - 1, REP_ONLINE_CABECALHO_LOCAIS_.length).getDisplayValues()
+    .filter(function(linha) { return linha[0] && linha[1] && linha[2] && String(linha[5]).toLowerCase() !== 'não'; })
+    .map(function(linha) { return { arquivoChave: linha[0], localOriginal: linha[1], localExibido: linha[2] }; });
+}
+
+function salvarLocalEditadoRep(dados) {
+  obterDadosUsuarioLogado();
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para editar locais do REP.');
+  dados = dados || {};
+  const arquivoChave = String(dados.arquivoChave || '').trim();
+  const localOriginal = String(dados.localOriginal || '').trim();
+  const localExibido = String(dados.localExibido || '').trim().replace(/[\r\n\t]+/g, ' ');
+  if (!localOriginal || localOriginal.length > 200) throw new Error('Local original inválido.');
+  if (localExibido.length > 120) throw new Error('Use até 120 caracteres no nome do local.');
+  if (arquivoChave.indexOf('ARQUIVO_ID:') === 0) {
+    validarArquivoPastaEntradaRep_(arquivoChave.slice('ARQUIVO_ID:'.length));
+  } else {
+    const abaArquivos = obterAbaRepOnline_(REP_ONLINE_ABA_ARQUIVOS_, REP_ONLINE_CABECALHO_ARQUIVOS_);
+    const chavesAtivas = abaArquivos.getLastRow() > 1
+      ? abaArquivos.getRange(2, 1, abaArquivos.getLastRow() - 1, REP_ONLINE_CABECALHO_ARQUIVOS_.length).getDisplayValues()
+        .some(function(linha) { return linha[0] === arquivoChave && String(linha[12] || 'Sim').toLowerCase() !== 'não'; })
+      : false;
+    if (!chavesAtivas) throw new Error('O arquivo REP não está mais disponível. Sincronize a pasta.');
+  }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Sistema ocupado. Tente salvar o local novamente.');
+  try {
+    const aba = obterAbaRepOnline_(REP_ONLINE_ABA_LOCAIS_, REP_ONLINE_CABECALHO_LOCAIS_);
+    const linhas = aba.getLastRow() > 1 ? aba.getRange(2, 1, aba.getLastRow() - 1, 2).getDisplayValues() : [];
+    const indice = linhas.findIndex(function(linha) { return linha[0] === arquivoChave && linha[1] === localOriginal; });
+    const usuario = obterDadosUsuarioLogado();
+    const valores = [[arquivoChave, localOriginal, localExibido, new Date(), usuario.email || usuario.nome || '', localExibido ? 'Sim' : 'Não']];
+    if (indice >= 0) aba.getRange(indice + 2, 1, 1, valores[0].length).setValues(valores);
+    else if (localExibido) aba.getRange(aba.getLastRow() + 1, 1, 1, valores[0].length).setValues(valores);
+    try { lancarLogSemLock_('EDITAR_LOCAL_REP', 'REP_Locais', 'Alterou o nome exibido de um local do REP.', arquivoChave, localOriginal, localExibido, arquivoChave); } catch (e) {}
+    return { arquivoChave: arquivoChave, localOriginal: localOriginal, localExibido: localExibido };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function validarPastaUploadRepOnline_(idPasta) {
@@ -631,6 +679,7 @@ function obterAtualizacoesCompartilhadasRep() {
   obterDadosUsuarioLogado();
   return {
     apontamentos: listarApontamentosRep(),
+    autorizacoesCompensacao: listarAutorizacoesCompensacaoRep(),
     justificativas: listarJustificativasLancamentoRep(),
     compensacoes: listarCompensacoesRep(),
     validacoes: listarValidacoesRep(),

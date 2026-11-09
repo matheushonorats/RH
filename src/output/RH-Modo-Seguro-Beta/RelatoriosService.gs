@@ -1,0 +1,394 @@
+/**
+ * RH Central de Documentos v2.0
+ * Módulo de Geração de Relatórios (RelatoriosService)
+ */
+
+function obterConfiguracaoAutorizacaoHorasExtras(matricula) {
+  obterDadosUsuarioLogado();
+  const ss = obterPlanilha_();
+  const aba = ss.getSheetByName('Configuracoes');
+  const config = aba ? obterMapaConfiguracoes_(aba) : {};
+  let descricoes = [];
+  try { descricoes = JSON.parse(config.DESCRICOES_HORAS_EXTRAS || '[]'); } catch (e) {}
+  let descricoesPorServidor = {};
+  try { descricoesPorServidor = JSON.parse(config.DESCRICOES_HORAS_EXTRAS_POR_SERVIDOR || '{}'); } catch (e) {}
+  const descricaoPadrao = config.DESCRICAO_PADRAO_HORAS_EXTRAS || 'Serviços extraordinários conforme registros de ponto.';
+  descricoes = [descricaoPadrao].concat(Array.isArray(descricoes) ? descricoes : []).map(function(item) { return String(item || '').trim(); }).filter(function(item, indice, lista) { return item && lista.indexOf(item) === indice; });
+  const chaveServidor = String(matricula || '').trim().toUpperCase();
+  const descricaoServidor = chaveServidor && descricoesPorServidor && typeof descricoesPorServidor[chaveServidor] === 'string'
+    ? String(descricoesPorServidor[chaveServidor]).trim()
+    : '';
+  return {
+    setor: config.SETOR_HORAS_EXTRAS || 'TURISMO',
+    secretaria: config.SECRETARIA_HORAS_EXTRAS || 'SETUR',
+    secretarioNome: config.SECRETARIO_NOME || 'LEANDRO PEREIRA DA SILVA',
+    secretarioCargo: config.SECRETARIO_CARGO || 'Secretário de Turismo',
+    descricaoPadrao: descricaoPadrao,
+    descricaoServidor: descricaoServidor,
+    descricoes: descricoes
+  };
+}
+
+function salvarDescricaoAutorizacaoHorasExtrasServidor(matricula, descricao) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para salvar a descrição de horas extras.');
+  const chaveServidor = String(matricula || '').trim().toUpperCase().slice(0, 80);
+  descricao = String(descricao || '').trim().replace(/\s+/g, ' ');
+  if (descricao.length > 1200) throw new Error('A descrição é muito longa (máximo de 1.200 caracteres). Reduza o texto antes de salvar.');
+  if (!chaveServidor) throw new Error('Servidor inválido para salvar a descrição.');
+  if (!descricao) throw new Error('Informe uma descrição válida.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Configuracoes');
+    if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
+    const dados = aba.getDataRange().getValues();
+    let linha = -1;
+    let porServidor = {};
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0] || '').trim() === 'DESCRICOES_HORAS_EXTRAS_POR_SERVIDOR') {
+        linha = i + 1;
+        try { porServidor = JSON.parse(String(dados[i][1] || '{}')); } catch (e) {}
+        break;
+      }
+    }
+    if (!porServidor || Array.isArray(porServidor) || typeof porServidor !== 'object') porServidor = {};
+    porServidor[chaveServidor] = descricao;
+    const chaves = Object.keys(porServidor);
+    if (chaves.length > 500) {
+      chaves.slice(0, chaves.length - 500).forEach(function(chave) { delete porServidor[chave]; });
+    }
+    const valor = JSON.stringify(porServidor);
+    if (valor.length > 45000) throw new Error('O espaço das descrições por servidor está próximo do limite da planilha. Nenhum texto foi cortado ou sobrescrito.');
+    if (linha > 0) aba.getRange(linha, 2).setValue(valor);
+    else aba.appendRow(['DESCRICOES_HORAS_EXTRAS_POR_SERVIDOR', valor, 'Última descrição usada por servidor na autorização de horas extras']);
+    try { lancarLog('SALVAR_DESCRICAO_HE_SERVIDOR', 'Configuracoes', 'Salvou a descrição de serviços da autorização de horas extras para um servidor.', chaveServidor, '', descricao, ''); } catch (e) {}
+    return descricao;
+  } finally { lock.releaseLock(); }
+}
+
+function salvarDescricaoAutorizacaoHorasExtras(descricao) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para cadastrar descrições de horas extras.');
+  descricao = String(descricao || '').trim().replace(/\s+/g, ' ');
+  if (descricao.length > 1200) throw new Error('A descrição é muito longa (máximo de 1.200 caracteres). Reduza o texto antes de salvar.');
+  if (!descricao) throw new Error('Informe uma descrição válida.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Configuracoes');
+    if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
+    const dados = aba.getDataRange().getValues();
+    let linha = -1;
+    let atuais = [];
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0] || '').trim() === 'DESCRICOES_HORAS_EXTRAS') {
+        linha = i + 1;
+        try { atuais = JSON.parse(String(dados[i][1] || '[]')); } catch (e) {}
+        break;
+      }
+    }
+    atuais = (Array.isArray(atuais) ? atuais : []).map(function(item) { return String(item || '').trim(); }).filter(Boolean);
+    if (atuais.indexOf(descricao) === -1) atuais.push(descricao);
+    atuais = atuais.slice(-30);
+    if (JSON.stringify(atuais).length > 45000) throw new Error('As descrições salvas se aproximaram do limite da planilha. Nenhum texto foi cortado.');
+    if (linha > 0) aba.getRange(linha, 2).setValue(JSON.stringify(atuais));
+    else aba.appendRow(['DESCRICOES_HORAS_EXTRAS', JSON.stringify(atuais), 'Descrições reutilizáveis da autorização de horas extras']);
+    try { lancarLog('CADASTRAR_DESCRICAO_HE', 'Configuracoes', 'Cadastrou descrição reutilizável para autorização de horas extras.', '', '', descricao, ''); } catch (e) {}
+    return atuais;
+  } finally { lock.releaseLock(); }
+}
+
+function gerenciarDescricaoAutorizacaoHorasExtras(acao, descricao, novoTexto) {
+  if (!verificarSeEhOperador()) throw new Error('Você não possui permissão para alterar descrições de horas extras.');
+  acao = String(acao || '').toUpperCase();
+  descricao = String(descricao || '').trim().replace(/\s+/g, ' ');
+  novoTexto = String(novoTexto || '').trim().replace(/\s+/g, ' ');
+  if (novoTexto.length > 1200) throw new Error('A descrição é muito longa (máximo de 1.200 caracteres). Reduza o texto antes de salvar.');
+  if (!descricao || (acao !== 'EXCLUIR' && acao !== 'EDITAR')) throw new Error('Operação de descrição inválida.');
+  if (acao === 'EDITAR' && !novoTexto) throw new Error('Informe a nova descrição.');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('Sistema ocupado. Tente novamente em alguns segundos.');
+  try {
+    const aba = obterPlanilha_().getSheetByName('Configuracoes');
+    if (!aba) throw new Error("Aba 'Configuracoes' não encontrada.");
+    const dados = aba.getDataRange().getValues();
+    let linha = -1;
+    let atuais = [];
+    for (let i = 1; i < dados.length; i++) {
+      if (String(dados[i][0] || '').trim() === 'DESCRICOES_HORAS_EXTRAS') {
+        linha = i + 1;
+        try { atuais = JSON.parse(String(dados[i][1] || '[]')); } catch (e) {}
+        break;
+      }
+    }
+    atuais = (Array.isArray(atuais) ? atuais : []).map(function(item) { return String(item || '').trim(); }).filter(Boolean);
+    const indice = atuais.indexOf(descricao);
+    if (indice < 0) throw new Error('A descrição padrão do sistema não pode ser alterada por este botão.');
+    if (acao === 'EXCLUIR') atuais.splice(indice, 1);
+    else atuais[indice] = novoTexto;
+    atuais = atuais.filter(function(item, indiceItem, lista) { return item && lista.indexOf(item) === indiceItem; });
+    aba.getRange(linha, 2).setValue(JSON.stringify(atuais));
+    try { lancarLog(acao + '_DESCRICAO_HE', 'Configuracoes', (acao === 'EXCLUIR' ? 'Excluiu' : 'Editou') + ' descrição reutilizável da autorização de horas extras.', '', '', descricao, ''); } catch (e) {}
+    return atuais;
+  } finally { lock.releaseLock(); }
+}
+
+/**
+ * Retorna os dados do relatório de Férias Compulsórias (servidores com 2 períodos vencidos)
+ */
+function obterRelatorioCompulsorias() {
+  obterDadosUsuarioLogado();
+  const servidores = obterListaServidores();
+  
+  // Filtra apenas servidores Ativos que possuem 2 períodos vencidos
+  return servidores.filter(s => 
+    s.status !== "Inativo" && 
+    s.feriasCompulsorias === true
+  );
+}
+
+/**
+ * Retorna dados sobre a Situação Geral de Férias de todos os servidores ativos
+ */
+function obterRelatorioSituacaoFerias() {
+  obterDadosUsuarioLogado();
+  const servidores = obterListaServidores();
+  return servidores.filter(s => s.status !== "Inativo");
+}
+
+/**
+ * Retorna ausências programadas em um intervalo de datas (escala)
+ */
+function obterRelatorioAusenciasCalendario(dataInicioStr, dataFimStr) {
+  obterDadosUsuarioLogado();
+  
+  const ss = obterPlanilha_();
+  const abaLanc = ss.getSheetByName("Lançamentos");
+  if (!abaLanc) return [];
+  
+  let dataInicio = parseInputDate_(dataInicioStr);
+  let dataFim = parseInputDate_(dataFimStr);
+  
+  if (!dataInicio || !dataFim) {
+    throw new Error("Intervalo de datas inválido.");
+  }
+  
+  const dados = abaLanc.getDataRange().getValues();
+  let resultados = [];
+  const idx = obterIndicesColunasLancamentos_(dados[0]);
+
+  if (idx.tipo === -1 || idx.nome === -1 || idx.matricula === -1 || idx.dataInicio === -1) {
+    throw new Error("Cabecalhos obrigatorios nao encontrados na aba Lancamentos.");
+  }
+  
+  for (let i = 1; i < dados.length; i++) {
+    let linha = dados[i];
+    let tipo = String(linha[idx.tipo]).trim();
+    if (!tipo || ehLancamentoAnulado_(linha, idx)) continue;
+    
+    let inicioLanc = lerDataFormatoBR_(linha[idx.dataInicio]);
+    if (!inicioLanc) continue;
+    
+    let dias = obterDiasLancamento_(linha, idx) || 1;
+    let fimLanc = new Date(inicioLanc);
+    fimLanc.setDate(inicioLanc.getDate() + (dias - 1));
+    fimLanc.setHours(0,0,0,0);
+    
+    // Verifica sobreposição de intervalos
+    if (inicioLanc <= dataFim && fimLanc >= dataInicio) {
+      let nomeBruto = String(linha[idx.nome]).trim();
+      let nomeLimpo = nomeBruto.includes(":") ? nomeBruto.split(":")[1].trim() : nomeBruto;
+      
+      resultados.push({
+        nome: nomeLimpo,
+        matricula: normalizarChaveMatricula_(linha[idx.matricula]),
+        tipo: tipo,
+        inicio: formatarDataRelatorios_(inicioLanc),
+        fim: formatarDataRelatorios_(fimLanc),
+        dias: dias
+      });
+    }
+  }
+  
+  return resultados;
+}
+
+/**
+ * Retorna o resumo de todos os lançamentos ocorridos em um mês/ano selecionado
+ */
+function obterRelatorioResumoMensal(mes, ano) {
+  obterDadosUsuarioLogado();
+  const todos = obterListaLancamentos();
+  
+  return todos.filter(l => {
+    let m = String(l.mes).toUpperCase();
+    let a = String(l.ano);
+    
+    // Fallback: se mês ou ano não estiverem nas colunas, extrai da data
+    if (!m || !a) {
+      let dataStr = l.dataInicio || l.dataSolicitacao;
+      if (dataStr && typeof dataStr === "string" && dataStr.includes("/")) {
+        let partes = dataStr.split("/");
+        if (partes.length === 3) {
+          let numMes = parseInt(partes[1], 10);
+          let nomesMeses = ["", "JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"];
+          if (numMes >= 1 && numMes <= 12) {
+            m = nomesMeses[numMes];
+            a = partes[2].split(" ")[0]; // Pega só o ano caso tenha hora
+          }
+        }
+      }
+    }
+    
+    return m === String(mes).toUpperCase() && a === String(ano);
+  });
+}
+
+/**
+ * Retorna a cota de abonos utilizados por servidor no ano corrente
+ */
+function obterRelatorioAbonosAnuais() {
+  obterDadosUsuarioLogado();
+  
+  const ss = obterPlanilha_();
+  const abaServ = ss.getSheetByName("Servidores");
+  const abaLanc = ss.getSheetByName("Lançamentos");
+  
+  if (!abaServ || !abaLanc) return [];
+  
+  const servidores = abaServ.getDataRange().getValues();
+  const lancamentos = abaLanc.getDataRange().getValues();
+  const anoAtual = String(new Date().getFullYear());
+  const idxLanc = obterIndicesColunasLancamentos_(lancamentos[0]);
+
+  if (idxLanc.tipo === -1 || idxLanc.matricula === -1 || idxLanc.dataInicio === -1) {
+    throw new Error("Cabecalhos TIPO/MATRICULA/DATA INICIO nao encontrados em Lancamentos.");
+  }
+  
+  let mapaAbonos = {};
+  
+  // 1. Processar lançamentos de abono ativos do ano
+  for (let i = 1; i < lancamentos.length; i++) {
+    let linha = lancamentos[i];
+    let tipo = normalizarCabecalho_(linha[idxLanc.tipo]);
+    let mat = normalizarChaveMatricula_(linha[idxLanc.matricula]);
+    let dataInicio = lerDataFormatoBR_(linha[idxLanc.dataInicio]);
+    let ano = dataInicio ? String(dataInicio.getFullYear()) : "";
+    
+    // Considera apenas tipos de abono que tenham marcação de conta abono
+    // Ignora Natalícias, Eleitorais, não efetivadas e anuladas
+    if ((tipo.includes("ABONADA") || tipo.includes("ABONO")) && 
+        !tipo.includes("NATALICIA") && 
+        !tipo.includes("ELEITORAL") && 
+        !ehLancamentoAnulado_(linha, idxLanc) && 
+        ano === anoAtual) {
+      if (!mapaAbonos[mat]) mapaAbonos[mat] = 0;
+      mapaAbonos[mat]++;
+    }
+  }
+  
+  // Obter limite de abonos configurado na aba Configuracoes
+  let limiteAbonos = 5;
+  const abaConfig = ss.getSheetByName("Configuracoes");
+  if (abaConfig) {
+    const dadosConfig = abaConfig.getDataRange().getValues();
+    for (let j = 1; j < dadosConfig.length; j++) {
+      if (String(dadosConfig[j][0]).trim() === "LIMITE_ABONADAS_ANO") {
+        limiteAbonos = parseInt(dadosConfig[j][1]) || 5;
+        break;
+      }
+    }
+  }
+  
+  // 2. Mesclar com servidores
+  let relatorio = [];
+  const cabecalho = servidores[0];
+  const idxNome = indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"]);
+  const idxMat = indiceCabecalho_(cabecalho, ["MATRICULA"]);
+  const idxLot = indiceCabecalho_(cabecalho, ["LOTACAO"]);
+  const idxAtivo = indiceCabecalho_(cabecalho, ["ATIVO"]);
+  const idxPenalidadeAbono = indiceCabecalho_(cabecalho, ["PENALIDADE ABONOS", "PENALIDADE_ABONOS"]);
+
+  if (idxNome === -1 || idxMat === -1) {
+    throw new Error("Cabecalhos NOME/MATRICULA nao encontrados em Servidores.");
+  }
+  
+  for (let i = 1; i < servidores.length; i++) {
+    let mat = normalizarChaveMatricula_(servidores[i][idxMat]);
+    let ativo = idxAtivo !== -1 ? String(servidores[i][idxAtivo]).trim() : "Sim";
+    
+    if (!mat || ativo === "Não") continue;
+    
+    let abonosUsados = mapaAbonos[mat] || 0;
+    const penalidadeAbono = idxPenalidadeAbono !== -1 ? Math.max(0, parseInt(servidores[i][idxPenalidadeAbono], 10) || 0) : 0;
+    const limiteAjustado = Math.max(0, limiteAbonos - penalidadeAbono);
+    
+    relatorio.push({
+      nome: String(servidores[i][idxNome]).trim(),
+      matricula: mat,
+      lotacao: idxLot !== -1 ? String(servidores[i][idxLot]).trim() : "",
+      abonosUsados: abonosUsados,
+      limiteAnual: limiteAjustado,
+      limiteOriginal: limiteAbonos,
+      penalidadeAbono: penalidadeAbono,
+      saldoRestante: Math.max(0, limiteAjustado - abonosUsados)
+    });
+  }
+  
+  return relatorio.sort((a,b) => b.abonosUsados - a.abonosUsados);
+}
+
+/**
+ * Retorna os logs de auditoria detalhados
+ */
+function obterRelatorioLogs() {
+  if (!verificarSeEhAdmin()) {
+    throw new Error("Apenas Administradores têm permissão para ver os logs de auditoria.");
+  }
+  
+  const ss = obterPlanilha_();
+  const abaLogs = ss.getSheetByName("Logs");
+  if (!abaLogs) return [];
+  
+  const dados = abaLogs.getDataRange().getValues();
+  let logs = [];
+  
+  for (let i = 1; i < dados.length; i++) {
+    let linha = dados[i];
+    logs.push({
+      dataHora: formatarDataLogs_(linha[0]),
+      usuario: String(linha[1]).trim(),
+      acao: String(linha[2]).trim(),
+      modulo: String(linha[3]).trim(),
+      descricao: String(linha[4]).trim(),
+      campoAlterado: String(linha[5]).trim(),
+      valorAntes: String(linha[6]).trim(),
+      valorDepois: String(linha[7]).trim(),
+      idRegistro: String(linha[8]).trim(),
+      linha: i + 1
+    });
+  }
+  
+  // Ordena por log mais recente
+  logs.sort((a,b) => b.linha - a.linha);
+  return logs;
+}
+
+// --- AUXILIARES ---
+
+function formatarDataRelatorios_(data) {
+  if (!data) return "";
+  if (data instanceof Date) {
+    if (isNaN(data.getTime())) return "";
+    return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  }
+  return String(data);
+}
+
+function formatarDataLogs_(data) {
+  if (!data) return "";
+  if (data instanceof Date) {
+    if (isNaN(data.getTime())) return "";
+    return Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+  }
+  return String(data);
+}

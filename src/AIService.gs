@@ -54,6 +54,16 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
       const interacaoDiretaId = registrarInteracaoEntidade_(mensagemUsuario, respostaOperacionalDireta);
       return { resposta: respostaOperacionalDireta, interacaoId: interacaoDiretaId, provedor: 'Sistema' };
     }
+    const modoIa = obterModoIaEntidade_();
+    if (!mensagemUsuario && modoIa !== 'IA_EDITORIAL_AGENDADA') {
+      const alertaLocal = gerarAlertasConflitosDeterministicosEntidade_(contextoPlanilha, 3);
+      return alertaLocal ? { resposta: alertaLocal, provedor: 'Sistema' } : { silencioso: true, provedor: 'Sistema' };
+    }
+    if (mensagemUsuario && modoIa === 'SEM_IA') {
+      return {
+        erro: 'A IA sob demanda está desativada. As consultas diretas e os alertas automáticos da Entidade continuam disponíveis.'
+      };
+    }
     const alertaDeterministicoAutomatico = mensagemUsuario
       ? ''
       : gerarAlertasConflitosDeterministicosEntidade_(contextoPlanilha, 3);
@@ -67,6 +77,11 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
     const possuiGroq = Boolean(obterConfigValorInterno_('GROQ_API_KEY'));
     const possuiFallback = Boolean(obterConfigValorInterno_('OPENROUTER_API_KEY'));
     if (!possuiGroq && !possuiFallback) {
+      if (!mensagemUsuario) {
+        return alertaDeterministicoAutomatico
+          ? { resposta: alertaDeterministicoAutomatico, provedor: 'Sistema' }
+          : { silencioso: true, provedor: 'Sistema' };
+      }
       return { erro: "Nenhuma chave de IA foi configurada. Cadastre GROQ_API_KEY nas Propriedades do Script." };
     }
     const memoriaRelevante = obterMemoriasEntidadeRelevantes_(mensagemUsuario);
@@ -86,7 +101,7 @@ function chamarEntidade(mensagemUsuario, contextoLocalStr, historicoConversa) {
       memoriaValidada: memoriaRelevante,
       conversasAnteriores: mensagemUsuario ? obterHistoricoConversasEntidade_(6) : [],
       insightsAnteriores: mensagemUsuario ? obterHistoricoInsightsEntidade_(5) : []
-    });
+    }, mensagemUsuario);
 
     const systemPrompt = `Você é a Entidade, assistente operacional do RH da Secretaria Municipal de Turismo de São Sebastião/SP (SETUR).
 Seu trabalho é transformar os dados fornecidos pelo sistema em respostas úteis, específicas e verificáveis. Fale em português do Brasil, com tom profissional, cordial e direto.
@@ -139,7 +154,7 @@ COMO RESPONDER
 12. Se nenhum trecho normativo relevante tiver sido fornecido, diga que não localizou base suficiente nas normas cadastradas. A LC nº 146/2011 e o Decreto nº 6.808/2017 podem ter alterações posteriores; decisões formais devem ser confirmadas pelo RH ou assessoria jurídica.
 13. Não seja apenas informativa: identifique relações entre setores, explique o que o responsável talvez não esteja percebendo e proponha uma ação objetiva, proporcional e executável.
 14. Consulte os insights anteriores para não repetir o mesmo aviso como se fosse novo. Quando uma situação persistir, diga que ela continua pendente e destaque o que mudou.
-15. As conversas anteriores servem para lembrar assuntos já discutidos, mas não são fonte oficial. Somente campos chamados respostaValidada ou correcaoValidada podem orientar uma nova resposta; nunca reutilize como fato uma resposta não avaliada. Não repita recomendação antiga sem verificar se os dados atuais ainda a sustentam.
+15. As conversas anteriores pertencem somente ao usuário atual e servem para continuidade, não como fonte oficial. Campos respostaAnterior e sugestaoDeCorrecao não são fatos validados; somente memoriaValidada, publicada por aprovação administrativa separada, pode orientar uma nova resposta.
 16. Cada objeto de uma lista representa um registro independente. Nunca transfira tipo, 1DOC, data, saldo, motivo ou status de um objeto para outro, mesmo quando nome ou matrícula coincidirem.
 17. Só relacione dois registros individuais quando a matrícula normalizada e os campos identificadores do mesmo evento (tipo e data) coincidirem explicitamente. Coincidência apenas de nome ou matrícula não prova que se trata do mesmo lançamento.
 18. Os itens de pendenciasDe1Doc não possuem número 1DOC. Nunca atribua a eles um 1DOC visto em ausenciasHoje, histórico, memória ou outra lista. Identifique a pendência somente pelos campos presentes no próprio objeto: nome, matrícula, tipo e data.
@@ -205,9 +220,10 @@ ${JSON.stringify(dadosContexto, null, 2)}
             ? conteudoResposta.map(function(parte) { return parte && (parte.text || parte.content) || ''; }).join('\n')
             : String(conteudoResposta || ''));
       respostaIA = removerRaciocinioExpostoEntidade_(normalizarComandosRespostaEntidade_(respostaIA));
+      const semNovidades = ehRespostaSemNovidadesEntidade_(respostaIA);
       const respostaCompleta = respostaIA && respostaEntidadePareceCompleta_(respostaIA, escolha);
       const alertaAcionavel = Boolean(mensagemUsuario) || Boolean(alertaDeterministicoAutomatico) || alertaAutomaticoEntidadeAcionavel_(respostaIA);
-      if (respostaCompleta && alertaAcionavel) break;
+      if (respostaCompleta && (semNovidades || alertaAcionavel)) break;
       respostaIA = '';
       if (tentativaResposta === 0) {
         messages.push({
@@ -243,12 +259,32 @@ ${JSON.stringify(dadosContexto, null, 2)}
   }
 }
 
-function compactarDadosContextoEntidade_(dados) {
+function compactarDadosContextoEntidade_(dados, perguntaAtual) {
   const copia = JSON.parse(JSON.stringify(dados || {}));
   const planilha = copia.planilha || {};
+  const texto = normalizarCabecalho_(perguntaAtual || '').toUpperCase();
+  const editorial = !String(perguntaAtual || '').trim();
+  const pedeVisaoEquipe = editorial || /EQUIPE|INSIGHT|RESUMO|PRIORIDADE|PENDENCIA|ATENCAO/.test(texto);
+  const pedeFerias = pedeVisaoEquipe || /FERIAS|AQUISITIVO|GOZO|COMPULSOR/.test(texto);
+  const pedeDocumentos = pedeVisaoEquipe || /1DOC|DOCUMENTO|LANCAMENTO/.test(texto);
+  const pedeConflitos = pedeVisaoEquipe || /CONFLITO|SOBREPOS|DIVERGEN|INCONSIST|ERRO/.test(texto);
+  const pedeLotacao = pedeVisaoEquipe || /LOTACAO|SETOR|DISTRIBUI/.test(texto);
   // A agenda mensal completa existe somente para a consulta determinística e
   // nunca deve ampliar o prompt ou ser enviada ao provedor de IA.
   delete planilha.lancamentosFeriasConsulta;
+  // A lista nominal completa serve às consultas determinísticas, nunca ao prompt genérico.
+  delete planilha.servidoresIdentificacao;
+  if (!pedeFerias) { planilha.ausenciasHoje = []; planilha.servidoresEmFeriasCompulsorias = []; }
+  if (!pedeDocumentos) planilha.pendenciasDe1Doc = [];
+  if (!pedeConflitos) { planilha.conflitosDeAfastamentos = []; planilha.divergenciasIdentificacaoLancamentos = []; }
+  if (!pedeLotacao) planilha.distribuicaoPorLotacao = [];
+  if (!pedeVisaoEquipe) {
+    planilha.atividadeRecenteDoAplicativo = {};
+    planilha.ultimosLancamentos = [];
+    planilha.protocolosPorStatus = {};
+    planilha.tiposDocumentoAtivos = [];
+    copia.insightsAnteriores = [];
+  }
   if (JSON.stringify(copia.interfaceAtual || {}).length > 2000) {
     copia.interfaceAtual = { aviso: 'Contexto visual resumido por limite de tokens.' };
   }
@@ -259,6 +295,8 @@ function compactarDadosContextoEntidade_(dados) {
   planilha.ausenciasHoje = reduzir(planilha.ausenciasHoje, 8);
   planilha.servidoresEmFeriasCompulsorias = reduzir(planilha.servidoresEmFeriasCompulsorias, 6);
   planilha.pendenciasDe1Doc = reduzir(planilha.pendenciasDe1Doc, 6);
+  planilha.conflitosDeAfastamentos = reduzir(planilha.conflitosDeAfastamentos, 6);
+  planilha.divergenciasIdentificacaoLancamentos = reduzir(planilha.divergenciasIdentificacaoLancamentos, 6);
   planilha.distribuicaoPorLotacao = reduzir(planilha.distribuicaoPorLotacao, 15);
   planilha.ultimosLancamentos = reduzir(planilha.ultimosLancamentos, 5);
   copia.memoriaValidada = reduzir(copia.memoriaValidada, 2);
@@ -289,11 +327,10 @@ function compactarDadosContextoEntidade_(dados) {
 
 function consultaComplexaEntidade_(messages, execucaoBackground) {
   if (execucaoBackground) return false;
-  const texto = (messages || []).filter(function(item) {
-    return item && item.role === 'user';
-  }).map(function(item) {
-    return String(item.content || '');
-  }).join(' ').toLowerCase();
+  const perguntas = (messages || []).filter(function(item) {
+    return item && item.role === 'user' && !/^A resposta anterior veio vazia/i.test(String(item.content || ''));
+  });
+  const texto = perguntas.length ? String(perguntas[perguntas.length - 1].content || '').toLowerCase() : '';
 
   return /\b(lei|decreto|estatuto|artigo|par[aá]grafo|jur[ií]dic|legal|direito|dever|penalidade|aposentadoria|licen[cç]a|parecer|interpreta[cç][aã]o normativa)\b/i.test(texto) ||
     /\b(analise|cruze|compare|investigue|explique).{0,80}\b(conflito|diverg[eê]ncia|inconsist[eê]ncia|hist[oó]rico|per[ií]odo aquisitivo)\b/i.test(texto);
@@ -322,31 +359,26 @@ function chamarProvedorEntidade_(messages, execucaoBackground) {
 
   const chaveOpenRouter = obterConfigValorInterno_('OPENROUTER_API_KEY');
   if (chaveOpenRouter) {
-    let modeloFallback = obterConfigValorInterno_('OPENROUTER_MODEL') || 'openrouter/free';
-    if (modeloFallback !== 'openrouter/free' && modeloFallback.indexOf(':free') === -1) {
-      modeloFallback = 'openrouter/free';
+    const modeloFallback = String(obterConfigValorInterno_('OPENROUTER_MODEL') || '').trim();
+    // O roteador genérico muda de modelo sem controle. A contingência só entra
+    // quando um modelo fixo foi escolhido explicitamente pela Administração.
+    if (modeloFallback && modeloFallback !== 'openrouter/free') {
+      provedores.push({
+        nome: 'OpenRouter', chave: chaveOpenRouter,
+        url: 'https://openrouter.ai/api/v1/chat/completions', modelo: modeloFallback
+      });
     }
-    provedores.push({
-      nome: 'OpenRouter',
-      chave: chaveOpenRouter,
-      url: 'https://openrouter.ai/api/v1/chat/completions',
-      modelo: modeloFallback
-    });
   }
 
   const falhas = [];
   for (let i = 0; i < provedores.length; i++) {
     const provedor = provedores[i];
-    if (!podeConsumirCotaEntidade_(provedor.nome, estimativaEntrada, execucaoBackground)) {
-      falhas.push(provedor.nome + ': limite preventivo diário alcançado');
-      continue;
-    }
-
+    const limiteSaida = execucaoBackground ? 450 : 600;
     const payload = {
       model: provedor.modelo,
       messages: messages,
       temperature: 0.15,
-      max_tokens: execucaoBackground ? 450 : 600
+      max_completion_tokens: limiteSaida
     };
     if (provedor.nome === 'Groq' && provedor.modelo.indexOf('gpt-oss') !== -1) {
       payload.reasoning_effort = provedor.reasoningEffort || 'low';
@@ -358,36 +390,44 @@ function chamarProvedorEntidade_(messages, execucaoBackground) {
       headers['X-Title'] = 'RH SETUR 2.3';
     }
 
-    const retorno = executarRequisicaoEntidade_(provedor, payload, headers);
+    const retorno = executarRequisicaoEntidade_(provedor, payload, headers, estimativaEntrada, limiteSaida);
     if (retorno.ok) {
-      registrarUsoEntidade_(provedor.nome, retorno.dados.usage, estimativaEntrada);
       return { dados: retorno.dados, provedor: provedor.nome, modelo: provedor.modelo };
     }
-    falhas.push(provedor.nome + ': HTTP ' + retorno.codigo);
+    falhas.push(provedor.nome + ': ' + (retorno.motivo || ('HTTP ' + retorno.codigo)));
   }
 
   Logger.log('Falha dos provedores da Entidade: ' + falhas.join(' | '));
   return { erro: 'A Entidade está temporariamente indisponível. O sistema tentará novamente na próxima verificação.' };
 }
 
-function executarRequisicaoEntidade_(provedor, payload, headers) {
+function executarRequisicaoEntidade_(provedor, payload, headers, estimativaEntrada, limiteSaida) {
   let ultimoCodigo = 0;
   for (let tentativa = 0; tentativa < 2; tentativa++) {
-    const resposta = UrlFetchApp.fetch(provedor.url, {
-      method: 'post',
-      contentType: 'application/json',
-      headers: headers,
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
+    const reserva = reservarCotaTentativaEntidade_(provedor.nome, estimativaEntrada, limiteSaida);
+    if (!reserva.autorizado) return { ok: false, codigo: 0, motivo: reserva.motivo };
+    const inicio = Date.now();
+    let resposta;
+    try {
+      resposta = UrlFetchApp.fetch(provedor.url, {
+        method: 'post', contentType: 'application/json', headers: headers,
+        payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+    } catch (e) {
+      registrarTelemetriaTentativaEntidade_({ provedor: provedor.nome, modelo: provedor.modelo, tentativa: tentativa + 1, resultado: 'FALHA_TRANSPORTE', codigo: 0, latenciaMs: Date.now() - inicio, tokensEntradaEstimados: estimativaEntrada, limiteSaida: limiteSaida, tokensConfirmados: 0 });
+      if (tentativa === 0) { Utilities.sleep(1200); continue; }
+      return { ok: false, codigo: 0, motivo: 'falha de transporte' };
+    }
     ultimoCodigo = resposta.getResponseCode();
     const corpo = resposta.getContentText();
+    let dados = null;
+    try { dados = JSON.parse(corpo); } catch (e) {}
+    const tokensConfirmados = dados && dados.usage ? Number(dados.usage.total_tokens || 0) : 0;
+    const sucessoHttp = ultimoCodigo >= 200 && ultimoCodigo < 300;
+    reconciliarCotaTentativaEntidade_(provedor.nome, reserva, tokensConfirmados, sucessoHttp && Boolean(dados), ultimoCodigo);
+    registrarTelemetriaTentativaEntidade_({ provedor: provedor.nome, modelo: provedor.modelo, tentativa: tentativa + 1, resultado: sucessoHttp && dados ? 'SUCESSO' : (sucessoHttp ? 'RESPOSTA_INVALIDA' : 'FALHA_HTTP'), codigo: ultimoCodigo, latenciaMs: Date.now() - inicio, tokensEntradaEstimados: estimativaEntrada, limiteSaida: limiteSaida, tokensConfirmados: tokensConfirmados });
     if (ultimoCodigo >= 200 && ultimoCodigo < 300) {
-      try {
-        return { ok: true, codigo: ultimoCodigo, dados: JSON.parse(corpo) };
-      } catch (e) {
-        return { ok: false, codigo: ultimoCodigo };
-      }
+      return dados ? { ok: true, codigo: ultimoCodigo, dados: dados } : { ok: false, codigo: ultimoCodigo };
     }
 
     const deveRepetir = ultimoCodigo === 429 || ultimoCodigo >= 500;
@@ -401,38 +441,6 @@ function executarRequisicaoEntidade_(provedor, payload, headers) {
     Utilities.sleep(esperaMs);
   }
   return { ok: false, codigo: ultimoCodigo };
-}
-
-function obterUsoEntidadeAtual_() {
-  const props = PropertiesService.getScriptProperties();
-  const hoje = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  let uso = null;
-  try { uso = JSON.parse(props.getProperty('ENTIDADE_USO_DIARIO') || 'null'); } catch (e) {}
-  if (!uso || uso.data !== hoje) {
-    uso = { data: hoje, Groq: { requisicoes: 0, tokens: 0 }, OpenRouter: { requisicoes: 0, tokens: 0 } };
-  }
-  return uso;
-}
-
-function podeConsumirCotaEntidade_(provedor, estimativaEntrada, execucaoBackground) {
-  const uso = obterUsoEntidadeAtual_();
-  const atual = uso[provedor] || { requisicoes: 0, tokens: 0 };
-  if (provedor === 'Groq') {
-    const tetoTokens = execucaoBackground ? 170000 : 190000;
-    return atual.requisicoes < 900 && (atual.tokens + estimativaEntrada) < tetoTokens;
-  }
-  return atual.requisicoes < 45;
-}
-
-function registrarUsoEntidade_(provedor, usage, estimativaEntrada) {
-  const props = PropertiesService.getScriptProperties();
-  const uso = obterUsoEntidadeAtual_();
-  const atual = uso[provedor] || { requisicoes: 0, tokens: 0 };
-  const tokensInformados = usage && Number(usage.total_tokens || 0);
-  atual.requisicoes += 1;
-  atual.tokens += tokensInformados > 0 ? tokensInformados : estimativaEntrada;
-  uso[provedor] = atual;
-  props.setProperty('ENTIDADE_USO_DIARIO', JSON.stringify(uso));
 }
 
 function normalizarComandosRespostaEntidade_(resposta) {
@@ -461,6 +469,8 @@ function removerRaciocinioExpostoEntidade_(resposta) {
     .replace(/<(?:think|analysis|reasoning)>[\s\S]*?<\/(?:think|analysis|reasoning)>/gi, '')
     .trim();
 
+  if (ehRespostaSemNovidadesEntidade_(texto)) return 'Tudo em ordem';
+
   // Estes padrões são meta-comentários de modelos e nunca devem chegar à interface.
   const raciocinioExposto = /(?:okay,?\s*the user|the user is saying|let me check|looking at the data|according to (?:the )?rules|in my previous response|wait,?\s*the user|i should have)/i;
   const respostaTecnica = /^(?:user\s*safety\s*:|content\s*policy\s*:|safety\s*check\s*:|model\s*status\s*:)/i;
@@ -468,9 +478,25 @@ function removerRaciocinioExpostoEntidade_(resposta) {
   return texto;
 }
 
+/** Resultado legítimo da vigia: não é erro, alerta nem resposta truncada. */
+function ehRespostaSemNovidadesEntidade_(resposta) {
+  const texto = String(resposta || '').trim();
+  const normalizado = normalizarTextoBuscaEntidade_(texto).replace(/[^a-z0-9_ ]/g, '').replace(/\s+/g, ' ').trim();
+  if (normalizado === 'tudo em ordem' || normalizado === 'sem novidades' || normalizado === 'sem_novidades') return true;
+  if (texto.charAt(0) !== '{') return false;
+  try {
+    const objeto = JSON.parse(texto);
+    const estado = normalizarTextoBuscaEntidade_(objeto.status || objeto.resultado || objeto.estado || '').replace(/\s+/g, '_');
+    return estado === 'sem_novidades' || estado === 'tudo_em_ordem';
+  } catch (e) {
+    return false;
+  }
+}
+
 /** Evita publicar alertas truncados ou com Markdown aberto no card/ticker. */
 function respostaEntidadePareceCompleta_(resposta, escolha) {
   const texto = String(resposta || '').trim();
+  if (ehRespostaSemNovidadesEntidade_(texto)) return true;
   if (texto.length < 18) return false;
   const finishReason = String((escolha && escolha.finish_reason) || '').toLowerCase();
   if (finishReason && finishReason !== 'stop') return false;
@@ -661,9 +687,21 @@ function obterMesConsultaFeriasEntidade_(mensagem) {
   });
   const hoje = new Date();
   if (!mes && /\b(este|nesse|neste|atual)\s+mes\b|\bmes\s+(atual|corrente)\b/.test(texto)) mes = hoje.getMonth() + 1;
+  let anoRelativo = hoje.getFullYear();
+  if (!mes && /\b(proximo|seguinte)\s+mes\b|\bmes\s+que\s+vem\b/.test(texto)) {
+    mes = hoje.getMonth() + 2;
+    if (mes > 12) { mes = 1; anoRelativo++; }
+  }
   if (!mes) return null;
   const anoEncontrado = texto.match(/\b(20\d{2})\b/);
-  return { mes: mes, ano: anoEncontrado ? Number(anoEncontrado[1]) : hoje.getFullYear(), nome: meses[mes - 1] };
+  return { mes: mes, ano: anoEncontrado ? Number(anoEncontrado[1]) : anoRelativo, nome: meses[mes - 1], anoAssumido: !anoEncontrado };
+}
+
+function obterIntencaoConsultaFeriasEntidade_(mensagem) {
+  const texto = normalizarTextoBuscaEntidade_(mensagem);
+  if (/\b(retorn|volta|voltam|regress|termin|fim)\w*/.test(texto)) return 'RETORNOS_NO_PERIODO';
+  if (/\b(sair|saem|inicio|inicia|iniciam|comeca|comecam|programad|agendad)\w*/.test(texto)) return 'INICIOS_NO_PERIODO';
+  return 'FERIAS_NO_PERIODO';
 }
 
 function ehConsultaFeriasPorMesEntidade_(mensagem) {
@@ -702,7 +740,10 @@ function responderFeriasPorMesEntidade_(mensagem, lancamentos) {
   inicioMes.setHours(0, 0, 0, 0);
   fimMes.setHours(0, 0, 0, 0);
 
-  const encontrados = (Array.isArray(lancamentos) ? lancamentos : []).filter(function(item) {
+  const intencao = obterIntencaoConsultaFeriasEntidade_(mensagem);
+  const somenteFuturos = intencao === 'INICIOS_NO_PERIODO' && /\b(ainda|daqui)\w*/.test(normalizarTextoBuscaEntidade_(mensagem));
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const encontrados = (Array.isArray(lancamentos) ? lancamentos : []).map(function(item) {
     if (item.identidadeConsistente === false) return false;
     if (normalizarTextoBuscaEntidade_(item.status) === 'anulado') return false;
     if (normalizarTextoBuscaEntidade_(item.statusServidor) === 'inativo') return false;
@@ -712,27 +753,40 @@ function responderFeriasPorMesEntidade_(mensagem, lancamentos) {
     if (!inicio || !dias) return false;
     const fim = new Date(inicio.getTime());
     fim.setDate(fim.getDate() + dias - 1);
-    item.__inicioConsulta = inicio;
-    item.__fimConsulta = fim;
-    return inicio <= fimMes && fim >= inicioMes;
-  }).sort(function(a, b) {
-    return a.__inicioConsulta - b.__inicioConsulta || String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR', { sensitivity: 'base' });
+    const retorno = new Date(fim.getTime()); retorno.setDate(retorno.getDate() + 1);
+    const inclui = intencao === 'INICIOS_NO_PERIODO'
+      ? inicio >= inicioMes && inicio <= fimMes && (!somenteFuturos || inicio >= hoje)
+      : (intencao === 'RETORNOS_NO_PERIODO' ? retorno >= inicioMes && retorno <= fimMes : inicio <= fimMes && fim >= inicioMes);
+    if (!inclui) return false;
+    return { original: item, inicio: inicio, fim: fim, retorno: retorno };
+  }).filter(Boolean).sort(function(a, b) {
+    const dataA = intencao === 'RETORNOS_NO_PERIODO' ? a.retorno : a.inicio;
+    const dataB = intencao === 'RETORNOS_NO_PERIODO' ? b.retorno : b.inicio;
+    return dataA - dataB || String(a.original.nome || '').localeCompare(String(b.original.nome || ''), 'pt-BR', { sensitivity: 'base' });
   });
 
   const rotulo = periodo.nome.charAt(0).toUpperCase() + periodo.nome.slice(1) + '/' + periodo.ano;
-  if (!encontrados.length) return 'Não há servidores ativos com férias alcançando **' + rotulo + '** na leitura atual da aba Lançamentos.';
+  const descricaoFiltro = intencao === 'INICIOS_NO_PERIODO' ? 'início das férias' : (intencao === 'RETORNOS_NO_PERIODO' ? 'retorno das férias' : 'presença em férias');
+  if (!encontrados.length) return 'Não há servidores ativos para o filtro **' + descricaoFiltro + ' em ' + rotulo + '** na leitura atual da aba Lançamentos.' + (periodo.anoAssumido ? ' Considerei o ano ' + periodo.ano + '.' : '');
 
   const matriculas = {};
-  encontrados.forEach(function(item) { matriculas[normalizarChaveMatricula_(item.matricula) || String(item.nome || '')] = true; });
-  const limite = 50;
-  const linhas = encontrados.slice(0, limite).map(function(item, indice) {
-    let situacao = 'inicia em ' + formatarDataConsultaFeriasEntidade_(item.__inicioConsulta);
-    if (item.__inicioConsulta < inicioMes) situacao = 'já entra no mês em férias';
-    return (indice + 1) + '. **' + String(item.nome || 'Servidor sem nome') + '** — matrícula **' + String(item.matricula || '-') + '** — ' +
-      formatarDataConsultaFeriasEntidade_(item.__inicioConsulta) + ' a ' + formatarDataConsultaFeriasEntidade_(item.__fimConsulta) + ' (' + situacao + ')';
+  encontrados.forEach(function(registro) { const item = registro.original; matriculas[normalizarChaveMatricula_(item.matricula) || String(item.nome || '')] = true; });
+  const paginaEncontrada = normalizarTextoBuscaEntidade_(mensagem).match(/\bpagina\s+(\d{1,3})\b/);
+  const pagina = Math.max(1, Number(paginaEncontrada ? paginaEncontrada[1] : 1));
+  const limite = 30;
+  const inicioPagina = (pagina - 1) * limite;
+  const exibidos = encontrados.slice(inicioPagina, inicioPagina + limite);
+  const linhas = exibidos.map(function(registro, indice) {
+    const item = registro.original;
+    let situacao = registro.inicio < inicioMes ? 'já entra no mês em férias' : 'inicia em ' + formatarDataConsultaFeriasEntidade_(registro.inicio);
+    if (intencao === 'RETORNOS_NO_PERIODO') situacao = 'retorna em ' + formatarDataConsultaFeriasEntidade_(registro.retorno);
+    return (inicioPagina + indice + 1) + '. **' + String(item.nome || 'Servidor sem nome') + '** — matrícula **' + String(item.matricula || '-') + '** — ' +
+      formatarDataConsultaFeriasEntidade_(registro.inicio) + ' a ' + formatarDataConsultaFeriasEntidade_(registro.fim) + ' (' + situacao + ')';
   });
-  let resposta = '**' + Object.keys(matriculas).length + ' servidor(es) com férias em ' + rotulo + '** (' + encontrados.length + ' lançamento(s)).\n' + linhas.join('\n');
-  if (encontrados.length > limite) resposta += '\n\n' + (encontrados.length - limite) + ' lançamento(s) adicional(is) ficaram fora da listagem.';
+  let resposta = '**' + Object.keys(matriculas).length + ' servidor(es) encontrados — ' + descricaoFiltro + ' em ' + rotulo + '** (' + encontrados.length + ' lançamento(s)).\n' + linhas.join('\n');
+  const restantes = Math.max(0, encontrados.length - inicioPagina - exibidos.length);
+  if (restantes) resposta += '\n\n' + restantes + ' lançamento(s) permanecem nas próximas páginas. Peça “página ' + (pagina + 1) + '”.';
+  if (periodo.anoAssumido) resposta += '\n\n**Filtro aplicado:** ano ' + periodo.ano + ' assumido porque ele não foi informado.';
   return resposta;
 }
 
@@ -853,16 +907,20 @@ function avaliarInteracaoEntidade(id, avaliacao, correcao) {
   const valor = String(avaliacao || '').toUpperCase() === 'UTIL' ? 'UTIL' : 'NAO_UTIL';
   const textoCorrecao = String(correcao || '').trim().slice(0, 4000);
   const podeCorrigir = usuario.papel === 'Administrador' || usuario.papel === 'Admin' || usuario.papel === 'Operador';
-  if (textoCorrecao && !podeCorrigir) throw new Error('Somente Administrador ou Operador pode ensinar uma correção permanente.');
+  if (textoCorrecao && !podeCorrigir) throw new Error('Somente Administrador ou Operador pode registrar uma sugestão de correção.');
 
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(5000);
     const aba = obterAbaMemoriaEntidade_();
     if (aba.getLastRow() <= 1) throw new Error('Interação não encontrada.');
-    const ids = aba.getRange(2, 1, Math.max(aba.getLastRow() - 1, 0), 1).getDisplayValues();
-    for (let i = 0; i < ids.length; i++) {
-      if (ids[i][0] === String(id)) {
+    const dados = aba.getRange(2, 1, Math.max(aba.getLastRow() - 1, 0), 8).getDisplayValues();
+    for (let i = 0; i < dados.length; i++) {
+      if (dados[i][0] === String(id)) {
+        const autor = String(dados[i][2] || '').toLowerCase().trim();
+        const atual = String(usuario.email || usuario.nome || '').toLowerCase().trim();
+        const administrador = usuario.papel === 'Administrador' || usuario.papel === 'Admin';
+        if (!administrador && autor !== atual) throw new Error('Você só pode avaliar suas próprias interações.');
         aba.getRange(i + 2, 6, 1, 2).setValues([[valor, podeCorrigir ? textoCorrecao : '']]);
         return true;
       }
@@ -878,36 +936,25 @@ function obterMemoriasEntidadeRelevantes_(mensagem) {
   const ss = obterPlanilha_();
   const termos = extrairTermosMemoriaEntidade_(mensagem);
   const candidatos = [];
-  const aba = ss.getSheetByName('IA_Memoria');
-
-  if (aba && aba.getLastRow() > 1) {
-    const ultimaLinha = aba.getLastRow();
-    const inicio = Math.max(2, ultimaLinha - 499);
-    const dados = aba.getRange(inicio, 1, ultimaLinha - inicio + 1, 8).getDisplayValues();
-    dados.forEach(function(linha) {
-      const avaliacao = String(linha[5] || '').toUpperCase();
-      const correcao = String(linha[6] || '').trim();
-      const ativo = String(linha[7] || 'Sim').trim();
-      if (ativo === 'Não' || (avaliacao !== 'UTIL' && !correcao)) return;
-      candidatos.push({
-        pergunta: String(linha[3] || ''),
-        orientacao: String(correcao || linha[4] || ''),
-        origem: 'memoria_recente'
-      });
-    });
-  }
-
   const abaConhecimento = ss.getSheetByName('IA_Conhecimento');
   if (abaConhecimento && abaConhecimento.getLastRow() > 1) {
     const ultimaLinhaConhecimento = abaConhecimento.getLastRow();
     const inicioConhecimento = Math.max(2, ultimaLinhaConhecimento - 999);
-    abaConhecimento.getRange(inicioConhecimento, 1, ultimaLinhaConhecimento - inicioConhecimento + 1, 5)
+    const colunas = Math.max(10, abaConhecimento.getLastColumn());
+    abaConhecimento.getRange(inicioConhecimento, 1, ultimaLinhaConhecimento - inicioConhecimento + 1, colunas)
       .getDisplayValues().forEach(function(linha) {
         if (String(linha[4] || 'Sim').trim() === 'Não') return;
+        const validoAte = String(linha[7] || '').trim();
+        if (validoAte) {
+          const limite = new Date(validoAte + (validoAte.indexOf('T') === -1 ? 'T23:59:59' : ''));
+          if (!isNaN(limite.getTime()) && limite.getTime() < Date.now()) return;
+        }
         candidatos.push({
           pergunta: String(linha[2] || ''),
           orientacao: String(linha[3] || ''),
-          origem: 'conhecimento_consolidado'
+          origem: 'conhecimento_aprovado',
+          fonte: String(linha[6] || ''),
+          escopo: String(linha[5] || '')
         });
       });
   }
@@ -933,9 +980,15 @@ function obterHistoricoConversasEntidade_(limite) {
     const ss = obterPlanilha_();
     const aba = ss.getSheetByName('IA_Memoria');
     if (!aba || aba.getLastRow() <= 1) return [];
-    const quantidade = Math.min(Number(limite || 6), aba.getLastRow() - 1);
-    const inicio = aba.getLastRow() - quantidade + 1;
-    return aba.getRange(inicio, 1, quantidade, 8).getDisplayValues().reverse().map(function(linha) {
+    const usuario = obterDadosUsuarioLogado();
+    const quantidadeLeitura = Math.min(500, aba.getLastRow() - 1);
+    const inicio = aba.getLastRow() - quantidadeLeitura + 1;
+    const linhasPrivadas = filtrarHistoricoPrivadoEntidade_(
+      aba.getRange(inicio, 1, quantidadeLeitura, 8).getDisplayValues(),
+      usuario.email || usuario.nome || '',
+      limite
+    );
+    return linhasPrivadas.map(function(linha) {
       const avaliacao = String(linha[5] || '').toUpperCase();
       const correcao = String(linha[6] || '').trim();
       const item = {
@@ -946,8 +999,9 @@ function obterHistoricoConversasEntidade_(limite) {
 
       // Respostas anteriores não avaliadas não voltam ao modelo como fatos,
       // evitando que uma alucinação se reforce sozinha nas conversas seguintes.
-      if (avaliacao === 'UTIL') item.respostaValidada = String(linha[4] || '').slice(0, 550);
-      if (correcao) item.correcaoValidada = correcao.slice(0, 400);
+      // O histórico dá continuidade ao diálogo, mas nunca é promovido a fato.
+      if (avaliacao === 'UTIL') item.respostaAnterior = String(linha[4] || '').slice(0, 550);
+      if (correcao) item.sugestaoDeCorrecao = correcao.slice(0, 400);
       return item;
     });
   } catch (e) {
@@ -988,7 +1042,6 @@ function obterContextoEntidadeServidor_() {
       const prazoB = b.diasParaTerceiroPeriodo == null ? 999999 : Number(b.diasParaTerceiroPeriodo);
       return prazoA - prazoB || Number(b.saldoHoje || 0) - Number(a.saldoHoje || 0) || String(a.nome || '').localeCompare(String(b.nome || ''));
     })
-    .slice(0, 12)
     .map(function(s) {
       return {
         nome: s.nome,
@@ -1024,6 +1077,8 @@ function obterContextoEntidadeServidor_() {
       const partes = String(l.dataSolicitacao || '').split('/');
       const dataSolicitacao = partes.length === 3 ? new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0])) : null;
       return {
+        id: l.id || '',
+        linhaPlanilha: Number(l.linhaPlanilha || 0),
         nome: l.nome,
         matricula: l.matricula,
         tipo: l.tipo,
@@ -1033,8 +1088,7 @@ function obterContextoEntidadeServidor_() {
         diasPendente: dataSolicitacao && !isNaN(dataSolicitacao.getTime()) ? Math.max(0, Math.floor((Date.now() - dataSolicitacao.getTime()) / 86400000)) : null
       };
     })
-    .sort(function(a, b) { return Number(b.diasPendente || 0) - Number(a.diasPendente || 0); })
-    .slice(0, 12);
+    .sort(function(a, b) { return Number(b.diasPendente || 0) - Number(a.diasPendente || 0); });
 
   const lotacoes = {};
   servidores.forEach(function(s) {
@@ -1103,16 +1157,19 @@ function obterContextoEntidadeServidor_() {
 
   let alertasAuditoriaCadastral = [];
   try {
-    alertasAuditoriaCadastral = obterAlertasAuditoriaCadastralEntidade_(12);
+    alertasAuditoriaCadastral = obterAlertasAuditoriaCadastralEntidade_(5000);
   } catch (e) {
     Logger.log('Não foi possível carregar a auditoria cadastral para a Entidade: ' + e.toString());
   }
 
-  const conflitosDeAfastamentos = filtrarConflitosServidoresAtivosEntidade_(
-    detectarSobreposicoesLancamentos_(lancamentos, 20),
-    mapaServidores
-  );
-  const divergenciasIdentificacaoLancamentos = detectarDivergenciasIdentificacaoLancamentos_(lancamentos, 20);
+  // A elegibilidade vem antes do limite de apresentacao. Assim, conflitos de
+  // pessoas inativas nao ocupam as primeiras posicoes e escondem casos ativos.
+  const lancamentosElegiveisOcorrencias = lancamentos.filter(function(item) {
+    const servidor = mapaServidores[normalizarChaveMatricula_(item && item.matricula)];
+    return !servidor || String(servidor.status || '').trim().toLowerCase() !== 'inativo';
+  });
+  const conflitosDeAfastamentos = detectarSobreposicoesLancamentos_(lancamentosElegiveisOcorrencias, 5000);
+  const divergenciasIdentificacaoLancamentos = detectarDivergenciasIdentificacaoLancamentos_(lancamentosElegiveisOcorrencias, 5000);
 
   const contexto = {
     origem: 'Leitura direta e atual da planilha Google',
@@ -1354,9 +1411,13 @@ function gerarAlertasConflitosDeterministicosEntidade_(contexto, limite) {
 /** Executado por gatilho e também sob demanda quando ainda não há análise recente. */
 function gerarInsightEntidade_(forcarAnalise) {
   const props = PropertiesService.getScriptProperties();
-  const versaoMotor = 'insight-conflitos-deterministicos-v1';
+  const versaoMotor = 'ocorrencias-deterministicas-v2';
   const contextoAtual = obterContextoEntidadeServidor_();
-  const fingerprintAtual = criarFingerprintContextoEntidade_(contextoAtual);
+  contextoAtual.coberturaInsuficiente = obterAlertasCoberturaEntidade_();
+  const ocorrencias = reconciliarOcorrenciasEntidade_(contextoAtual);
+  const fingerprintAtual = hashEntidadeOcorrencia_(ocorrencias.map(function(item) {
+    return item.id + '|' + item.revisaoEvidencia + '|' + item.situacao + '|' + String(item.adiadaAte || '');
+  }).join('\n'));
   let anteriorObj = null;
   try { anteriorObj = JSON.parse(props.getProperty('ENTIDADE_ULTIMO_INSIGHT') || 'null'); } catch (e) {}
 
@@ -1374,18 +1435,31 @@ function gerarInsightEntidade_(forcarAnalise) {
   props.setProperty('ENTIDADE_MUDANCAS_PENDENTES', JSON.stringify(compararEstadosEntidade_(estadoAnterior, estadoAtual)));
   CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
 
-  const resultado = chamarEntidade(null, '{}', []);
-  if (!resultado || resultado.erro) {
-    throw new Error((resultado && resultado.erro) || 'A Entidade não retornou uma análise válida.');
-  }
   const agora = new Date().getTime();
-  const registro = resultado && resultado.silencioso
-    ? { versao: versaoMotor, temAlertas: false, resposta: '', geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' }
-    : { versao: versaoMotor, temAlertas: Boolean(resultado && resultado.resposta), resposta: String((resultado && resultado.resposta) || ''), geradoEm: agora, verificadoEm: agora, fingerprint: fingerprintAtual, provedor: resultado.provedor || '' };
+  const resposta = gerarResumoOcorrenciasEntidade_(ocorrencias);
+  const registro = {
+    versao: versaoMotor,
+    temAlertas: ocorrencias.length > 0,
+    resposta: resposta,
+    geradoEm: agora,
+    verificadoEm: agora,
+    fingerprint: fingerprintAtual,
+    provedor: 'Sistema',
+    totalOcorrencias: ocorrencias.length,
+    ocorrencias: ocorrencias.slice(0, 3).map(function(item) {
+      return {
+        id: item.id, revisaoEvidencia: item.revisaoEvidencia, regra: item.regra,
+        matricula: item.matricula, nome: item.nome, titulo: item.titulo,
+        descricao: item.descricao, severidade: item.severidade, situacao: item.situacao,
+        prazo: item.prazo || '', responsavel: item.responsavel || '', acao: item.acao || {}
+      };
+    })
+  };
 
   props.setProperty('ENTIDADE_ULTIMO_INSIGHT', JSON.stringify(registro));
   props.setProperty('ENTIDADE_ESTADO_ANALISADO', JSON.stringify(estadoAtual));
   props.deleteProperty('ENTIDADE_MUDANCAS_PENDENTES');
+  props.deleteProperty('ENTIDADE_RECONFERENCIA_PENDENTE');
 
   const insightNovo = !anteriorObj || anteriorObj.versao !== registro.versao || anteriorObj.fingerprint !== registro.fingerprint || anteriorObj.temAlertas !== registro.temAlertas;
   if (insightNovo) registrarInsightHistorico_(registro);
@@ -1510,6 +1584,7 @@ function obterBriefingDiarioEntidade() {
   const chaveVisualizacao = obterChaveVisualizacaoBriefingEntidade_(usuario);
   const versaoBriefing = 'briefing-dinamico-v7';
   const contexto = obterContextoEntidadeServidor_();
+  const ocorrenciasBriefing = reconciliarOcorrenciasEntidade_(contexto);
   const fingerprint = criarFingerprintBriefingEntidade_(contexto);
   const marcadorVisualizacao = hoje + '|' + versaoBriefing + '|' + fingerprint.slice(0, 18);
   const jaVisto = props.getProperty(chaveVisualizacao) === marcadorVisualizacao;
@@ -1531,7 +1606,7 @@ function obterBriefingDiarioEntidade() {
       geradoEm: Date.now(),
       fingerprint: fingerprint,
       snapshot: { totalLancamentos: totalAtual },
-      resposta: gerarBriefingDeterministicoEntidade_(contexto).slice(0, 6500),
+      resposta: gerarBriefingPorOcorrenciasEntidade_(contexto, ocorrenciasBriefing).slice(0, 6500),
       provedor: 'Sistema',
       interacaoId: ''
     };
@@ -1563,7 +1638,7 @@ function marcarBriefingDiarioEntidadeComoVisto() {
   return true;
 }
 
-const CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_ = 'entidade_insight_processando_v2';
+const CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_ = 'ENTIDADE_LEASE_INSIGHT_V3';
 
 /**
  * Reserva somente o processamento da Entidade. O ScriptLock fica retido por
@@ -1573,10 +1648,12 @@ function reservarProcessamentoInsightEntidade_() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(2000)) return '';
   try {
-    const cache = CacheService.getScriptCache();
-    if (cache.get(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_)) return '';
+    const props = PropertiesService.getScriptProperties();
+    let lease = null;
+    try { lease = JSON.parse(props.getProperty(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_) || 'null'); } catch (e) {}
+    if (lease && Number(lease.expiraEm || 0) > Date.now()) return '';
     const token = Utilities.getUuid();
-    cache.put(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_, token, 180);
+    props.setProperty(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_, JSON.stringify({ dono: token, expiraEm: Date.now() + 180000 }));
     return token;
   } finally {
     lock.releaseLock();
@@ -1585,10 +1662,14 @@ function reservarProcessamentoInsightEntidade_() {
 
 function liberarProcessamentoInsightEntidade_(token) {
   if (!token) return;
-  const cache = CacheService.getScriptCache();
-  if (cache.get(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_) === token) {
-    cache.remove(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_);
-  }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(2000)) return;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let lease = null;
+    try { lease = JSON.parse(props.getProperty(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_) || 'null'); } catch (e) {}
+    if (lease && lease.dono === token) props.deleteProperty(CHAVE_PROCESSAMENTO_INSIGHT_ENTIDADE_);
+  } finally { lock.releaseLock(); }
 }
 
 function obterInsightEntidadePersistido_(usuario) {
@@ -1598,14 +1679,18 @@ function obterInsightEntidadePersistido_(usuario) {
   } catch (e) {}
 
   if (!insight) return { temAlertas: false, resposta: '', mostrar: false, emProcessamento: true };
-  const fingerprint = String(insight.fingerprint || '');
-  const visto = fingerprint && PropertiesService.getScriptProperties().getProperty(obterChaveVisualizacaoInsightEntidade_(usuario)) === fingerprint;
-  insight.mostrar = Boolean(insight.temAlertas && !visto);
+  const itensCliente = prepararOcorrenciasParaClienteEntidade_((insight.ocorrencias || []).map(function(item) {
+    item.revisaoEvidencia = item.revisaoEvidencia || item.revisao;
+    return item;
+  }), usuarioOcorrenciaEntidade_());
+  insight.ocorrencias = itensCliente;
+  insight.mostrar = Boolean(insight.temAlertas && itensCliente.some(function(item) { return !item.lida; }));
+  insight.saudeMonitor = obterSaudeMonitorEntidade_();
   insight.emProcessamento = true;
   return insight;
 }
 
-/** Revalida os fatos; só consome IA quando o fingerprint operacional mudou. */
+/** Revalida os fatos localmente; esta leitura nao consome API de IA. */
 function obterInsightEntidadeAtual() {
   const usuario = obterDadosUsuarioLogado();
   try { garantirGatilhoVigiaEntidade_(); } catch (e) { Logger.log('Gatilho da Entidade ainda não autorizado: ' + e.toString()); }
@@ -1614,9 +1699,13 @@ function obterInsightEntidadeAtual() {
   if (!tokenProcessamento) return obterInsightEntidadePersistido_(usuario);
   try {
     const insight = gerarInsightEntidade_(false);
-    const fingerprint = String(insight && insight.fingerprint || '');
-    const visto = fingerprint && PropertiesService.getScriptProperties().getProperty(obterChaveVisualizacaoInsightEntidade_(usuario)) === fingerprint;
-    insight.mostrar = Boolean(insight.temAlertas && !visto);
+    const itensCliente = prepararOcorrenciasParaClienteEntidade_((insight.ocorrencias || []).map(function(item) {
+      item.revisaoEvidencia = item.revisaoEvidencia || item.revisao;
+      return item;
+    }), usuarioOcorrenciaEntidade_());
+    insight.ocorrencias = itensCliente;
+    insight.mostrar = Boolean(insight.temAlertas && itensCliente.some(function(item) { return !item.lida; }));
+    insight.saudeMonitor = obterSaudeMonitorEntidade_();
     return insight;
   } finally {
     liberarProcessamentoInsightEntidade_(tokenProcessamento);
@@ -1653,11 +1742,14 @@ function executarVigiaEntidadeAgendado() {
   const tokenProcessamento = reservarProcessamentoInsightEntidade_();
   if (!tokenProcessamento) return;
   const usuarioAnterior = _usuarioSessaoAtual;
+  const inicio = new Date();
   try {
     _usuarioSessaoAtual = { email: 'rotina.interna@setur', nome: 'Rotina Entidade', papel: 'Administrador', ativo: true };
     gerarInsightEntidade_(false);
+    registrarSaudeMonitorEntidade_('SUCESSO', inicio, '');
   } catch (e) {
     Logger.log('Erro na vigia agendada da Entidade: ' + e.toString());
+    try { registrarSaudeMonitorEntidade_('FALHA', inicio, e.toString()); } catch (erroSaude) {}
   } finally {
     _usuarioSessaoAtual = usuarioAnterior;
     liberarProcessamentoInsightEntidade_(tokenProcessamento);

@@ -1,0 +1,302 @@
+/**
+ * Manutenção automática das tabelas auxiliares da Entidade.
+ * Executada diariamente por gatilho instalável.
+ */
+
+const MANUTENCAO_SISTEMA = {
+  pastaArquivo: 'SETUR_RH_Arquivos_Historicos',
+  pastaArquivoId: '1Zwtu2gdINOCh0sfxQgp2VgRocAomrG4c',
+  diasMemoriaBruta: 180,
+  diasInsightsFinalizados: 365,
+  diasFilaConcluida: 90,
+  diasTelemetriaEntidade: 90,
+  diasRegistrosEntidadeResolvidos: 365,
+  linhasMinimasAba: 200,
+  folgaLinhasOperacionais: 300,
+  versaoGatilho: 'manutencao-diaria-v4-entidade'
+};
+
+function garantirGatilhoManutencaoSistema_() {
+  if (typeof betaConectadaProducao_ === 'function') {
+    ScriptApp.getProjectTriggers().filter(function(gatilho) { return gatilho.getHandlerFunction() === 'executarManutencaoAutomaticaSistema'; }).forEach(function(gatilho) { ScriptApp.deleteTrigger(gatilho); });
+    return;
+  }
+  const props = PropertiesService.getScriptProperties();
+  const existentes = ScriptApp.getProjectTriggers().filter(function(gatilho) {
+    return gatilho.getHandlerFunction() === 'executarManutencaoAutomaticaSistema';
+  });
+
+  if (props.getProperty('MANUTENCAO_GATILHO_VERSAO') !== MANUTENCAO_SISTEMA.versaoGatilho) {
+    existentes.forEach(function(gatilho) { ScriptApp.deleteTrigger(gatilho); });
+    ScriptApp.newTrigger('executarManutencaoAutomaticaSistema').timeBased().everyDays(1).atHour(2).create();
+    props.setProperty('MANUTENCAO_GATILHO_VERSAO', MANUTENCAO_SISTEMA.versaoGatilho);
+  } else if (!existentes.length) {
+    ScriptApp.newTrigger('executarManutencaoAutomaticaSistema').timeBased().everyDays(1).atHour(2).create();
+  }
+}
+
+function executarManutencaoAutomaticaSistema() {
+  if (typeof betaConectadaProducao_ === 'function') return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return;
+
+  const usuarioAnterior = _usuarioSessaoAtual;
+  try {
+    _usuarioSessaoAtual = { email: 'rotina.interna@setur', nome: 'Manutenção Automática', papel: 'Administrador', ativo: true };
+    const ss = obterPlanilha_();
+    const integridade = verificarIntegridadeEstruturalRh_(ss);
+    if (!integridade.integra) throw new Error('Manutenção cancelada para proteger os dados: ' + integridade.erros.join(' '));
+    const backup = executarBackupAutomaticoDados_(false);
+    const memoria = manterMemoriaEntidade_(ss);
+    const insights = manterInsightsEntidade_(ss);
+    const fila = manterFilaSincronizacao_(ss);
+    const telemetria = manterTelemetriaEntidade_(ss);
+    const ocorrencias = manterRegistrosResolvidosEntidade_(ss, 'Entidade_Ocorrencias', 9, 18, 20);
+    const auditoria = manterRegistrosResolvidosEntidade_(ss, 'IA_Auditoria_Cadastros', 9, 10, 11);
+    const propostasExpiradas = limparPropostasExpiradasEntidade_();
+    const compactacao = compactarLinhasNaoUtilizadas_(ss);
+    const capacidade = monitorarCapacidadePlanilha_(ss);
+
+    lancarLogSemLock_(
+      'MANUTENCAO_AUTOMATICA',
+      'Sistema',
+      'Manutenção das tabelas auxiliares concluída.',
+      'Linhas arquivadas',
+      '',
+      'Backup: ' + (backup.arquivoId || 'já atualizado') + '; IA_Memoria: ' + memoria.arquivadas + '; IA_Insights: ' + insights.arquivadas + '; telemetria: ' + telemetria.arquivadas + '; ocorrências: ' + ocorrencias.arquivadas + '; auditoria: ' + auditoria.arquivadas + '; propostas expiradas: ' + propostasExpiradas + '; fila concluída: ' + fila.arquivadas + '; linhas reservadas liberadas: ' + compactacao.linhasLiberadas + '; células alocadas: ' + capacidade.percentualAlocado + '%.',
+      'ROTINA_AUTOMATICA'
+    );
+  } catch (e) {
+    try {
+      PropertiesService.getScriptProperties().setProperty('RH_BACKUP_ULTIMO_ERRO', String(e && e.message ? e.message : e).slice(0, 1000));
+    } catch (ignorado) {}
+    Logger.log('Erro na manutenção automática: ' + e.toString());
+  } finally {
+    _usuarioSessaoAtual = usuarioAnterior;
+    lock.releaseLock();
+  }
+}
+
+function manterTelemetriaEntidade_(ss) {
+  const aba = ss.getSheetByName('Entidade_Telemetria');
+  if (!aba || aba.getLastRow() <= 1) return { arquivadas: 0 };
+  const colunas = Math.max(10, aba.getLastColumn());
+  const cabecalho = aba.getRange(1, 1, 1, colunas).getDisplayValues()[0];
+  const linhas = aba.getRange(2, 1, aba.getLastRow() - 1, colunas).getValues();
+  const limite = Date.now() - MANUTENCAO_SISTEMA.diasTelemetriaEntidade * 86400000;
+  const arquivar = [], manter = [];
+  linhas.forEach(function(linha) {
+    const data = normalizarDataManutencao_(linha[0]);
+    if (data && data.getTime() < limite) arquivar.push(linha); else manter.push(linha);
+  });
+  if (!arquivar.length) return { arquivadas: 0 };
+  const arquivo = arquivarTabelaCsv_(cabecalho, arquivar, 'Entidade_Telemetria');
+  regravarTabelaCompactada_(aba, manter, colunas);
+  return { arquivadas: arquivar.length, arquivoId: arquivo.getId() };
+}
+
+function manterRegistrosResolvidosEntidade_(ss, nomeAba, colunaStatus, colunaDataFinal, colunasMinimas) {
+  const aba = ss.getSheetByName(nomeAba);
+  if (!aba || aba.getLastRow() <= 1) return { arquivadas: 0 };
+  const colunas = Math.max(colunasMinimas, aba.getLastColumn());
+  const cabecalho = aba.getRange(1, 1, 1, colunas).getDisplayValues()[0];
+  const linhas = aba.getRange(2, 1, aba.getLastRow() - 1, colunas).getValues();
+  const limite = Date.now() - MANUTENCAO_SISTEMA.diasRegistrosEntidadeResolvidos * 86400000;
+  const arquivar = [], manter = [];
+  linhas.forEach(function(linha) {
+    const status = String(linha[colunaStatus - 1] || '').toUpperCase();
+    const data = normalizarDataManutencao_(linha[colunaDataFinal - 1]);
+    if (status === 'RESOLVIDA' || status === 'RESOLVIDO') {
+      if (data && data.getTime() < limite) { arquivar.push(linha); return; }
+    }
+    manter.push(linha);
+  });
+  if (!arquivar.length) return { arquivadas: 0 };
+  const arquivo = arquivarTabelaCsv_(cabecalho, arquivar, nomeAba);
+  regravarTabelaCompactada_(aba, manter, colunas);
+  return { arquivadas: arquivar.length, arquivoId: arquivo.getId() };
+}
+
+/**
+ * Tira da planilha ativa apenas operações antigas já concluídas ou canceladas.
+ * Pendências e erros nunca são arquivados, independentemente da idade.
+ */
+function manterFilaSincronizacao_(ss) {
+  const aba = ss.getSheetByName('Fila_Sincronizacao');
+  if (!aba || aba.getLastRow() <= 1) return { arquivadas: 0 };
+  const colunas = Math.max(CABECALHO_FILA_SINCRONIZACAO.length, aba.getLastColumn());
+  const cabecalho = aba.getRange(1, 1, 1, colunas).getDisplayValues()[0];
+  const valores = aba.getRange(2, 1, aba.getLastRow() - 1, colunas).getValues();
+  const limite = new Date(Date.now() - MANUTENCAO_SISTEMA.diasFilaConcluida * 86400000);
+  const arquivar = [];
+  const manter = [];
+  valores.forEach(function(linha) {
+    const status = String(linha[7] || '').toUpperCase();
+    const dataFinal = normalizarDataManutencao_(linha[17] || linha[2]);
+    if ((status === 'CONCLUIDA' || status === 'CANCELADA') && dataFinal && dataFinal < limite) arquivar.push(linha);
+    else manter.push(linha);
+  });
+  if (!arquivar.length) return { arquivadas: 0 };
+  const arquivo = arquivarTabelaCsv_(cabecalho, arquivar, 'Fila_Sincronizacao');
+  regravarTabelaCompactada_(aba, manter, colunas);
+  return { arquivadas: arquivar.length, arquivoId: arquivo.getId() };
+}
+
+/**
+ * O limite do Google conta também linhas vazias que ficaram reservadas. Esta
+ * rotina remove somente a sobra abaixo do último dado, mantendo uma folga para
+ * novos lançamentos. Não altera células preenchidas, fórmulas ou cabeçalhos.
+ */
+function compactarLinhasNaoUtilizadas_(ss) {
+  let linhasLiberadas = 0;
+  const detalhes = [];
+  ss.getSheets().forEach(function(aba) {
+    const ultimaUsada = Math.max(1, aba.getLastRow());
+    const desejadas = Math.max(MANUTENCAO_SISTEMA.linhasMinimasAba, ultimaUsada + MANUTENCAO_SISTEMA.folgaLinhasOperacionais);
+    const excesso = aba.getMaxRows() - desejadas;
+    if (excesso < 100) return;
+    aba.deleteRows(desejadas + 1, excesso);
+    linhasLiberadas += excesso;
+    detalhes.push({ aba: aba.getName(), linhas: excesso });
+  });
+  return { linhasLiberadas: linhasLiberadas, detalhes: detalhes };
+}
+
+function obterDiagnosticoCapacidadePlanilha_(ss) {
+  const limite = 10000000;
+  const abas = ss.getSheets().map(function(aba) {
+    const alocadas = aba.getMaxRows() * aba.getMaxColumns();
+    const usadas = Math.max(1, aba.getLastRow()) * Math.max(1, aba.getLastColumn());
+    return { nome: aba.getName(), linhas: aba.getMaxRows(), colunas: aba.getMaxColumns(), alocadas: alocadas, usadasEstimadas: usadas, vazia: aba.getLastRow() <= 1 };
+  });
+  const total = abas.reduce(function(soma, aba) { return soma + aba.alocadas; }, 0);
+  return { limite: limite, totalAlocado: total, percentualAlocado: Math.round((total / limite) * 1000) / 10, abas: abas.sort(function(a, b) { return b.alocadas - a.alocadas; }) };
+}
+
+function monitorarCapacidadePlanilha_(ss) {
+  const diagnostico = obterDiagnosticoCapacidadePlanilha_(ss);
+  const faixa = diagnostico.percentualAlocado >= 95 ? 'CRITICO' : diagnostico.percentualAlocado >= 85 ? 'ALTO' : diagnostico.percentualAlocado >= 70 ? 'ATENCAO' : 'NORMAL';
+  const props = PropertiesService.getScriptProperties();
+  const faixaAnterior = props.getProperty('CAPACIDADE_PLANILHA_FAIXA') || 'NORMAL';
+  props.setProperty('CAPACIDADE_PLANILHA_FAIXA', faixa);
+  props.setProperty('CAPACIDADE_PLANILHA_ULTIMO_DIAGNOSTICO', JSON.stringify({ data: new Date().toISOString(), percentual: diagnostico.percentualAlocado, total: diagnostico.totalAlocado }));
+  if (faixa === 'NORMAL' || faixa === faixaAnterior) return diagnostico;
+
+  const abaConfig = ss.getSheetByName('Configuracoes');
+  const config = abaConfig ? obterMapaConfiguracoes_(abaConfig) : {};
+  const destino = String(config.EMAIL_DESTINO || '').split(/[;,]/).map(function(item) { return item.trim(); }).filter(Boolean).join(', ');
+  if (!destino) return diagnostico;
+  const maiores = diagnostico.abas.slice(0, 8).map(function(aba) { return '<li><b>' + escaparHtmlEmail_(aba.nome) + '</b>: ' + aba.alocadas.toLocaleString('pt-BR') + ' células alocadas</li>'; }).join('');
+  MailApp.sendEmail({
+    to: destino,
+    subject: 'Alerta de capacidade da planilha RH - ' + diagnostico.percentualAlocado + '%',
+    htmlBody: '<div style="font-family:Arial,sans-serif"><h2>Capacidade da planilha de RH</h2><p>A planilha atingiu <b>' + diagnostico.percentualAlocado + '%</b> do limite de 10 milhões de células. O aviso é antecipado para permitir limpeza ou migração planejada.</p><h3>Abas com maior alocação</h3><ul>' + maiores + '</ul><p>Nenhuma aba foi apagada automaticamente.</p></div>'
+  });
+  return diagnostico;
+}
+
+function manterMemoriaEntidade_(ss) {
+  const aba = ss.getSheetByName('IA_Memoria');
+  if (!aba || aba.getLastRow() <= 1) return { arquivadas: 0 };
+
+  const cabecalho = aba.getRange(1, 1, 1, 8).getDisplayValues()[0];
+  const valores = aba.getRange(2, 1, aba.getLastRow() - 1, 8).getValues();
+  const limite = new Date(Date.now() - MANUTENCAO_SISTEMA.diasMemoriaBruta * 86400000);
+  const arquivar = [];
+  const manter = [];
+
+  valores.forEach(function(linha) {
+    const data = normalizarDataManutencao_(linha[1]);
+    if (data && data < limite) {
+      arquivar.push(linha);
+    } else {
+      manter.push(linha);
+    }
+  });
+
+  if (!arquivar.length) return { arquivadas: 0 };
+  const arquivo = arquivarTabelaCsv_(cabecalho, arquivar, 'IA_Memoria');
+  regravarTabelaCompactada_(aba, manter, 8);
+  return { arquivadas: arquivar.length, arquivoId: arquivo.getId() };
+}
+
+function manterInsightsEntidade_(ss) {
+  const aba = ss.getSheetByName('IA_Insights');
+  if (!aba || aba.getLastRow() <= 1) return { arquivadas: 0 };
+
+  const cabecalho = aba.getRange(1, 1, 1, 9).getDisplayValues()[0];
+  const valores = aba.getRange(2, 1, aba.getLastRow() - 1, 9).getValues();
+  const limite = new Date(Date.now() - MANUTENCAO_SISTEMA.diasInsightsFinalizados * 86400000);
+  const arquivar = [];
+  const manter = [];
+  const fingerprintsMantidos = {};
+
+  // Do mais recente para o mais antigo: elimina duplicatas antigas do mesmo estado.
+  valores.slice().reverse().forEach(function(linha) {
+    const data = normalizarDataManutencao_(linha[1]);
+    const fingerprint = String(linha[2] || '').trim();
+    const status = String(linha[6] || '').trim().toLowerCase();
+    const pendente = status === 'pendente';
+    const duplicado = fingerprint && fingerprintsMantidos[fingerprint];
+    const finalizadoAntigo = !pendente && data && data < limite;
+
+    if (duplicado || finalizadoAntigo) {
+      arquivar.push(linha);
+    } else {
+      manter.push(linha);
+      if (fingerprint) fingerprintsMantidos[fingerprint] = true;
+    }
+  });
+  manter.reverse();
+
+  if (!arquivar.length) return { arquivadas: 0 };
+  arquivar.reverse();
+  const arquivo = arquivarTabelaCsv_(cabecalho, arquivar, 'IA_Insights');
+  regravarTabelaCompactada_(aba, manter, 9);
+  return { arquivadas: arquivar.length, arquivoId: arquivo.getId() };
+}
+
+function arquivarTabelaCsv_(cabecalho, linhas, origem) {
+  const pasta = obterPastaArquivosHistoricos_();
+  const data = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss');
+  const nome = origem + '_' + data + '.csv';
+  const conteudo = [cabecalho].concat(linhas).map(function(linha) {
+    return linha.map(formatarCelulaCsvManutencao_).join(';');
+  }).join('\r\n') + '\r\n';
+  const arquivo = pasta.createFile(nome, conteudo, MimeType.CSV);
+  if (!arquivo || !arquivo.getId()) throw new Error('Falha ao confirmar o arquivo histórico de ' + origem + '.');
+  return arquivo;
+}
+
+function obterPastaArquivosHistoricos_() {
+  try {
+    return DriveApp.getFolderById(MANUTENCAO_SISTEMA.pastaArquivoId);
+  } catch (erro) {
+    throw new Error('A pasta institucional de arquivos históricos não está acessível. Verifique o compartilhamento da pasta ' + MANUTENCAO_SISTEMA.pastaArquivo + '.');
+  }
+}
+
+function formatarCelulaCsvManutencao_(valor) {
+  let texto = valor instanceof Date
+    ? Utilities.formatDate(valor, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss')
+    : String(valor == null ? '' : valor);
+  // Impede que planilhas executem fórmulas ao abrir o arquivo exportado.
+  if (/^[=+\-@]/.test(texto)) texto = "'" + texto;
+  return '"' + texto.replace(/"/g, '""') + '"';
+}
+
+function regravarTabelaCompactada_(aba, linhas, colunas) {
+  const ultimaLinha = aba.getLastRow();
+  if (ultimaLinha > 1) aba.getRange(2, 1, ultimaLinha - 1, colunas).clearContent();
+  if (linhas.length) aba.getRange(2, 1, linhas.length, colunas).setValues(linhas);
+
+  const linhasDesejadas = Math.max(MANUTENCAO_SISTEMA.linhasMinimasAba, linhas.length + 1);
+  const excesso = aba.getMaxRows() - linhasDesejadas;
+  if (excesso > 0) aba.deleteRows(linhasDesejadas + 1, excesso);
+}
+
+function normalizarDataManutencao_(valor) {
+  if (valor instanceof Date && !isNaN(valor.getTime())) return valor;
+  const data = new Date(valor);
+  return isNaN(data.getTime()) ? null : data;
+}

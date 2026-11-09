@@ -860,10 +860,7 @@ function salvarLancamento(dadosLanc) {
     }
     
     if (idOperacao) marcarOperacaoConcluidaSemLock_(idOperacao);
-    CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
-    const propsEntidade = PropertiesService.getScriptProperties();
-    propsEntidade.deleteProperty('ENTIDADE_ULTIMO_INSIGHT');
-    propsEntidade.deleteProperty('ENTIDADE_BRIEFING_DIARIO');
+    solicitarReconferenciaEntidade_('SALVAR_LANCAMENTO');
     return { sucesso: true, duplicadoIgnorado: false, reativado: reativarLancamento };
   } finally {
     // Garante que o script lock seja liberado

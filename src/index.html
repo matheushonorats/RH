@@ -11,7 +11,7 @@
     <?!= incluir("Styles"); ?>
     <?!= incluir("WorkspaceLayout"); ?>
   </head>
-  <body class="dark-mode">
+  <body class="dark-mode" data-app-version="<?= APP_VERSION ?>">
     
     <!-- TELA DE LOGIN CUSTOMIZADO -->
     <div id="login-container" class="login-overlay" style="display: none;">
@@ -23,7 +23,6 @@
         </div>
         
         <!-- Formulário Padrão para gerenciadores de senha -->
-        <?!= incluir("VersionChoice"); ?>
         <form id="login-form" onsubmit="processarLogin(event)">
           <div class="form-group">
             <label class="form-label" for="login-email">E-mail Corporativo</label>
@@ -223,11 +222,6 @@
                     <button onclick="abrirModalCriarProtocolo()"><span data-lucide="clipboard-plus"></span><span>Criar protocolo</span></button>
                     <button onclick="navegarPara('relatorios')"><span data-lucide="chart-no-axes-combined"></span><span>Emitir relatório</span></button>
                   </div>
-                  <div class="insight-actions" style="display: flex; gap: 8px; margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px;" onclick="enviarMensagemEntidade('Quero ver a distribuição dos servidores por lotação e os números de cada uma.')"><span data-lucide="map-pin" style="width: 12px; height: 12px; margin-right: 4px;"></span> Lotação</button>
-                    <button class="btn btn-secondary" style="flex: 1; font-size: 11px; height: 28px; padding: 0 8px; color: #818cf8; border-color: rgba(129, 140, 248, 0.3); background: rgba(129, 140, 248, 0.05);" onclick="enviarMensagemEntidade('Quais são os seus principais insights sobre a nossa equipe no momento?')"><span data-lucide="bot" style="width: 12px; height: 12px; margin-right: 4px;"></span> Insights IA</button>
-                  </div>
-                  <button id="btn-conversar-entidade-convite" class="entidade-convite-button" type="button" onclick="toggleChatEntidade()" style="display: none;"><span data-lucide="ghost"></span> Conversar com a Entidade <span data-lucide="arrow-right"></span></button>
                 </div>
               </aside>
             </div>
@@ -862,7 +856,7 @@
         </div>
         
         <footer id="app-footer" class="app-footer">
-          <span>Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong>V<?= APP_VERSION_DISPLAY ?></strong></span>
+          <span>Secretaria Municipal de Turismo de São Sebastião/SP &bull; <strong><?= APP_VERSION_DISPLAY ?></strong></span>
         </footer>
       </main>
       
@@ -1681,14 +1675,7 @@
           <!-- Chips gerados dinamicamente via JS -->
         </div>
 
-        <div class="entidade-file-preview" id="entidade-file-preview" style="display: none;">
-          <span data-lucide="file-text"></span>
-          <span id="entidade-file-name"></span>
-          <button type="button" onclick="limparArquivoEntidade()" title="Remover PDF" aria-label="Remover PDF"><span data-lucide="x"></span></button>
-        </div>
         <div class="entidade-input-area">
-          <input type="file" id="entidade-file-input" accept="application/pdf" style="display: none;" onchange="selecionarArquivoEntidade(event)">
-          <button type="button" class="entidade-attach" onclick="document.getElementById('entidade-file-input').click()" title="Anexar PDF para lançamento" aria-label="Anexar PDF para lançamento"><span data-lucide="paperclip" style="width: 16px; height: 16px;"></span></button>
           <input type="text" id="entidade-input" placeholder="Pergunte algo ou peça uma ação..." onkeypress="entidadeKeyPress(event)">
           <button id="entidade-send-btn" onclick="enviarMensagemEntidade()">
             <span data-lucide="send" style="width: 16px; height: 16px;"></span>

@@ -65,6 +65,7 @@ function buscarTrechosEstatuto_(consulta, limite) {
     .slice(0, limite || 6)
     .map(function(item) {
       return {
+        score: item.score,
         artigo: item.artigo,
         trecho: String(item.trecho || '').replace(/\s+/g, ' ').trim().slice(0, 1800)
       };
@@ -141,7 +142,7 @@ function buscarTrechosDecreto6808_(consulta, limite) {
     busca.forEach(function(termo) { score += Math.min(normalizado.split(termo).length - 1, 5); });
     return score ? { score: score, artigo: artigo.artigo, trecho: artigo.texto } : null;
   }).filter(Boolean).sort(function(a, b) { return b.score - a.score; }).slice(0, limite || 3).map(function(item) {
-    return { norma: 'Decreto Municipal nº 6.808/2017', artigo: item.artigo, trecho: item.trecho.slice(0, 1800) };
+    return { norma: 'Decreto Municipal nº 6.808/2017', score: item.score, artigo: item.artigo, trecho: item.trecho.slice(0, 1800) };
   });
 }
 
@@ -152,5 +153,17 @@ function buscarTrechosNormativos_(consulta, limite) {
     return item;
   });
   const decreto = buscarTrechosDecreto6808_(consulta, quantidade);
-  return estatuto.concat(decreto).slice(0, quantidade);
+  // Ranqueia as duas fontes em conjunto e reserva espaco para ambas quando
+  // houver material pertinente. Assim o decreto nao desaparece apenas porque
+  // o estatuto preencheu primeiro o limite numerico.
+  const candidatos = estatuto.concat(decreto).sort(function(a, b) {
+    return Number(b.score || 0) - Number(a.score || 0);
+  });
+  if (!estatuto.length || !decreto.length || quantidade === 1) return candidatos.slice(0, quantidade);
+  const selecionados = [estatuto[0], decreto[0]];
+  candidatos.forEach(function(item) {
+    if (selecionados.length >= quantidade || selecionados.indexOf(item) !== -1) return;
+    selecionados.push(item);
+  });
+  return selecionados.slice(0, quantidade);
 }

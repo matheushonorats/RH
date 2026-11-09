@@ -19,7 +19,7 @@ function doGet(e) {
     const redirecionamento = HtmlService.createTemplateFromFile("Redirect");
     redirecionamento.urlDestino = "https://script.google.com/macros/s/AKfycby0FlCTrL0QIJbFrZD883rn6PKhzpMea5JL7eqz_bN9aglWajMIFZ021uxsi8aDEyAhCw/exec";
     return redirecionamento.evaluate()
-      .setTitle("RH SETUR — abrindo sistema atualizado")
+      .setTitle("Gestão de Pessoas — Central de Documentos")
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
       .addMetaTag("viewport", "width=device-width, initial-scale=1");
   }
@@ -31,7 +31,7 @@ function doGet(e) {
   );
   
   return template.evaluate()
-    .setTitle("RHv2")
+    .setTitle("Entidade.V1")
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
@@ -111,7 +111,10 @@ function vincularPlanilhaAtual() {
  * Função utilitária privada para incluir outros arquivos HTML dentro de templates (CSS/JS)
  */
 function incluir(caminhoArquivo) {
-  return HtmlService.createHtmlOutputFromFile(caminhoArquivo).getContent();
+  const permitidos = ['Styles', 'WorkspaceLayout', 'Scripts', 'HeModelAssets', 'RepEnhancements'];
+  const nome = String(caminhoArquivo || '');
+  if (permitidos.indexOf(nome) === -1) throw new Error('Componente de interface não permitido.');
+  return HtmlService.createHtmlOutputFromFile(nome).getContent();
 }
 
 /** Normaliza cabecalhos para tolerar acentos, espacos e pequenas variacoes. */

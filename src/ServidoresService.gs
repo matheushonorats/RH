@@ -450,8 +450,7 @@ function salvarServidor(dadosServidor) {
 
   try {
     auditarCadastroServidor_(dadosServidor, dadosAntesAuditoria, operacaoAuditoria);
-    CacheService.getScriptCache().remove('entidade_contexto_planilha_v7');
-    PropertiesService.getScriptProperties().deleteProperty('ENTIDADE_ULTIMO_INSIGHT');
+    solicitarReconferenciaEntidade_('SALVAR_SERVIDOR');
   } catch (e) {
     lancarLog("ERRO_AUDITORIA_CADASTRO", "Servidores", "Não foi possível auditar o cadastro salvo: " + e.toString(), "", "", "", String(dadosServidor.matricula || ""));
   }
@@ -480,6 +479,7 @@ function salvarPenalidadeAbonosServidor(dados) {
     const antes = Number(aba.getRange(linha, idxPenalidade + 1).getValue() || 0);
     aba.getRange(linha, idxPenalidade + 1).setValue(dias);
     lancarLogSemLock_('PENALIDADE_ABONOS', 'Servidores', 'Atualizou penalidade de abonos na ficha individual.', 'Dias', String(antes), String(dias), matricula);
+    solicitarReconferenciaEntidade_('PENALIDADE_ABONOS');
     return { sucesso: true, matricula: matricula, dias: dias };
   } finally { lock.releaseLock(); }
 }
@@ -512,6 +512,7 @@ function desativarServidor(matricula) {
       
       let nome = dados[i][indiceCabecalho_(cabecalho, ["NOME", "NOME COMPLETO"])];
       lancarLog("DESATIVAR_SERVIDOR", "Servidores", "Desativou cadastro do servidor: " + nome + " (Matrícula: " + matricula + ")", "Ativo", "Sim", "Não", matricula);
+      solicitarReconferenciaEntidade_('DESATIVAR_SERVIDOR');
       return true;
     }
   }

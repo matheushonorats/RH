@@ -1,0 +1,2037 @@
+<script>
+/** Melhorias isoladas da conferência REP para evitar ampliar ainda mais o arquivo principal. */
+async function baixarArquivosEntradaEmParaleloRep_(registros) {
+  const arquivos = new Array(registros.length);
+  let proximo = 0;
+  let concluidos = 0;
+  async function trabalhador() {
+    while (proximo < registros.length) {
+      const i = proximo++;
+      const registro = registros[i];
+      atualizarProgressoAfdLoader_(i, 'carregando', registro.nome);
+      try {
+        arquivos[i] = await baixarArquivoPastaEntradaRep_(registro, i + 1, registros.length);
+        atualizarProgressoAfdLoader_(i, 'concluido', registro.nome);
+      } catch (erro) {
+        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome);
+        falhasIntegridadeRep.push({ nome: registro.nome, arquivoId: registro.id, motivo: mensagemErro(erro), tamanho: registro.tamanho });
+      } finally {
+        concluidos++;
+        atualizarProgressoLoader_(8 + concluidos / Math.max(1, registros.length) * 52, concluidos + '/' + registros.length + ' arquivos verificados.');
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(2, registros.length) }, trabalhador));
+  return arquivos.filter(Boolean);
+}
+let repReprocessamentoLeveTimer_ = null;
+let repReprocessamentoGeracao_ = 0;
+let repReprocessamentoTodos_ = false;
+const repReprocessamentoPessoas_ = new Set();
+function agendarReprocessamentoRepLeve_(atraso, pis) {
+  if (pis) repReprocessamentoPessoas_.add(normalizarPisRep(pis));
+  else repReprocessamentoTodos_ = true;
+  const geracao = ++repReprocessamentoGeracao_;
+  clearTimeout(repReprocessamentoLeveTimer_);
+  repReprocessamentoLeveTimer_ = setTimeout(function() {
+    const executar = function() {
+      if (geracao !== repReprocessamentoGeracao_) return;
+      const pessoas = repReprocessamentoTodos_ ? null : Array.from(repReprocessamentoPessoas_);
+      repReprocessamentoPessoas_.clear();
+      repReprocessamentoTodos_ = false;
+      atualizarProcessamentoRep({ notificarEntidade: false, pessoas: pessoas });
+    };
+    // Edição feita pelo usuário deve aparecer no próximo quadro. Só o
+    // recálculo geral em segundo plano aguarda o navegador ficar ocioso.
+    if (!repReprocessamentoTodos_ && repReprocessamentoPessoas_.size) requestAnimationFrame(executar);
+    else if (typeof requestIdleCallback === 'function') requestIdleCallback(executar, { timeout: 900 });
+    else requestAnimationFrame(executar);
+  }, pis ? 40 : Math.max(80, Number(atraso || 180)));
+}
+function obterServidorSelecionadoRep_() {
+  const processado = (dadosRepProcessados || []).find(function(item) { return normalizarPisRep(item.pis) === normalizarPisRep(pisSelecionadoRep); });
+  if (processado) return processado;
+  const pis = normalizarPisRep(pisSelecionadoRep);
+  if (!pis || !dadosRepCache.employees.has(pis)) return null;
+  return {
+    pis: pis,
+    nome: dadosRepCache.employees.get(pis) || 'Servidor',
+    lotacao: dadosRepCache.lotacoes.get(pis) || 'Não informada',
+    dias: [],
+    resumo: { origensSaldoCompensacao: [] }
+  };
+}
+
+function garantirModalCartaoManualRep_() {
+  const area = document.getElementById('rep-cartao-manual-inline');
+  if (!area) return null;
+  let modal = document.getElementById('modal-cartao-manual-rep');
+  if (modal) return modal;
+  modal = document.createElement('section');
+  modal.className = 'rep-inline-workspace';
+  modal.id = 'modal-cartao-manual-rep';
+  modal.innerHTML = `<div class="modal-content rep-cartao-manual-modal"><div class="modal-header"><div><h3 class="modal-title">Incluir cartão de ponto manual</h3><small>O servidor passará pelos mesmos cálculos do Leitor REP.</small></div><button class="modal-close" onclick="fecharEspacoManualInlineRep_()"><span data-lucide="x"></span></button></div><div class="modal-body"><p class="rep-lote-intro">Selecione quem não registra ponto eletrônico e a competência. O preenchimento será aberto abaixo, nesta mesma tela.</p><div class="rep-cartao-manual-grid"><div class="form-group"><label for="rep-cartao-manual-servidor">Servidor</label><select id="rep-cartao-manual-servidor" class="form-control"></select><small id="rep-cartao-manual-aviso" class="rep-cartao-manual-aviso"></small></div><div class="form-group"><label for="rep-cartao-manual-competencia">Competência</label><input id="rep-cartao-manual-competencia" type="month" class="form-control"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharEspacoManualInlineRep_()">Cancelar</button><button type="button" class="btn btn-primary" onclick="continuarInclusaoCartaoManualRep_()"><span data-lucide="arrow-right"></span> Preencher cartão aqui</button></div></div>`;
+  area.replaceChildren(modal);
+  return modal;
+}
+
+async function fecharEspacoManualInlineRep_() {
+  const area = document.getElementById('rep-cartao-manual-inline');
+  const lote = document.getElementById('modal-lancamentos-lote-rep');
+  if (lote && lote.parentElement === area && lote.dataset.dirty === 'sim') {
+    const descartar = await abrirConfirm('Existem horários digitados que ainda não foram colocados na fila de salvamento. Deseja fechar e descartar somente essas alterações não salvas?');
+    if (!descartar) return false;
+  }
+  if (lote && lote.parentElement === area) {
+    // O formulário inline precisa voltar a ser um modal oculto. Apenas movê-lo
+    // para o body deixa a tabela inteira visível no fim da página.
+    lote.className = 'modal-overlay';
+    lote.classList.remove('active');
+    lote.dataset.inline = '';
+    document.body.appendChild(lote);
+  }
+  if (area) { area.replaceChildren(); area.hidden = true; }
+  const lista = document.getElementById('rep-servidores-list');
+  if (lista) lista.style.display = 'flex';
+  return true;
+}
+
+async function abrirInclusaoCartaoManualRep_() {
+  if (!repOnlineCarregado) await carregarModuloRepOnline(true);
+  const areaAtual = document.getElementById('rep-cartao-manual-inline');
+  const loteAtual = document.getElementById('modal-lancamentos-lote-rep');
+  if (loteAtual && loteAtual.parentElement === areaAtual) {
+    areaAtual.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return mostrarToast('O cartão manual desta pessoa já está aberto. Continue o preenchimento abaixo.', 'info');
+  }
+  const resultados = document.getElementById('rep-results-container');
+  if (resultados) resultados.style.display = 'block';
+  const modal = garantirModalCartaoManualRep_();
+  const servidores = (AppState.servidores || [])
+    .filter(function(item) { return String(item.status || '').toLowerCase() !== 'inativo'; })
+    .sort(function(a, b) { return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'); });
+  const aptos = servidores.filter(function(item) { return Boolean(normalizarPisRep(item.pis) || obterIdentificadorCartaoManualRep_(item)); });
+  const seletor = document.getElementById('rep-cartao-manual-servidor');
+  seletor.innerHTML = '<option value="">Selecione...</option>' + aptos.map(function(item) {
+    const identificador = normalizarPisRep(item.pis) || obterIdentificadorCartaoManualRep_(item);
+    return `<option value="${escapeHtml(identificador)}">${escapeHtml(item.nome || 'Servidor')} · ${escapeHtml(item.matricula || 'sem matrícula')} · ${escapeHtml(item.lotacao || 'lotação não informada')}</option>`;
+  }).join('');
+  const aviso = document.getElementById('rep-cartao-manual-aviso');
+  aviso.textContent = 'Para quem não possui PIS/CPF cadastrado, o cartão manual será associado pela matrícula.';
+  const campoCompetencia = document.getElementById('rep-cartao-manual-competencia');
+  const anoFiltro = document.getElementById('rep-filter-ano')?.value;
+  const mesFiltro = document.getElementById('rep-filter-mes')?.value;
+  const referencia = new Date();
+  referencia.setDate(1);
+  referencia.setMonth(referencia.getMonth() - 1);
+  campoCompetencia.value = anoFiltro && anoFiltro !== 'all' && mesFiltro && mesFiltro !== 'all'
+    ? `${anoFiltro}-${mesFiltro}`
+    : `${referencia.getFullYear()}-${String(referencia.getMonth() + 1).padStart(2, '0')}`;
+  const area = document.getElementById('rep-cartao-manual-inline');
+  if (area) { area.hidden = false; area.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  const lista = document.getElementById('rep-servidores-list');
+  if (lista) lista.style.display = 'none';
+  renderizarIcones();
+}
+
+function continuarInclusaoCartaoManualRep_() {
+  const pis = normalizarPisRep(document.getElementById('rep-cartao-manual-servidor')?.value);
+  if (!pis) return mostrarToast('Selecione um servidor para preencher o cartão manual.', 'warning');
+  const competencia = String(document.getElementById('rep-cartao-manual-competencia')?.value || '');
+  if (!/^\d{4}-\d{2}$/.test(competencia)) return mostrarToast('Informe a competência do cartão manual.', 'warning');
+  const servidor = obterServidorPorIdentificadorRep_(pis);
+  if (!servidor) return mostrarToast('O cadastro selecionado não foi localizado.', 'error');
+  dadosRepCache.employees.set(pis, servidor.nome || 'Servidor');
+  dadosRepCache.lotacoes.set(pis, String(servidor.lotacao || 'Não informada').trim() || 'Não informada');
+  pisSelecionadoRep = pis;
+  abrirLancamentosLoteRep_({ cartaoManual: true, inline: true, competencia: competencia, local: servidor.lotacao || 'Local informado manualmente' });
+}
+
+function preencherDiasCartaoManualRep_(competencia, local) {
+  const partes = String(competencia || '').split('-').map(Number);
+  if (partes.length !== 2 || !partes[0] || !partes[1]) return adicionarLinhaMarcacaoLoteRep_('', local);
+  const feriados = new Set((feriadosCompartilhadosRep || [])
+    .map(function(item) { return normalizarDataFeriadoRep_(item && item.data); })
+    .filter(Boolean));
+  obterFeriadosRep().forEach(function(data) { feriados.add(data); });
+  const ultimoDia = new Date(partes[0], partes[1], 0).getDate();
+  const servidorSelecionado = obterServidorSelecionadoRep_();
+  let totalExistentes = 0;
+  for (let dia = 1; dia <= ultimoDia; dia++) {
+    const data = `${partes[0]}-${String(partes[1]).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    const diaExistente = (servidorSelecionado?.dias || []).find(function(item) { return item.dataOriginal === data; });
+    const eventosExistentes = (diaExistente?.batidasDetalhadas || []).slice(0, 6);
+    totalExistentes += eventosExistentes.length;
+    adicionarLinhaMarcacaoLoteRep_(data, local, eventosExistentes);
+    const linha = document.querySelector('#rep-lote-marcacoes tr:last-child');
+    const diaSemana = new Date(partes[0], partes[1] - 1, dia).getDay();
+    if (!linha) continue;
+    if (feriados.has(data)) {
+      linha.classList.add('rep-cartao-feriado');
+      linha.title = 'Feriado ou ponto facultativo cadastrado no Leitor REP';
+    } else if (diaSemana === 0 || diaSemana === 6) {
+      linha.classList.add('rep-cartao-fim-semana');
+      linha.title = diaSemana === 0 ? 'Domingo' : 'Sábado';
+    }
+    if ((diaExistente?.batidasDetalhadas || []).length > 6) {
+      linha.classList.add('rep-cartao-excedente');
+      linha.title = 'Este dia possui mais de seis marcações. Faça a conferência pela opção Ajustar.';
+    }
+  }
+  const status = document.getElementById('rep-lote-status');
+  if (status && totalExistentes) status.textContent = `${totalExistentes} marcação(ões) já existente(s) foram carregadas. Registros do AFD estão protegidos; registros manuais podem ser continuados ou corrigidos.`;
+}
+
+function alternarDiaSeguinteCartaoManualRep_(botao, forcarOffset, automatico) {
+  const celula = botao?.closest('.rep-cartao-horario');
+  const campo = celula?.querySelector('.rep-lote-hora');
+  if (!campo || campo.readOnly) return;
+  const atual = Number(campo.dataset.diaOffset || 0);
+  const novo = forcarOffset == null ? (atual ? 0 : 1) : (forcarOffset ? 1 : 0);
+  campo.dataset.diaOffset = String(novo);
+  if (automatico) campo.dataset.diaOffsetAutomatico = novo ? 'sim' : '';
+  else delete campo.dataset.diaOffsetAutomatico;
+  botao.classList.toggle('ativo', novo === 1);
+  botao.setAttribute('aria-pressed', novo === 1 ? 'true' : 'false');
+  botao.title = novo === 1 ? 'Este horário pertence ao dia seguinte' : 'Marcar este horário como pertencente ao dia seguinte';
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  if (modal && modal.dataset.modo === 'cartao-manual') modal.dataset.dirty = 'sim';
+}
+
+function ajustarViradaAutomaticaCartaoManualRep_(campo) {
+  if (!campo || campo.readOnly) return;
+  const botao = campo.closest('.rep-cartao-horario')?.querySelector('.rep-dia-seguinte');
+  const minutos = /^\d{2}:\d{2}$/.test(String(campo.value || ''))
+    ? Number(campo.value.slice(0, 2)) * 60 + Number(campo.value.slice(3, 5))
+    : null;
+  // Só sugere automaticamente a virada para horários da madrugada. Para
+  // qualquer outro horário, o +1 é uma decisão explícita de quem confere.
+  if (minutos != null && minutos >= 0 && minutos <= 300) {
+    alternarDiaSeguinteCartaoManualRep_(botao, true, true);
+  } else if (campo.dataset.diaOffsetAutomatico === 'sim') {
+    alternarDiaSeguinteCartaoManualRep_(botao, false, true);
+  }
+}
+
+function criarDataAjusteComOffsetRep_(dataIso, hora, offset) {
+  const data = criarDataAjusteRep(dataIso, hora);
+  if (!data) return null;
+  data.setDate(data.getDate() + (Number(offset) === 1 ? 1 : 0));
+  return data;
+}
+
+function normalizarValorColadoCartaoManualRep_(campo, valor) {
+  valor = String(valor == null ? '' : valor).trim();
+  if (campo.type === 'time') {
+    const encontrado = valor.match(/^(\d{1,2})[:h.](\d{2})/i);
+    if (encontrado) return String(Math.min(23, Number(encontrado[1]))).padStart(2, '0') + ':' + String(Math.min(59, Number(encontrado[2]))).padStart(2, '0');
+  }
+  if (campo.type === 'date') {
+    const br = valor.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+    if (br) return br[3] + '-' + br[2].padStart(2, '0') + '-' + br[1].padStart(2, '0');
+  }
+  return valor;
+}
+
+function ativarNavegacaoPlanilhaCartaoManualRep_(escopo) {
+  const tabela = document.querySelector('#modal-lancamentos-lote-rep .rep-lote-marcacoes');
+  if (!tabela) return;
+  const camposDoDia = function(linha) { return Array.from(linha.querySelectorAll('input:not([readonly])')); };
+  (escopo || tabela).querySelectorAll('input').forEach(function(campo) {
+    if (campo.dataset.navegacaoPlanilha === 'sim') return;
+    campo.dataset.navegacaoPlanilha = 'sim';
+    campo.addEventListener('input', function() {
+      const modal = document.getElementById('modal-lancamentos-lote-rep');
+      if (modal && modal.dataset.modo === 'cartao-manual') modal.dataset.dirty = 'sim';
+    });
+    campo.addEventListener('focus', function() {
+      if (typeof campo.select === 'function' && campo.type !== 'time' && campo.type !== 'date') campo.select();
+    });
+    campo.addEventListener('keydown', function(evento) {
+      const linha = campo.closest('tr');
+      const linhas = Array.from(tabela.querySelectorAll('tbody tr'));
+      const indiceLinha = linhas.indexOf(linha);
+      const celulas = camposDoDia(linha);
+      const indiceColuna = celulas.indexOf(campo);
+      let destino = null;
+      if (evento.key === 'Tab' && campo.classList.contains('rep-lote-hora')) {
+        const horarios = Array.from(tabela.querySelectorAll('tbody .rep-lote-hora:not([readonly])'));
+        destino = horarios[horarios.indexOf(campo) + (evento.shiftKey ? -1 : 1)];
+      } else if (evento.key === 'Enter') destino = camposDoDia(linhas[indiceLinha + (evento.shiftKey ? -1 : 1)] || linha)[indiceColuna];
+      else if (evento.key === 'ArrowDown') destino = camposDoDia(linhas[indiceLinha + 1] || linha)[indiceColuna];
+      else if (evento.key === 'ArrowUp') destino = camposDoDia(linhas[indiceLinha - 1] || linha)[indiceColuna];
+      else if (evento.key === 'ArrowRight') destino = celulas[indiceColuna + 1];
+      else if (evento.key === 'ArrowLeft') destino = celulas[indiceColuna - 1];
+      if (destino && destino !== campo) { evento.preventDefault(); destino.focus(); }
+    });
+    campo.addEventListener('paste', function(evento) {
+      const texto = evento.clipboardData?.getData('text/plain') || '';
+      if (!/[\t\r\n]/.test(texto)) return;
+      evento.preventDefault();
+      const linhasTabela = Array.from(tabela.querySelectorAll('tbody tr'));
+      const linhaInicial = linhasTabela.indexOf(campo.closest('tr'));
+      const colunaInicial = camposDoDia(campo.closest('tr')).indexOf(campo);
+      const matriz = texto.replace(/\r/g, '').trimEnd().split('\n').map(function(linha) { return linha.split('\t'); });
+      matriz.forEach(function(valores, deslocamentoLinha) {
+        const linhaDestino = linhasTabela[linhaInicial + deslocamentoLinha];
+        if (!linhaDestino) return;
+        const camposDestino = camposDoDia(linhaDestino);
+        valores.forEach(function(valor, deslocamentoColuna) {
+          const destino = camposDestino[colunaInicial + deslocamentoColuna];
+          if (!destino || destino.readOnly) return;
+          destino.value = normalizarValorColadoCartaoManualRep_(destino, valor);
+          destino.dispatchEvent(new Event('input', { bubbles: true }));
+          if (destino.classList.contains('rep-lote-hora')) ajustarViradaAutomaticaCartaoManualRep_(destino);
+        });
+      });
+      mostrarToast(matriz.length + ' linha(s) colada(s) no cartão manual.', 'success');
+    });
+  });
+}
+
+async function editarMarcacaoRapidaRep_(pis, data, eventId, campo) {
+  if (!campo || campo.dataset.salvando === 'true') return;
+  const hora = String(campo.value || '');
+  if (!/^\d{2}:\d{2}$/.test(hora)) { campo.value = campo.dataset.original || ''; return; }
+  if (hora === campo.dataset.original) return;
+  const existente = (dadosRepCache.punches || []).find(function(item) { return String(item.eventId || '') === String(eventId || ''); });
+  if (!existente || existente.desconsiderada) return mostrarToast('A marcação já foi alterada por outra ação.', 'warning');
+  campo.dataset.salvando = 'true';
+  const anterior = { desconsiderada: existente.desconsiderada, justificativa: existente.ajusteJustificativa };
+  const partes = hora.split(':').map(Number);
+  const novaData = new Date(existente.datetime.getTime());
+  novaData.setHours(partes[0], partes[1], 0, 0);
+  existente.desconsiderada = true;
+  existente.ajusteJustificativa = 'Horário corrigido diretamente no espelho de conferência.';
+  const id = 'MANUAL|' + gerarUuidSeguroCliente_();
+  const novo = {
+    pis: String(pis), datetime: novaData, clock: existente.clock || 'Local informado manualmente',
+    deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '', eventId: id, eventKey: 'AJUSTE|' + id,
+    nomeNoMomento: dadosRepCache.employees.get(String(pis)) || '', sourceFile: 'Ajuste compartilhado',
+    rawTimestamp: novaData.getTime(), manual: true, ajusteCompartilhado: true,
+    dataReferencia: existente.dataReferencia || data, ajusteOrigemData: existente.ajusteOrigemData || data,
+    justificativa: 'Horário corrigido diretamente no espelho de conferência.'
+  };
+  dadosRepCache.punches.push(novo);
+  try {
+    await salvarAjustesCompetenciaRep_(pis, String(data).slice(0, 7), [], [data]);
+    agendarReprocessamentoRepLeve_(180, pis);
+    mostrarToast('Marcação corrigida. O horário original do AFD foi preservado.', 'success');
+  } catch (erro) {
+    existente.desconsiderada = anterior.desconsiderada;
+    existente.ajusteJustificativa = anterior.justificativa;
+    dadosRepCache.punches = dadosRepCache.punches.filter(function(item) { return item !== novo; });
+    campo.value = campo.dataset.original || '';
+    mostrarToast('Não foi possível corrigir a marcação: ' + mensagemErro(erro), 'error');
+  } finally { campo.dataset.salvando = 'false'; }
+}
+
+async function desconsiderarMarcacaoRapidaRep_(pis, data, eventId) {
+  const existente = (dadosRepCache.punches || []).find(function(item) { return String(item.eventId || '') === String(eventId || ''); });
+  if (!existente || existente.desconsiderada) return mostrarToast('Essa marcação já foi desconsiderada.', 'info');
+  existente.desconsiderada = true;
+  existente.ajusteJustificativa = 'Marcação desconsiderada diretamente no espelho de conferência.';
+  try {
+    await salvarAjustesCompetenciaRep_(pis, String(data).slice(0, 7), [], [data]);
+    agendarReprocessamentoRepLeve_(180, pis);
+    mostrarToast('Marcação desconsiderada. O registro original continua na auditoria.', 'success');
+  } catch (erro) {
+    existente.desconsiderada = false;
+    delete existente.ajusteJustificativa;
+    mostrarToast('Não foi possível desconsiderar a marcação: ' + mensagemErro(erro), 'error');
+  }
+}
+
+function abrirInsercaoMarcacaoDiaRep_(pis, data) {
+  const id = 'rep-insercao-' + String(data || '').replace(/[^\d]/g, '');
+  const area = document.getElementById(id);
+  if (!area) return;
+  area.hidden = false;
+  area.innerHTML = `<div class="rep-insercao-direta"><div class="rep-insercao-direta-cabecalho"><strong>Adicionar uma marcação</strong><small>Mesmo recurso de “Adicionar marcação” da tela Ajustar.</small></div><div class="rep-insercao-direta-campos uma-marcacao"><input type="time" class="form-control rep-insercao-hora" aria-label="Horário da marcação"><input type="text" class="form-control rep-insercao-local" placeholder="Local" value="Local informado manualmente"><input type="text" class="form-control rep-insercao-motivo" placeholder="Motivo (opcional)"><button type="button" class="btn btn-primary" onclick="salvarInsercaoMarcacaoDiaRep_('${escapeHtml(String(pis))}','${escapeHtml(String(data))}')">Adicionar marcação</button><button type="button" class="btn btn-secondary" onclick="this.closest('[id^=rep-insercao-]').hidden=true">Cancelar</button></div></div>`;
+  area.querySelector('.rep-insercao-hora')?.focus();
+}
+
+async function salvarInsercaoMarcacaoDiaRep_(pis, data) {
+  const id = 'rep-insercao-' + String(data || '').replace(/[^\d]/g, '');
+  const area = document.getElementById(id);
+  const horarios = Array.from(area?.querySelectorAll('.rep-insercao-hora') || []).map(function(campo) { return campo.value; }).filter(Boolean);
+  if (horarios.length !== 1) return mostrarToast('Informe o horário da marcação.', 'warning');
+  const local = area.querySelector('.rep-insercao-local')?.value.trim() || 'Local informado manualmente';
+  const justificativa = area.querySelector('.rep-insercao-motivo')?.value.trim() || 'Ajuste manual informado na conferência.';
+  const novos = horarios.map(function(hora, indice) {
+    const datetime = criarDataAjusteRep(data, hora);
+    const idEvento = 'MANUAL|' + gerarUuidSeguroCliente_() + '|DIA|' + indice;
+    return { pis: String(pis), datetime: datetime, clock: local, deviceSerial: 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '', eventId: idEvento, eventKey: 'AJUSTE|' + idEvento, nomeNoMomento: dadosRepCache.employees.get(String(pis)) || '', sourceFile: 'Ajuste direto no espelho', rawTimestamp: datetime?.getTime(), manual: true, ajusteCompartilhado: true, dataReferencia: data, ajusteOrigemData: data, justificativa: justificativa };
+  });
+  if (novos.some(function(item) { return !item.datetime; })) return mostrarToast('Há um horário inválido.', 'warning');
+  const botao = area.querySelector('.btn-primary');
+  if (botao) botao.disabled = true;
+  try {
+    await salvarAjustesCompetenciaRep_(pis, String(data).slice(0, 7), novos, [data]);
+    dadosRepCache.punches.push.apply(dadosRepCache.punches, novos);
+    area.hidden = true;
+    agendarReprocessamentoRepLeve_(180, pis);
+    mostrarToast('Marcação incluída no dia e identificada como ajuste manual.', 'success');
+  } catch (erro) {
+    mostrarToast('Não foi possível salvar as marcações: ' + mensagemErro(erro), 'error');
+    if (botao) botao.disabled = false;
+  }
+}
+
+function abrirLancamentoDiretoRep_(tipo, data, pis) {
+  const emp = (dadosRepProcessados || []).find(function(item) { return item.pis === String(pis || pisSelecionadoRep || ''); }) || obterServidorSelecionadoRep_();
+  if (!emp) return mostrarToast('Selecione um servidor antes de criar o lançamento.', 'warning');
+  const servidor = obterServidorPorIdentificadorRep_(emp.pis);
+  if (!servidor) return mostrarToast('Vincule este PIS/CPF a um cadastro antes de lançar a ausência.', 'warning');
+  abrirModalLancamento();
+  document.getElementById('form-lancamento').dataset.origemRep = 'sim';
+  selecionarServidorAutocomplete(servidor.matricula, servidor.nome, servidor.cargo, servidor.lotacao, servidor.saldoHoje, servidor.abonosUsados);
+  if (tipo && document.getElementById('lanc-tipo')) document.getElementById('lanc-tipo').value = tipo;
+  ajustarCamposFormularioLancamento();
+  if (data) {
+    const campoInicio = document.getElementById('lanc-data-inicio');
+    const campoFalta = document.getElementById('lanc-data-falta');
+    if (campoInicio) campoInicio.value = data;
+    if (campoFalta) campoFalta.value = data;
+  }
+  atualizarDebitoDiaDeclaracaoRep_();
+  sugerirDespacho();
+}
+
+function obterDebitoDiaDeclaracaoRep_() {
+  const form = document.getElementById('form-lancamento');
+  const tipo = document.getElementById('lanc-tipo')?.value;
+  if (form?.dataset.origemRep !== 'sim' || document.getElementById('lanc-linha')?.value || !ehDeclaracaoHoras_(tipo)) return null;
+  const data = document.getElementById('lanc-data-falta')?.value || '';
+  const matricula = normalizarMatriculaRep_(document.getElementById('lanc-matricula')?.value);
+  if (!matricula || !data) return { minutos: null, mensagem: 'Selecione o servidor e o dia para consultar as horas devidas.' };
+  const dataBr = data.split('-').reverse().join('/');
+  if (repOnlineCarregando) return { minutos: null, mensagem: 'Aguarde o carregamento do REP para consultar o débito do dia.' };
+  const emp = (dadosRepProcessados || []).find(function(item) {
+    const cadastro = obterServidorCadastroRep_(item);
+    return cadastro && normalizarMatriculaRep_(cadastro.matricula) === matricula;
+  });
+  const dia = emp?.dias.find(function(item) { return item.dataOriginal === data; });
+  if (!dia) return { minutos: null, mensagem: 'O dia ' + dataBr + ' não está disponível no espelho carregado. Você pode informar as horas manualmente.' };
+  if (dia.pendencia) return { minutos: null, mensagem: 'Confira as batidas de ' + dataBr + ' antes de usar o débito como sugestão.' };
+  const minutos = Math.max(0, Math.round(obterDeficitDiaRep_(dia) * 60));
+  if (!Number.isFinite(minutos)) return { minutos: null, mensagem: 'Não foi possível calcular o débito deste dia. Informe as horas manualmente.' };
+  return { minutos, mensagem: minutos > 0
+    ? 'Horas devidas em ' + dataBr + ': ' + minutosParaHoraRep_(minutos) + 'h'
+    : 'Não há horas devidas em ' + dataBr + ' no espelho atual.' };
+}
+
+function atualizarDebitoDiaDeclaracaoRep_() {
+  let painel = document.getElementById('lanc-debito-dia-rep');
+  const campo = document.getElementById('lanc-qtd-horas');
+  if (!campo) return;
+  if (!painel) {
+    painel = document.createElement('div');
+    painel.id = 'lanc-debito-dia-rep';
+    painel.setAttribute('aria-live', 'polite');
+    painel.style.cssText = 'display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-tertiary)';
+    painel.innerHTML = '<div style="display:grid;gap:4px;flex:1 1 220px"><strong class="rep-debito-dia-texto" style="font-size:12px"></strong><small style="font-size:11px;color:var(--text-secondary)">Use a sugestão se ela corresponder às horas justificadas no documento. O campo continua editável.</small></div><button type="button" class="btn btn-secondary" onclick="usarDebitoDiaDeclaracaoRep_()">Usar horas devidas</button>';
+    campo.after(painel);
+    campo.addEventListener('input', function() {
+      delete campo.dataset.debitoRepContexto;
+      delete campo.dataset.debitoRepValor;
+    });
+    document.getElementById('lanc-data-falta')?.addEventListener('input', atualizarDebitoDiaDeclaracaoRep_);
+    document.getElementById('lanc-data-falta')?.addEventListener('change', atualizarDebitoDiaDeclaracaoRep_);
+  }
+  const debito = obterDebitoDiaDeclaracaoRep_();
+  const contexto = debito ? normalizarMatriculaRep_(document.getElementById('lanc-matricula')?.value) + '|' + document.getElementById('lanc-data-falta')?.value : '';
+  if (campo.dataset.debitoRepContexto && campo.dataset.debitoRepContexto !== contexto) {
+    if (campo.value === campo.dataset.debitoRepValor) {
+      campo.value = '';
+      campo.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    delete campo.dataset.debitoRepContexto;
+    delete campo.dataset.debitoRepValor;
+  }
+  painel.style.display = debito ? 'flex' : 'none';
+  if (!debito) return;
+  painel.querySelector('.rep-debito-dia-texto').textContent = debito.mensagem;
+  const botao = painel.querySelector('button');
+  botao.disabled = !debito.minutos || debito.minutos > 1439;
+  botao.textContent = debito.minutos > 0 ? 'Usar ' + minutosParaHoraRep_(debito.minutos) + 'h' : 'Usar horas devidas';
+}
+
+function usarDebitoDiaDeclaracaoRep_() {
+  // Reconsulta o estado atual ao clicar, sem reaproveitar um saldo de outro dia.
+  const debito = obterDebitoDiaDeclaracaoRep_();
+  atualizarDebitoDiaDeclaracaoRep_();
+  if (!debito || !debito.minutos || debito.minutos > 1439) return;
+  const campo = document.getElementById('lanc-qtd-horas');
+  campo.value = minutosParaHoraRep_(debito.minutos);
+  campo.dispatchEvent(new Event('input', { bubbles: true }));
+  campo.dataset.debitoRepContexto = normalizarMatriculaRep_(document.getElementById('lanc-matricula')?.value) + '|' + document.getElementById('lanc-data-falta')?.value;
+  campo.dataset.debitoRepValor = campo.value;
+  campo.focus({ preventScroll: true });
+}
+
+function mostrarDetalhesConflitoLancamento_(validacao) {
+  let modal = document.getElementById('modal-conflito-lancamento');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-conflito-lancamento';
+    modal.className = 'modal-overlay';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'titulo-conflito-lancamento');
+    modal.setAttribute('aria-describedby', 'detalhes-conflito-lancamento');
+    modal.innerHTML = '<div class="modal-content large"><div class="modal-header"><h3 class="modal-title" id="titulo-conflito-lancamento"></h3><button type="button" class="modal-close" aria-label="Voltar ao formulário" onclick="fecharModal(\'modal-conflito-lancamento\')">×</button></div><div class="modal-body"><p style="margin-bottom:14px;color:var(--text-secondary)">Confira os detalhes abaixo e volte ao formulário para corrigir.</p><div id="detalhes-conflito-lancamento" style="white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:13px"></div></div><div class="modal-footer"><button type="button" class="btn btn-primary" onclick="fecharModal(\'modal-conflito-lancamento\')">Voltar e corrigir</button></div></div>';
+    document.body.appendChild(modal);
+    modal.querySelectorAll('button').forEach(function(botao) {
+      botao.onclick = function() {
+        fecharModal(modal.id);
+        if (modal._focoAnterior?.isConnected && !modal._focoAnterior.disabled) modal._focoAnterior.focus({ preventScroll: true });
+      };
+    });
+  }
+  modal._focoAnterior = document.activeElement;
+  modal.querySelector('#titulo-conflito-lancamento').textContent = validacao.codigo === 'SOBREPOSICAO_AFASTAMENTOS' ? 'Conflito entre períodos de afastamento' : (validacao.codigo === 'LIMITE_PARCELAS_FERIAS' ? 'Limite de partes de férias atingido' : 'Verifique o lançamento');
+  modal.querySelector('#detalhes-conflito-lancamento').textContent = String(validacao.mensagem || 'Este lançamento se sobrepõe a outra ausência ativa da pessoa. Confira os registros existentes.');
+  abrirModal(modal.id);
+  modal.querySelector('.btn-primary').focus({ preventScroll: true });
+}
+
+function atualizarAvisoParcelasFerias_() {
+  const campoDias = document.getElementById('lanc-dias');
+  if (!campoDias) return;
+  let aviso = document.getElementById('lanc-aviso-parcelas-ferias');
+  if (!aviso) {
+    aviso = document.createElement('small');
+    aviso.id = 'lanc-aviso-parcelas-ferias';
+    aviso.className = 'form-help';
+    aviso.style.cssText = 'display:none;margin-top:6px;line-height:1.5';
+    campoDias.after(aviso);
+  }
+  const ehFerias = normalizarTextoRep_(document.getElementById('lanc-tipo')?.value).includes('FERIAS');
+  aviso.style.display = ehFerias ? 'block' : 'none';
+  if (!ehFerias) return;
+  aviso.textContent = 'Férias: no máximo 2 partes de gozo por período aquisitivo. A contagem é conferida novamente ao salvar.';
+  const matricula = normalizarMatriculaRep_(document.getElementById('lanc-matricula')?.value);
+  const servidor = (AppState.servidores || []).find(function(item) { return normalizarMatriculaRep_(item.matricula) === matricula; });
+  const periodo = servidor?.periodosFerias?.find(function(item) { return item.status === 'Disponível' && Number(item.saldo) > 0; });
+  if (periodo && Number.isFinite(periodo.parcelasUsadas)) aviso.textContent += ' ' + periodo.referencia + ': ' + periodo.parcelasUsadas + '/2 partes já registradas.';
+}
+
+function adicionarBotaoPendenciasMesRep_(container, emp) {
+  const acoes = container.querySelector('.rep-controle-vinculo');
+  if (!acoes || !emp || acoes.querySelector('[data-copiar-pendencias-rep]')) return;
+  const botao = document.createElement('button');
+  botao.type = 'button';
+  botao.className = 'rep-unir-registros';
+  botao.dataset.copiarPendenciasRep = 'sim';
+  botao.innerHTML = '<span data-lucide="copy" style="width:14px;height:14px"></span> Copiar pendências do mês';
+  botao.title = 'Copiar as pendências atuais e os dias com saldo para compensação, em texto para WhatsApp';
+  botao.onclick = function() { copiarPendenciasMesRep_(emp.pis); };
+  acoes.appendChild(botao);
+}
+
+function formatarDuracaoMensagemRep_(minutos) {
+  const total = Math.max(0, Math.round(Number(minutos) || 0));
+  if (total < 60) return total + (total === 1 ? ' minuto' : ' minutos');
+  return Math.floor(total / 60) + 'h' + (total % 60 ? String(total % 60).padStart(2,'0') : '');
+}
+
+function explicarPendenciaMensagemRep_(dia, minutos) {
+  const motivos = [];
+  const excedentes = dia.batidasExcedentes || dia.status === 'batidas_excedentes';
+  const impar = dia.isImpar || dia.status === 'impar';
+  if (dia.semRegistro && minutos > 0) motivos.push('Não há marcações de ponto. Ainda há ' + formatarDuracaoMensagemRep_(minutos) + ' para justificar ou compensar.');
+  if (excedentes) motivos.push('Há mais marcações que o esperado. Precisamos conferir possíveis duplicidades.');
+  else if (impar) motivos.push('Falta uma entrada ou saída.');
+  if (dia.colisaoReps || dia.status === 'colisao_reps') motivos.push('O mesmo horário aparece em mais de um relógio; precisamos confirmar a marcação correta.');
+  if (dia.conflitoArredondamento || dia.status === 'conflito_arredondamento') motivos.push('Dois horários diferentes ficaram iguais no cálculo do ponto. Precisamos confirmar as marcações originais.');
+  if (dia.ausencia && !dia.semRegistro && dia.status === 'ausencia_com_batidas') motivos.push('Consta ' + (dia.ausencia.tipo || 'uma justificativa') + ' neste dia, mas também há marcações. Confirme se houve trabalho no dia.');
+  if (!dia.semRegistro && minutos > 0) motivos.push('A jornada ficou ' + formatarDuracaoMensagemRep_(minutos) + ' abaixo do previsto.');
+  if ((impar && !excedentes) || dia.conflitoArredondamento || dia.status === 'conflito_arredondamento') {
+    const horarios = String(dia.batidasOriginais || (dia.batidas || []).join(' · ')).trim();
+    if (horarios) motivos.push('Horários registrados: ' + horarios.replace(/\s+-\s+/g,' · ') + '.');
+  }
+  return motivos.join(' ') || 'Precisamos conferir as marcações deste dia.';
+}
+
+function montarMensagemPendenciasMesRep_(emp, competencia, autorizacoes, compensacoes) {
+  if (!emp || !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(competencia || ''))) throw new Error('Selecione a pessoa, o ano e o mês.');
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const rotulo = meses[Number(competencia.slice(5)) - 1] + '/' + competencia.slice(0,4);
+  const dataBr = function(data) { return String(data).split('-').reverse().join('/'); };
+  const dias = (emp.dias || []).filter(function(dia) { return String(dia.dataOriginal || '').slice(0,7) === competencia; }).slice().sort(function(a,b) { return a.dataOriginal.localeCompare(b.dataOriginal); });
+  const linhas = ['Olá, ' + String(emp.nome || 'servidor(a)').trim() + '!', '', '*Conferência do ponto — ' + rotulo + '*', 'As justificativas e compensações já lançadas foram consideradas.', ''];
+  let diasPendentes = 0, minutosDevidos = 0, diasSemCalculo = 0;
+  const pendencias = [];
+  dias.forEach(function(dia) {
+    const alertas = obterAlertasAtivosDiaRep_(dia, emp.pis);
+    if (!alertas.length) return;
+    const minutos = Math.max(0, Math.round(obterDeficitDiaRep_(dia) * 60));
+    const marcacoesCompletas = !dia.semRegistro && !dia.pendencia && (dia.batidas || []).length > 0 && dia.batidas.length % 2 === 0;
+    // Tolerância apenas no comunicado, sem alterar o saldo ou validar o ponto.
+    if (marcacoesCompletas && minutos > 0 && minutos <= 10 && alertas.every(function(item) { return item.tipo === 'Jornada incompleta / horas devidas'; })) return;
+    diasPendentes++;
+    minutosDevidos += minutos;
+    if (dia.pendencia) diasSemCalculo++;
+    pendencias.push('• ' + dataBr(dia.dataOriginal) + ' — ' + explicarPendenciaMensagemRep_(dia, minutos));
+  });
+  if (emp.naoConciliado) linhas.push('O RH precisa conferir sua identificação no cadastro do ponto.', '');
+  if (pendencias.length) {
+    linhas.push('*Ainda precisamos conferir:*', ...pendencias);
+    if (minutosDevidos > 0) linhas.push('', '*' + (diasSemCalculo ? 'Horas já apuradas para regularizar: ' : 'Total de horas a regularizar: ') + formatarDuracaoMensagemRep_(minutosDevidos) + '*');
+  } else linhas.push('Não há ajustes de ponto a solicitar neste mês.');
+  if (diasSemCalculo) linhas.push(minutosDevidos > 0 ? 'Esse total pode mudar após a conferência dos horários acima.' : 'As horas devidas serão confirmadas depois de conferir esses horários.');
+
+  const limites = new Map(), usados = new Map();
+  (autorizacoes || []).forEach(function(item) {
+    if (normalizarPisRep(item.pis) !== normalizarPisRep(emp.pis)) return;
+    limites.set(item.data, Math.max(limites.get(item.data) || 0, Math.max(0, Math.round(Number(item.minutos) || 0))));
+  });
+  (compensacoes || []).forEach(function(item) {
+    if (normalizarPisRep(item.pis) !== normalizarPisRep(emp.pis) || !(Number(item.minutos) > 0)) return;
+    (item.origens || []).forEach(function(origem) {
+      usados.set(origem.data, (usados.get(origem.data) || 0) + Math.max(0, Math.round(Number(origem.minutos) || 0)));
+      if (Number(origem.autorizado) > 0) limites.set(origem.data, Math.max(limites.get(origem.data) || 0, Math.round(Number(origem.autorizado))));
+    });
+  });
+  // Compensações antigas podem não ter a origem gravada; a apuração atual
+  // ainda conhece de quais dias as horas foram retiradas. Não conta duas vezes.
+  const usadosCalculados = new Map();
+  dias.forEach(function(dia) {
+    (dia.compensacao?.origensAplicadas || []).forEach(function(origem) {
+      usadosCalculados.set(origem.data, (usadosCalculados.get(origem.data) || 0) + Math.max(0, Math.round(Number(origem.minutos) || 0)));
+    });
+  });
+  usadosCalculados.forEach(function(minutos, data) { usados.set(data, Math.max(usados.get(data) || 0, minutos)); });
+  const diasPorData = new Map(dias.map(function(dia) { return [dia.dataOriginal, dia]; }));
+  const origens = (emp.resumo?.origensSaldoCompensacao || []).filter(function(item) {
+    const dia = diasPorData.get(item.data);
+    return dia && !dia.pendencia && !dia.ausencia && Number(item.minutos) > 0;
+  }).slice().sort(function(a,b) { return a.data.localeCompare(b.data); });
+  let saldoTotal = 0, autorizadoTotal = 0;
+  if (origens.length) linhas.push('', '*Horas disponíveis para compensação*', 'Estes dias ainda têm saldo para utilizar:');
+  origens.forEach(function(origem) {
+    const saldo = Math.max(0, Math.round(Number(origem.minutos)));
+    const autorizado = Math.min(saldo, Math.max(0, (limites.get(origem.data) || 0) - (usados.get(origem.data) || 0)));
+    saldoTotal += saldo;
+    autorizadoTotal += autorizado;
+    linhas.push('• ' + dataBr(origem.data) + ' — saldo de ' + formatarDuracaoMensagemRep_(saldo) + '.');
+  });
+  if (origens.length) {
+    linhas.push('Total disponível: ' + formatarDuracaoMensagemRep_(saldoTotal) + '.', 'O uso dessas horas precisa ser confirmado com o RH.');
+  } else if (minutosDevidos > 0) linhas.push('', 'Não há horas disponíveis para compensação neste mês.');
+  if (pendencias.length) linhas.push('', 'Por favor, confira as datas e envie ao RH as justificativas ou os horários que faltam para acertarmos o ponto.');
+  return { texto: linhas.join('\n'), diasPendentes, minutosDevidos, saldoTotal, autorizadoTotal };
+}
+
+async function copiarPendenciasMesRep_(pis) {
+  try {
+    const competencia = obterCompetenciaAtualRep_();
+    if (!competencia) throw new Error('Selecione um ano e um mês específicos.');
+    if (!pis || buscaRepAguardandoSelecao_) throw new Error('Clique no nome da pessoa antes de copiar as pendências.');
+    if (repOnlineCarregando || (falhasIntegridadeRep || []).length) throw new Error('Conclua o carregamento íntegro dos arquivos REP antes de copiar as pendências.');
+    if (repTemAlteracoesPendentes_() || (typeof existemGravacoesPendentes_ === 'function' && existemGravacoesPendentes_())) throw new Error('Aguarde a conclusão dos salvamentos antes de copiar a situação atual.');
+    // Apuração somente desta pessoa, com todos os relógios do mês. Os filtros
+    // visuais de dias e locais não podem esconder pendências da mensagem.
+    const emp = obterServidoresCompetenciaRelatorioAlertasRep_(competencia, pis).find(function(item) { return normalizarPisRep(item.pis) === normalizarPisRep(pis); });
+    if (!emp) throw new Error('Não há um espelho carregado para esta pessoa no mês selecionado.');
+    const mensagem = montarMensagemPendenciasMesRep_(emp, competencia, autorizacoesCompensacaoRep, compensacoesRep);
+    await copiarTextoPendenciasRep_(mensagem.texto);
+  } catch (erro) { mostrarToast(mensagemErro(erro), 'warning'); }
+}
+
+async function copiarTextoPendenciasRep_(texto) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Cópia direta indisponível');
+    await navigator.clipboard.writeText(texto);
+  } catch (_) {
+    const focoAnterior = document.activeElement;
+    const campo = document.createElement('textarea');
+    campo.value = texto;
+    campo.setAttribute('readonly', '');
+    campo.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(campo);
+    campo.select();
+    let copiado = false;
+    try { copiado = document.execCommand('copy'); } catch (_) {}
+    campo.remove();
+    focoAnterior?.focus({ preventScroll: true });
+    if (!copiado) return mostrarMensagemPendenciasParaCopiarRep_(texto);
+  }
+  mostrarToast('Pendências do mês copiadas. Confira o texto e cole no WhatsApp.', 'success');
+}
+
+function mostrarMensagemPendenciasParaCopiarRep_(texto) {
+  let modal = document.getElementById('modal-mensagem-pendencias-rep');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-mensagem-pendencias-rep';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = '<div class="modal-content large"><div class="modal-header"><h3 class="modal-title">Pendências do mês</h3><button type="button" class="modal-close" onclick="fecharModal(\'modal-mensagem-pendencias-rep\')">×</button></div><div class="modal-body"><p style="margin-bottom:12px">A cópia automática não foi permitida. O texto está selecionado: use Ctrl+C para copiar.</p><textarea class="form-control" readonly rows="18" aria-label="Mensagem de pendências do mês" style="white-space:pre-wrap;resize:vertical"></textarea></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal(\'modal-mensagem-pendencias-rep\')">Fechar</button></div></div>';
+    document.body.appendChild(modal);
+  }
+  const campo = modal.querySelector('textarea');
+  campo.value = texto;
+  abrirModal(modal.id);
+  campo.focus();
+  campo.select();
+}
+
+function garantirModalLancamentosLoteRep_() {
+  let modal = document.getElementById('modal-lancamentos-lote-rep');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-lancamentos-lote-rep';
+  modal.innerHTML = `<div class="modal-content rep-lote-modal"><div class="modal-header"><div><h3 class="modal-title">Ajustes de ponto em lote</h3><small id="rep-lote-servidor"></small></div><button class="modal-close" onclick="fecharModal('modal-lancamentos-lote-rep')"><span data-lucide="x"></span></button></div><div class="modal-body"><p class="rep-lote-intro">Registre as marcações na ordem do cartão. Use Tab para avançar entre manhã, tarde e extra.</p><section class="rep-lote-secao"><header><div><strong>Marcações do cartão</strong><small>Manhã, tarde e período extra, com entrada e saída.</small></div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaMarcacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia</button></header><div class="rep-lote-table-wrap"><table class="rep-lote-table rep-lote-marcacoes"><thead><tr><th rowspan="2">Dia</th><th colspan="2">Manhã</th><th colspan="2">Tarde</th><th colspan="2">Extra</th><th rowspan="2">Local</th><th rowspan="2">Motivo (opcional)</th><th rowspan="2"></th></tr><tr><th>Entrada</th><th>Saída</th><th>Entrada</th><th>Saída</th><th>Entrada</th><th>Saída</th></tr></thead><tbody id="rep-lote-marcacoes"></tbody></table></div></section><details class="rep-lote-secao rep-lote-compensacao-detalhes"><summary><span><strong>Compensação de horas</strong><small>Abra somente quando houver autorização do servidor.</small></span></summary><div class="rep-lote-compensacao-conteudo"><div class="rep-lote-autorizacao-cabecalho"><div><strong>Limites autorizados no documento</strong><small>Informe o dia de HE e o teto que o servidor autorizou utilizar.</small></div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaAutorizacaoCompensacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia autorizado</button></div><div id="rep-lote-autorizacoes" class="rep-lote-autorizacoes"></div><header><div><strong>Dias que serão compensados</strong><small>Localize os débitos e preencha automaticamente somente até o limite autorizado.</small></div><div><button type="button" class="btn btn-secondary" onclick="adicionarLinhaCompensacaoLoteRep_()"><span data-lucide="plus"></span> Adicionar dia</button><button type="button" class="btn btn-secondary" onclick="adicionarDeficitsCompensacaoLoteRep_()"><span data-lucide="search"></span> Localizar débitos</button><button type="button" class="btn btn-primary rep-lote-preencher" onclick="preencherCompensacoesLoteRep_()"><span data-lucide="wand-sparkles"></span> Preencher débitos</button></div></header><div class="rep-lote-table-wrap"><table class="rep-lote-table rep-lote-compensacoes"><thead><tr><th>Dia com atraso/falta</th><th>Compensar com horas extras dos dias</th><th>Total compensado</th><th>Motivo (opcional)</th><th></th></tr></thead><tbody id="rep-lote-compensacoes"></tbody></table></div></div></details><div class="rep-lote-status" id="rep-lote-status"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharModal('modal-lancamentos-lote-rep')">Cancelar</button><button type="button" class="btn btn-primary" id="rep-lote-salvar" onclick="salvarLancamentosLoteRep_()"><span data-lucide="save"></span> Salvar todos os ajustes</button></div></div>`;
+  const secaoMarcacoes = modal.querySelector('.rep-lote-secao');
+  if (secaoMarcacoes) secaoMarcacoes.insertAdjacentHTML('afterbegin', `<div id="rep-cartao-ia" class="rep-cartao-ia" hidden><div class="rep-cartao-ia-cabecalho"><span class="rep-cartao-ia-icone"><span data-lucide="scan-line"></span></span><div><strong>Ler cartão preenchido com IA</strong><small>Envie duas fotos ou um PDF com as duas páginas. A leitura apenas preenche uma proposta para você conferir; nada é salvo automaticamente.</small></div></div><div class="rep-cartao-ia-arquivos"><label class="rep-cartao-ia-arquivo"><input id="rep-cartao-ia-frente" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" onchange="atualizarArquivoCartaoIA_(this,'frente')"><span data-lucide="file-up"></span><b>Frente ou PDF completo</b><small id="rep-cartao-ia-frente-nome">Escolher foto ou PDF</small></label><label class="rep-cartao-ia-arquivo"><input id="rep-cartao-ia-verso" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf" onchange="atualizarArquivoCartaoIA_(this,'verso')"><span data-lucide="file-up"></span><b>Verso · dias 16 a 31</b><small id="rep-cartao-ia-verso-nome">Opcional se o PDF tiver as duas páginas</small></label></div><div class="rep-cartao-ia-acoes"><p><b>Privacidade:</b> os arquivos são enviados à IA configurada somente para esta leitura. Eles não são gravados no Drive nem nas planilhas.</p><button type="button" class="btn btn-primary" id="rep-cartao-ia-analisar" onclick="analisarCartaoManualIA_()"><span data-lucide="wand-sparkles"></span> Ler e preencher horários</button></div><div id="rep-cartao-ia-status" class="rep-cartao-ia-status" aria-live="polite"></div><div id="rep-cartao-ia-resultado" class="rep-cartao-ia-resultado" hidden></div></div>`);
+  inicializarArrastarArquivosCartaoIA_(modal);
+  const cabecalho = modal.querySelector('.rep-lote-marcacoes thead');
+  if (cabecalho) cabecalho.innerHTML = `<tr><th rowspan="2">Dia</th><th colspan="2">Manhã</th><th colspan="2">Tarde</th><th colspan="2">Extra</th><th rowspan="2">Local</th><th rowspan="2">Motivo (opcional)</th><th rowspan="2"></th></tr><tr><th>Entrada</th><th>Saída</th><th>Entrada</th><th>Saída</th><th>Entrada</th><th>Saída</th></tr>`;
+  const cabecalhoDiasCompensacao = modal.querySelector('.rep-lote-compensacao-conteudo > header');
+  const resumoCompensacao = modal.querySelector('.rep-lote-compensacao-detalhes > summary small');
+  if (resumoCompensacao) resumoCompensacao.textContent = 'Informe as horas autorizadas e os dias em que deseja abater o débito.';
+  const cabecalhoAutorizacao = modal.querySelector('.rep-lote-autorizacao-cabecalho');
+  if (cabecalhoAutorizacao) {
+    cabecalhoAutorizacao.querySelector('strong').textContent = '1. Horas extras autorizadas';
+    cabecalhoAutorizacao.querySelector('small').textContent = 'Adicione somente os dias cujas horas podem ser usadas, com o limite de cada dia.';
+  }
+  if (cabecalhoDiasCompensacao) {
+    cabecalhoDiasCompensacao.querySelector('strong').textContent = '2. Dias com horas devidas';
+    cabecalhoDiasCompensacao.querySelector('small').textContent = 'Escolha o dia do débito e quanto quer abater; o restante continuará devido.';
+    cabecalhoDiasCompensacao.insertAdjacentHTML('beforebegin', `<section class="rep-lote-formato-compensacao"><span><strong>Visualização dos valores</strong><small>Use horas ou minutos nos mesmos campos de autorização e compensação.</small></span><div class="rep-lote-formato-botoes" role="group" aria-label="Formato dos valores"><button type="button" class="ativo" data-formato="horas" onclick="definirFormatoCompensacaoLoteRep_('horas')">HH:MM</button><button type="button" data-formato="minutos" onclick="definirFormatoCompensacaoLoteRep_('minutos')">Minutos</button></div></section>`);
+  }
+  const cabecalhosCompensacao = modal.querySelectorAll('.rep-lote-compensacoes thead th');
+  if (cabecalhosCompensacao[2]) {
+    cabecalhosCompensacao[2].textContent = 'Quanto compensar / Total lançado';
+    cabecalhosCompensacao[1].before(cabecalhosCompensacao[2]);
+  }
+  organizarFluxoLoteRep_(modal);
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function organizarFluxoLoteRep_(modal) {
+  const conteudo = modal.querySelector('.rep-lote-compensacao-conteudo');
+  const formato = conteudo.querySelector('.rep-lote-formato-compensacao');
+  conteudo.prepend(formato);
+  // Acrescentar uma linha deve continuar a lista, sem voltar ao cabeçalho.
+  const autorizacoes = conteudo.querySelector('#rep-lote-autorizacoes');
+  const adicionarAutorizacao = conteudo.querySelector('.rep-lote-autorizacao-cabecalho button');
+  const continuacaoAutorizacoes = document.createElement('div');
+  continuacaoAutorizacoes.className = 'rep-lote-continuar';
+  continuacaoAutorizacoes.appendChild(adicionarAutorizacao);
+  autorizacoes.after(continuacaoAutorizacoes);
+  adicionarAutorizacao.setAttribute('onclick', "adicionarLinhaAutorizacaoCompensacaoLoteRep_(); focarUltimaLinhaLoteRep_('rep-lote-autorizacoes')");
+
+  const cabecalhoDebitos = conteudo.querySelector('header');
+  const adicionarDebito = cabecalhoDebitos.querySelector('[onclick="adicionarLinhaCompensacaoLoteRep_()"]');
+  const localizar = cabecalhoDebitos.querySelector('[onclick="adicionarDeficitsCompensacaoLoteRep_()"]');
+  const preencher = cabecalhoDebitos.querySelector('.rep-lote-preencher');
+  localizar.textContent = 'Localizar dias com débito';
+  const tabelaDebitos = conteudo.querySelector('.rep-lote-table-wrap');
+  const continuacaoDebitos = document.createElement('div');
+  continuacaoDebitos.className = 'rep-lote-continuar';
+  continuacaoDebitos.appendChild(adicionarDebito);
+  tabelaDebitos.after(continuacaoDebitos);
+  adicionarDebito.setAttribute('onclick', "adicionarLinhaCompensacaoLoteRep_(); focarUltimaLinhaLoteRep_('rep-lote-compensacoes')");
+  const calcular = document.createElement('section');
+  calcular.className = 'rep-lote-calcular';
+  calcular.innerHTML = '<div><strong>3. Distribuir e revisar</strong><small>Preencha “Quanto compensar” nos dias desejados. Depois distribua as horas, confira os totais e salve no rodapé.</small></div>';
+  preencher.innerHTML = '<span data-lucide="wand-sparkles"></span> Distribuir horas autorizadas';
+  calcular.appendChild(preencher);
+  conteudo.appendChild(calcular);
+
+  const marcacoes = modal.querySelector('.rep-lote-marcacoes').closest('.rep-lote-secao');
+  const adicionarMarcacao = marcacoes.querySelector('header button');
+  const continuacaoMarcacoes = document.createElement('div');
+  continuacaoMarcacoes.className = 'rep-lote-continuar';
+  continuacaoMarcacoes.appendChild(adicionarMarcacao);
+  marcacoes.appendChild(continuacaoMarcacoes);
+  adicionarMarcacao.setAttribute('onclick', "adicionarLinhaMarcacaoLoteRep_(); focarUltimaLinhaLoteRep_('rep-lote-marcacoes')");
+  const status = modal.querySelector('#rep-lote-status');
+  status.setAttribute('role', 'status');
+  modal.querySelector('.modal-footer').prepend(status);
+}
+
+function focarUltimaLinhaLoteRep_(id) {
+  const linha = document.getElementById(id)?.lastElementChild;
+  const campo = linha?.querySelector('input:not([readonly])');
+  if (!campo) return;
+  campo.focus({ preventScroll: true });
+  campo.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+}
+
+function adicionarLinhaMarcacaoLoteRep_(data, local, eventosExistentes) {
+  const corpo = document.getElementById('rep-lote-marcacoes');
+  if (!corpo) return;
+  const tr = document.createElement('tr');
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const cartaoManual = modal && modal.dataset.modo === 'cartao-manual';
+  const eventos = Array.isArray(eventosExistentes) ? eventosExistentes : [];
+  const localExistente = eventos.find(function(item) { return item && item.local; })?.local;
+  const colunas = ['Manhã entrada','Manhã saída','Tarde entrada','Tarde saída','Extra entrada','Extra saída'].map(function(rotulo, indice) {
+    const evento = eventos[indice] || null;
+    const manual = Boolean(evento?.manual);
+    const bloqueado = Boolean(evento && !manual);
+    const offset = evento?.dataReal && data && evento.dataReal > data ? 1 : 0;
+    const origem = evento ? (manual ? 'Manual' : 'AFD') : '';
+    return `<td><div class="rep-cartao-horario ${evento ? 'existente' : ''} ${bloqueado ? 'afd' : (manual ? 'manual' : '')}"><input type="time" class="form-control rep-lote-hora" aria-label="${rotulo}" value="${escapeHtml(evento?.horarioOriginal || '')}" data-event-id="${escapeHtml(evento?.eventId || '')}" data-manual="${manual ? 'sim' : 'nao'}" data-original-hora="${escapeHtml(evento?.horarioOriginal || '')}" data-original-offset="${offset}" data-dia-offset="${offset}" ${bloqueado ? 'readonly title="Marcação original do AFD; use Ajustar para modificá-la"' : 'oninput="ajustarViradaAutomaticaCartaoManualRep_(this)"'}><button type="button" class="rep-dia-seguinte ${offset ? 'ativo' : ''}" aria-pressed="${offset ? 'true' : 'false'}" onclick="alternarDiaSeguinteCartaoManualRep_(this)" ${bloqueado ? 'disabled' : ''} title="${offset ? 'Este horário pertence ao dia seguinte' : 'Marcar este horário como pertencente ao dia seguinte'}">+1</button>${origem ? `<small>${origem}</small>` : ''}</div></td>`;
+  }).join('');
+  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}" ${cartaoManual ? 'readonly' : ''}></td>${colunas}<td><input type="text" class="form-control rep-lote-local" value="${escapeHtml(localExistente || local || modal?.dataset.local || 'Local informado manualmente')}"></td><td><input type="text" class="form-control rep-lote-justificativa" value="${cartaoManual ? 'Transcrição do cartão de ponto manual.' : ''}" placeholder="Motivo opcional"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
+  corpo.appendChild(tr);
+  if (cartaoManual) ativarNavegacaoPlanilhaCartaoManualRep_(tr);
+  renderizarIcones();
+}
+
+function inicializarArrastarArquivosCartaoIA_(modal) {
+  modal.querySelectorAll('.rep-cartao-ia-arquivo').forEach(function(area) {
+    const input = area.querySelector('input[type="file"]');
+    if (!input || area.dataset.dropConfigurado) return;
+    area.dataset.dropConfigurado = 'sim';
+    const lado = input.id.endsWith('-verso') ? 'verso' : 'frente';
+    atualizarArquivoCartaoIA_(input, lado);
+    area.addEventListener('dragover', function(evento) {
+      evento.preventDefault(); evento.stopPropagation();
+      if (evento.dataTransfer) evento.dataTransfer.dropEffect = 'copy';
+      area.classList.add('arrastando');
+    });
+    area.addEventListener('dragleave', function(evento) {
+      if (!area.contains(evento.relatedTarget)) area.classList.remove('arrastando');
+    });
+    area.addEventListener('drop', function(evento) {
+      evento.preventDefault(); evento.stopPropagation();
+      area.classList.remove('arrastando');
+      const arquivos = Array.from(evento.dataTransfer && evento.dataTransfer.files || []);
+      if (arquivos.length !== 1) return mostrarToast('Solte um arquivo por campo: frente ou verso.', 'warning');
+      const arquivo = arquivos[0];
+      if (!/^(image\/(jpeg|png|webp)|application\/pdf)$/i.test(String(arquivo.type || ''))) return mostrarToast('Use JPG, PNG, WEBP ou PDF.', 'warning');
+      if (arquivo.size > 8 * 1024 * 1024) return mostrarToast('O arquivo ultrapassa 8 MB.', 'warning');
+      try {
+        const transferencia = new DataTransfer();
+        transferencia.items.add(arquivo);
+        input.files = transferencia.files;
+        atualizarArquivoCartaoIA_(input, lado);
+      } catch (e) {
+        mostrarToast('O navegador não aceitou o arquivo arrastado. Clique no campo para selecioná-lo.', 'warning');
+      }
+    });
+  });
+}
+
+function atualizarArquivoCartaoIA_(input, lado) {
+  const nome = document.getElementById('rep-cartao-ia-' + lado + '-nome');
+  const arquivo = input && input.files && input.files[0];
+  if (nome) nome.textContent = arquivo ? arquivo.name : (lado === 'verso' ? 'Arraste ou clique · opcional com PDF completo' : 'Arraste uma foto ou PDF aqui, ou clique');
+  input?.closest('.rep-cartao-ia-arquivo')?.classList.toggle('selecionado', Boolean(arquivo));
+}
+
+function prepararArquivoCartaoIA_(arquivo) {
+  return new Promise(function(resolve, reject) {
+    const tipo = String(arquivo?.type || '').toLowerCase();
+    if (!arquivo || !/^(image\/(jpeg|png|webp)|application\/pdf)$/i.test(tipo)) return reject(new Error('Use JPG, PNG, WEBP ou PDF.'));
+    if (tipo === 'application/pdf') {
+      if (arquivo.size > 8 * 1024 * 1024) return reject(new Error('O PDF ultrapassa 8 MB. Reduza-o antes de tentar novamente.'));
+      const leitor = new FileReader();
+      leitor.onerror = function() { reject(new Error('Não foi possível abrir o PDF.')); };
+      leitor.onload = function() {
+        const base64 = String(leitor.result || '').split(',')[1] || '';
+        if (!base64) return reject(new Error('Não foi possível preparar o PDF.'));
+        resolve({ mimeType: 'application/pdf', base64: base64, nome: arquivo.name || 'cartao.pdf' });
+      };
+      leitor.readAsDataURL(arquivo);
+      return;
+    }
+    if (arquivo.size > 20 * 1024 * 1024) return reject(new Error('A imagem original ultrapassa 20 MB. Reduza-a antes de tentar novamente.'));
+    const url = URL.createObjectURL(arquivo);
+    const imagem = new Image();
+    imagem.onload = function() {
+      try {
+        const maiorLado = Math.max(imagem.naturalWidth, imagem.naturalHeight);
+        const escalaInicial = Math.min(1, 2400 / Math.max(1, maiorLado));
+        let largura = Math.max(1, Math.round(imagem.naturalWidth * escalaInicial));
+        let altura = Math.max(1, Math.round(imagem.naturalHeight * escalaInicial));
+        let qualidade = 0.9;
+        let dataUrl = '';
+        for (let tentativa = 0; tentativa < 5; tentativa++) {
+          const canvas = document.createElement('canvas');
+          canvas.width = largura;
+          canvas.height = altura;
+          const contexto = canvas.getContext('2d', { alpha: false });
+          if (!contexto) throw new Error('O navegador não conseguiu preparar a imagem. Atualize a página e tente novamente.');
+          contexto.fillStyle = '#ffffff';
+          contexto.fillRect(0, 0, largura, altura);
+          contexto.drawImage(imagem, 0, 0, largura, altura);
+          dataUrl = canvas.toDataURL('image/jpeg', qualidade);
+          if (Math.floor(dataUrl.length * 3 / 4) <= 5.7 * 1024 * 1024) break;
+          largura = Math.max(900, Math.round(largura * 0.82));
+          altura = Math.max(900, Math.round(altura * 0.82));
+          qualidade = Math.max(0.68, qualidade - 0.07);
+        }
+        const base64 = String(dataUrl.split(',')[1] || '');
+        if (!base64) throw new Error('Não foi possível preparar a imagem.');
+        resolve({ mimeType: 'image/jpeg', base64: base64, nome: arquivo.name || 'cartao.jpg' });
+      } catch (erro) {
+        reject(erro);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    imagem.onerror = function() { URL.revokeObjectURL(url); reject(new Error('Não foi possível abrir uma das imagens.')); };
+    imagem.src = url;
+  });
+}
+
+async function prepararPaginasPdfCartaoIA_(arquivo, quantidadeEsperada) {
+  if (!window.pdfjsLib) throw new Error('O leitor de PDF não carregou. Atualize a página ou envie frente e verso como imagens.');
+  if (arquivo.size > 8 * 1024 * 1024) throw new Error('O PDF ultrapassa 8 MB. Reduza-o antes de tentar novamente.');
+  let documento;
+  try {
+    const bytes = new Uint8Array(await arquivo.arrayBuffer());
+    documento = await window.pdfjsLib.getDocument({ data: bytes }).promise;
+    if (documento.numPages !== quantidadeEsperada) {
+      throw new Error(quantidadeEsperada === 2
+        ? 'O PDF completo deve ter exatamente duas páginas: frente e verso.'
+        : 'Cada PDF separado deve conter somente a página do lado escolhido.');
+    }
+    const paginas = [];
+    for (let numero = 1; numero <= documento.numPages; numero++) {
+      const pagina = await documento.getPage(numero);
+      const tamanho = pagina.getViewport({ scale: 1 });
+      let escala = Math.min(3, 2400 / Math.max(tamanho.width, tamanho.height));
+      let qualidade = 0.88;
+      let base64 = '';
+      for (let tentativa = 0; tentativa < 5; tentativa++) {
+        const viewport = pagina.getViewport({ scale: escala });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const contexto = canvas.getContext('2d', { alpha: false });
+        if (!contexto) throw new Error('Não foi possível preparar a imagem do PDF.');
+        contexto.fillStyle = '#ffffff';
+        contexto.fillRect(0, 0, canvas.width, canvas.height);
+        await pagina.render({ canvasContext: contexto, viewport: viewport }).promise;
+        base64 = canvas.toDataURL('image/jpeg', qualidade).split(',')[1] || '';
+        canvas.width = 0;
+        canvas.height = 0;
+        if (Math.floor(base64.length * 3 / 4) <= 5.7 * 1024 * 1024) break;
+        escala *= 0.82;
+        qualidade = Math.max(0.68, qualidade - 0.06);
+      }
+      if (!base64 || Math.floor(base64.length * 3 / 4) > 5.7 * 1024 * 1024) throw new Error('Uma página do PDF ficou grande demais para leitura. Reduza a resolução.');
+      paginas.push({ mimeType: 'image/jpeg', base64: base64, nome: (arquivo.name || 'cartao.pdf') + ' · página ' + numero });
+      pagina.cleanup();
+    }
+    return paginas;
+  } finally {
+    if (documento) await documento.destroy();
+  }
+}
+
+function prepararImagemCartaoIA_(arquivo) {
+  return prepararArquivoCartaoIA_(arquivo);
+}
+
+function aplicarLeituraCartaoIA_(resultado) {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  if (!modal || modal.dataset.modo !== 'cartao-manual') throw new Error('O cartão manual não está aberto.');
+  modal.querySelectorAll('.rep-lote-hora[data-preenchido-ia="sim"]').forEach(function(campo) {
+    if (!campo.dataset.eventId) campo.value = '';
+    delete campo.dataset.preenchidoIa;
+    campo.classList.remove('rep-cartao-ia-alta', 'rep-cartao-ia-incerta');
+  });
+  modal.querySelectorAll('#rep-lote-marcacoes tr').forEach(function(linha) { linha.classList.remove('rep-cartao-ia-revisao'); });
+  let preenchidas = 0;
+  let preservadas = 0;
+  let incertas = 0;
+  (resultado.dias || []).forEach(function(dia) {
+    const sufixo = '-' + String(dia.dia).padStart(2, '0');
+    const linha = Array.from(modal.querySelectorAll('#rep-lote-marcacoes tr')).find(function(item) {
+      return String(item.querySelector('.rep-lote-data')?.value || '').endsWith(sufixo);
+    });
+    if (!linha) return;
+    const campos = Array.from(linha.querySelectorAll('.rep-lote-hora'));
+    (dia.marcacoes || []).slice(0, 6).forEach(function(horario, indice) {
+      if (!horario || !campos[indice] || campos[indice].readOnly) return;
+      const campo = campos[indice];
+      if (campo.value && campo.value !== horario && campo.dataset.preenchidoIa !== 'sim') {
+        preservadas++;
+        linha.classList.add('rep-cartao-ia-revisao');
+        return;
+      }
+      const confianca = String((dia.confiancas || [])[indice] || 'media');
+      campo.value = horario;
+      campo.dataset.preenchidoIa = 'sim';
+      campo.dataset.diaOffset = String(Number((dia.offsets || [])[indice] || 0));
+      campo.classList.toggle('rep-cartao-ia-alta', confianca === 'alta');
+      campo.classList.toggle('rep-cartao-ia-incerta', confianca !== 'alta');
+      campo.title = confianca === 'alta' ? 'Preenchido pela IA com confiança alta; confira antes de salvar.' : 'Leitura incerta da IA; confira esta marcação.';
+      const botaoMaisUm = campo.closest('.rep-cartao-horario')?.querySelector('.rep-dia-seguinte');
+      const offset = Number(campo.dataset.diaOffset || 0);
+      if (botaoMaisUm) {
+        botaoMaisUm.classList.toggle('ativo', offset === 1);
+        botaoMaisUm.setAttribute('aria-pressed', offset === 1 ? 'true' : 'false');
+      }
+      if (confianca !== 'alta') { incertas++; linha.classList.add('rep-cartao-ia-revisao'); }
+      preenchidas++;
+    });
+    if (dia.observacao) {
+      linha.classList.add('rep-cartao-ia-revisao');
+      linha.title = dia.observacao;
+    }
+  });
+  if (preenchidas) modal.dataset.dirty = 'sim';
+  const avisos = Array.isArray(resultado.avisos) ? resultado.avisos : [];
+  const resultadoEl = document.getElementById('rep-cartao-ia-resultado');
+  if (resultadoEl) {
+    resultadoEl.hidden = false;
+    resultadoEl.innerHTML = `<strong>${preenchidas} horário(s) colocado(s) para conferência</strong><span>${incertas ? incertas + ' marcação(ões) destacada(s) em amarelo precisam de atenção.' : 'As leituras estão em verde, mas ainda precisam de sua conferência.'}${preservadas ? ' ' + preservadas + ' campo(s) já preenchido(s) foram preservados.' : ''}</span>${avisos.length ? `<ul>${avisos.slice(0, 6).map(function(item) { return '<li>' + escapeHtml(item) + '</li>'; }).join('')}</ul>` : ''}<small>Nada foi salvo. Revise a tabela e use “Salvar todos os ajustes” somente quando estiver correto.</small>`;
+  }
+  return { preenchidas: preenchidas, incertas: incertas, preservadas: preservadas };
+}
+
+async function analisarCartaoManualIA_() {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const frenteInput = document.getElementById('rep-cartao-ia-frente');
+  const versoInput = document.getElementById('rep-cartao-ia-verso');
+  const frente = frenteInput?.files?.[0];
+  const verso = versoInput?.files?.[0];
+  if (!modal) return mostrarToast('Abra o cartão manual antes de iniciar a leitura.', 'warning');
+  if (!frente) return mostrarToast('Escolha a frente do cartão ou um PDF com as duas páginas.', 'warning');
+  const frenteEhPdf = String(frente.type || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(frente.name || '');
+  if (!verso && !frenteEhPdf) return mostrarToast('Escolha também o verso ou envie um PDF com as duas páginas.', 'warning');
+  const botao = document.getElementById('rep-cartao-ia-analisar');
+  const status = document.getElementById('rep-cartao-ia-status');
+  let progressoLeitura = null;
+  const competenciaLeitura = modal?.dataset.competencia || '';
+  const pisLeitura = modal?.dataset.pis || '';
+  const sessaoLeitura = {};
+  modal._sessaoLeituraCartaoIA = sessaoLeitura;
+  modal.dataset.leituraIaEmAndamento = 'sim';
+  if (botao) botao.disabled = true;
+  if (status) status.textContent = frenteEhPdf ? 'Convertendo as páginas do PDF em imagens neste navegador...' : 'Preparando as imagens sem salvá-las...';
+  registrarAtividadeSegundoPlano_('ANALISANDO', 'Leitura do cartão manual', 'Preparando frente e verso para reconhecimento dos horários.');
+  try {
+    const versoEhPdf = Boolean(verso && (String(verso.type || '').toLowerCase() === 'application/pdf' || /\.pdf$/i.test(verso.name || '')));
+    let leitura = modal._leituraParcialCartaoIA;
+    if (!leitura || leitura.frente !== frente || leitura.verso !== verso || leitura.competencia !== competenciaLeitura || leitura.pis !== pisLeitura) {
+      const frentePreparada = frenteEhPdf ? await prepararPaginasPdfCartaoIA_(frente, verso ? 1 : 2) : [await prepararArquivoCartaoIA_(frente)];
+      const versoPreparado = verso ? (versoEhPdf ? await prepararPaginasPdfCartaoIA_(verso, 1) : [await prepararArquivoCartaoIA_(verso)]) : [];
+      leitura = { frente: frente, verso: verso, competencia: competenciaLeitura, pis: pisLeitura, arquivos: frentePreparada.concat(versoPreparado), resultados: [] };
+      modal._leituraParcialCartaoIA = leitura;
+    }
+    const arquivos = leitura.arquivos;
+    arquivos[0].lado = 'frente';
+    if (arquivos[1]) arquivos[1].lado = 'verso';
+    if (status) status.textContent = 'A IA está lendo as anotações e conferindo a ordem dos horários...';
+    registrarAtividadeSegundoPlano_('ENVIANDO', 'Leitura do cartão manual', 'Analisando ' + arquivos.length + ' arquivo(s) temporário(s); nenhuma marcação será salva nesta etapa.');
+    let inicioLeitura = Date.now();
+    let etapaLeitura = 'frente';
+    progressoLeitura = setInterval(function() {
+      if (!status || !status.isConnected) return;
+      const segundos = Math.max(0, Math.floor((Date.now() - inicioLeitura) / 1000));
+      status.textContent = 'Lendo ' + etapaLeitura + ': ' + segundos + ' s. ' + (segundos >= 75
+        ? 'Se um provedor não responder no prazo, o servidor tenta a próxima alternativa disponível. Os arquivos permanecem selecionados.'
+        : 'A proposta será exibida para conferência; nenhuma marcação está sendo salva.');
+    }, 1000);
+    for (let indice = 0; indice < arquivos.length; indice++) {
+      if (leitura.resultados[indice]) continue;
+      if (modal._sessaoLeituraCartaoIA !== sessaoLeitura || modal.dataset.competencia !== competenciaLeitura || (modal.dataset.pis || '') !== pisLeitura) throw new Error('O cartão aberto mudou. A leitura anterior não será aplicada.');
+      etapaLeitura = arquivos[indice].lado;
+      inicioLeitura = Date.now();
+      if (status) status.textContent = 'Lendo ' + etapaLeitura + ' (' + (indice + 1) + '/' + arquivos.length + '). ' + (indice ? 'A frente já foi lida e está preservada nesta janela.' : 'Nenhuma marcação será salva.');
+      registrarAtividadeSegundoPlano_('ENVIANDO', 'Leitura do cartão manual · ' + etapaLeitura, 'Analisando somente ' + etapaLeitura + '; partes já concluídas não serão reenviadas.');
+      leitura.resultados[indice] = await new Promise(function(resolve, reject) {
+        backendApi().withSuccessHandler(resolve).withFailureHandler(reject).analisarCartaoPontoManualIA({ competencia: competenciaLeitura, parte: etapaLeitura, arquivos: [arquivos[indice]] });
+      });
+    }
+    if (modal._sessaoLeituraCartaoIA !== sessaoLeitura || modal.dataset.competencia !== competenciaLeitura || (modal.dataset.pis || '') !== pisLeitura || frenteInput.files?.[0] !== frente || versoInput.files?.[0] !== verso) throw new Error('O cartão ou os arquivos mudaram. A leitura anterior não será aplicada.');
+    const resultado = { dias: leitura.resultados.flatMap(function(item) { return item.dias || []; }), avisos: leitura.resultados.flatMap(function(item) { return item.avisos || []; }) };
+    if (!resultado.dias.length) throw new Error('Nenhum horário foi reconhecido. Confira as imagens; nenhuma marcação foi salva.');
+    clearInterval(progressoLeitura);
+    progressoLeitura = null;
+    const resumo = aplicarLeituraCartaoIA_(resultado || {});
+    if (status) status.textContent = 'Leitura concluída. Confira os horários destacados antes de salvar.';
+    registrarAtividadeSegundoPlano_('CONFIRMADA', 'Leitura do cartão manual', resumo.preenchidas + ' horário(s) preparados para conferência; nenhum dado salvo automaticamente.');
+    frenteInput.value = '';
+    versoInput.value = '';
+    delete modal._leituraParcialCartaoIA;
+    atualizarArquivoCartaoIA_(frenteInput, 'frente');
+    atualizarArquivoCartaoIA_(versoInput, 'verso');
+    mostrarToast('A proposta foi preenchida. Confira os horários antes de salvar.', resumo.incertas ? 'warning' : 'success');
+  } catch (erro) {
+    const mensagem = mensagemErro(erro).replace(/^(?:(?:Error|Erro):\s*|A leitura não foi concluída[.:]\s*)+/i, '');
+    if (status) status.textContent = 'A leitura não foi concluída: ' + mensagem;
+    registrarAtividadeSegundoPlano_('ERRO', 'Leitura do cartão manual', mensagem);
+    mostrarToast(mensagem, 'error');
+  } finally {
+    if (progressoLeitura !== null) clearInterval(progressoLeitura);
+    if (modal._sessaoLeituraCartaoIA === sessaoLeitura) delete modal.dataset.leituraIaEmAndamento;
+    if (botao) botao.disabled = false;
+  }
+}
+
+function adicionarLinhaCompensacaoLoteRep_(data, horas) {
+  const corpo = document.getElementById('rep-lote-compensacoes');
+  if (!corpo) return;
+  const tr = document.createElement('tr');
+  tr.dataset.deficitSugerido = horas || '';
+  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}" onchange="renderizarOrigensCompensacaoLoteRep_(this.closest('tr'))"></td><td class="rep-lote-origens"></td><td><label class="rep-lote-meta-dia"><small>Quanto compensar</small><input type="text" class="form-control rep-lote-meta-dia-valor" value="" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalCompensacaoLoteRep_(this.closest('tr'))"></label><button type="button" class="rep-ajustar-dia" onclick="usarTodoDebitoLoteRep_(this)">Usar horas devidas</button><small class="rep-lote-total-lancado"></small><input type="text" class="form-control rep-lote-horas" value="" placeholder="00:00" readonly></td><td><input type="text" class="form-control rep-lote-observacao" placeholder="Opcional"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
+  // Primeiro define o débito desejado, depois escolhe/distribui as origens.
+  tr.insertBefore(tr.children[2], tr.children[1]);
+  corpo.appendChild(tr);
+  renderizarOrigensCompensacaoLoteRep_(tr);
+  renderizarIcones();
+}
+
+function adicionarLinhaAutorizacaoCompensacaoLoteRep_(data, limite) {
+  const corpo = document.getElementById('rep-lote-autorizacoes');
+  if (!corpo) return;
+  const linha = document.createElement('div');
+  linha.className = 'rep-lote-autorizacao';
+  linha.innerHTML = `<span class="rep-lote-autorizacao-ordem" title="Ordem informada no documento"></span><label><small>Dia com hora extra</small><input type="date" class="form-control rep-lote-autorizacao-data" value="${escapeHtml(data || '')}" onchange="atualizarAutorizacoesCompensacaoLoteRep_()"></label><label><small>Máximo autorizado</small><input type="text" class="form-control rep-lote-autorizacao-limite" value="${escapeHtml(limite || '')}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarAutorizacoesCompensacaoLoteRep_()"></label><button type="button" class="rep-ajustar-dia" onclick="usarTodoSaldoAutorizacaoRep_(this)">Usar todo saldo</button><span class="rep-lote-autorizacao-saldo"></span><span class="rep-lote-autorizacao-acoes"><button type="button" title="Subir na ordem do documento" onclick="moverAutorizacaoCompensacaoLoteRep_(this,-1)"><span data-lucide="chevron-up"></span></button><button type="button" title="Descer na ordem do documento" onclick="moverAutorizacaoCompensacaoLoteRep_(this,1)"><span data-lucide="chevron-down"></span></button><button type="button" class="rep-lote-remove" title="Remover autorização" onclick="this.closest('.rep-lote-autorizacao').remove();atualizarAutorizacoesCompensacaoLoteRep_()"><span data-lucide="trash-2"></span></button></span>`;
+  corpo.appendChild(linha);
+  atualizarAutorizacoesCompensacaoLoteRep_();
+  renderizarIcones();
+}
+
+function moverAutorizacaoCompensacaoLoteRep_(botao, direcao) {
+  const linha = botao && botao.closest('.rep-lote-autorizacao');
+  const corpo = linha && linha.parentElement;
+  if (!linha || !corpo) return;
+  if (direcao < 0 && linha.previousElementSibling) corpo.insertBefore(linha, linha.previousElementSibling);
+  if (direcao > 0 && linha.nextElementSibling) corpo.insertBefore(linha.nextElementSibling, linha);
+  atualizarAutorizacoesCompensacaoLoteRep_();
+}
+
+function obterUsoCompensacaoExistenteLoteRep_() {
+  const emp = obterServidorSelecionadoRep_();
+  const uso = new Map();
+  (compensacoesRep || []).filter(function(item) { return emp && normalizarPisRep(item.pis) === normalizarPisRep(emp.pis) && Number(item.minutos || 0) > 0; }).forEach(function(item) {
+    (Array.isArray(item.origens) ? item.origens : []).forEach(function(origem) {
+      uso.set(origem.data, (uso.get(origem.data) || 0) + Math.max(0, Math.round(Number(origem.minutos || 0))));
+    });
+  });
+  return uso;
+}
+
+function obterAutorizacoesCompensacaoLoteRep_(validar) {
+  const autorizacoes = new Map();
+  const usoExistente = obterUsoCompensacaoExistenteLoteRep_();
+  Array.from(document.querySelectorAll('#rep-lote-autorizacoes .rep-lote-autorizacao')).forEach(function(linha) {
+    const data = linha.querySelector('.rep-lote-autorizacao-data').value;
+    const texto = linha.querySelector('.rep-lote-autorizacao-limite').value.trim();
+    const minutos = lerDuracaoCompensacaoLoteRep_(texto);
+    const jaUsado = usoExistente.get(data) || 0;
+    linha.classList.toggle('input-error', Boolean((data || texto) && (!data || minutos === null || minutos <= 0 || minutos < jaUsado || autorizacoes.has(data))));
+    if (!data && !texto) return;
+    if (!data || minutos === null || minutos <= 0) { if (validar) throw new Error('Preencha o dia e o limite de cada autorização de compensação.'); return; }
+    if (minutos < jaUsado) { if (validar) throw new Error('Já foram usados ' + minutosParaHoraRep_(jaUsado) + 'h do dia ' + data.split('-').reverse().join('/') + '; o limite não pode ser menor.'); return; }
+    if (autorizacoes.has(data)) { if (validar) throw new Error('O dia ' + data.split('-').reverse().join('/') + ' aparece duas vezes nas autorizações.'); return; }
+    autorizacoes.set(data, minutos);
+  });
+  return autorizacoes;
+}
+
+function atualizarAutorizacoesCompensacaoLoteRep_() {
+  const emp = obterServidorProjetadoLoteRep_();
+  const saldos = new Map(((emp && emp.resumo.origensSaldoCompensacao) || []).map(function(item) { return [item.data, Math.max(0, Math.round(Number(item.minutosBrutos != null ? item.minutosBrutos : item.minutos || 0)))]; }));
+  const usoExistente = obterUsoCompensacaoExistenteLoteRep_();
+  document.querySelectorAll('#rep-lote-autorizacoes .rep-lote-autorizacao').forEach(function(linha, indice) {
+    linha.dataset.ordem = String(indice + 1);
+    const marcador = linha.querySelector('.rep-lote-autorizacao-ordem');
+    if (marcador) marcador.textContent = String(indice + 1) + 'º';
+    const data = linha.querySelector('.rep-lote-autorizacao-data').value;
+    const saldo = saldos.get(data) || 0;
+    const usado = usoExistente.get(data) || 0;
+    linha.querySelector('.rep-lote-autorizacao-saldo').textContent = data ? 'Disponível: ' + formatarDuracaoCompensacaoLoteRep_(saldo) + ' · já usado: ' + formatarDuracaoCompensacaoLoteRep_(usado) : '';
+    const pedido = lerDuracaoCompensacaoLoteRep_(linha.querySelector('.rep-lote-autorizacao-limite').value.trim());
+    if (data && pedido > saldo + usado) linha.querySelector('.rep-lote-autorizacao-saldo').textContent += ' · Não há todo o pedido neste dia; a aplicação ficará limitada ao saldo disponível.';
+  });
+  document.querySelectorAll('#rep-lote-compensacoes tr').forEach(renderizarOrigensCompensacaoLoteRep_);
+}
+
+function preencherAutorizacoesPersistidasLoteRep_(emp, modal) {
+  const corpo = document.getElementById('rep-lote-autorizacoes');
+  if (!emp || !corpo || corpo.children.length) return;
+  const competencia = String(modal?.dataset.competencia || obterCompetenciaSelecionadaRep_() || '');
+  (autorizacoesCompensacaoRep || []).filter(function(item) {
+    return normalizarPisRep(item.pis) === normalizarPisRep(emp.pis) && (!competencia || String(item.data || '').slice(0, 7) === competencia);
+  }).sort(function(a, b) { return (Number(a.ordem || 9999) - Number(b.ordem || 9999)) || String(a.data).localeCompare(String(b.data)); }).forEach(function(item) {
+    adicionarLinhaAutorizacaoCompensacaoLoteRep_(item.data, formatarDuracaoCompensacaoLoteRep_(Number(item.minutos || 0)));
+  });
+}
+
+async function carregarAutorizacoesCompensacaoLoteRep_(emp, modal) {
+  try {
+    autorizacoesCompensacaoRep = await chamarBackendPromessa_('listarAutorizacoesCompensacaoRep', []);
+    if (modal?.dataset.pis === String(emp?.pis || '') && !modal.dataset.dirty) preencherAutorizacoesPersistidasLoteRep_(emp, modal);
+  } catch (erro) { console.warn('Autorizações de compensação não puderam ser carregadas:', mensagemErro(erro)); }
+}
+
+function renderizarOrigensCompensacaoLoteRep_(linha) {
+  const emp = obterServidorProjetadoLoteRep_();
+  const dataDestino = linha && linha.querySelector('.rep-lote-data')?.value;
+  const container = linha && linha.querySelector('.rep-lote-origens');
+  if (!emp || !container) return;
+  const valoresAtuais = new Map(Array.from(container.querySelectorAll('.rep-lote-origem-valor')).map(function(input) { return [input.dataset.data, input.value]; }));
+  const autorizacoes = obterAutorizacoesCompensacaoLoteRep_(false);
+  const usoExistente = obterUsoCompensacaoExistenteLoteRep_();
+  const saldosPorData = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, item]; }));
+  // A ordem de inserção do Map é a ordem do documento definida pelo RH.
+  // Nunca ordenar por data aqui: a distribuição automática deve consumir as HE nessa sequência.
+  const origens = Array.from(autorizacoes.keys()).map(function(dataOrigem) { return saldosPorData.get(dataOrigem); })
+    .filter(function(item) { return item && dataDestino && item.data !== dataDestino && item.data.slice(0, 7) === dataDestino.slice(0, 7) && Number(item.minutos || 0) > 0; });
+  container.innerHTML = origens.map(function(item) {
+    const saldo = Math.max(0, Math.round(Number(item.minutos || 0)));
+    const autorizadoTotal = autorizacoes.get(item.data) || 0;
+    const jaUsado = usoExistente.get(item.data) || 0;
+    const autorizadoRestante = Math.min(saldo, Math.max(0, autorizadoTotal - jaUsado));
+    return `<label class="rep-lote-origem"><span><strong>${escapeHtml(item.data.split('-').reverse().join('/'))}</strong><small>Autorizado restante: ${formatarDuracaoCompensacaoLoteRep_(autorizadoRestante)} · saldo: ${formatarDuracaoCompensacaoLoteRep_(saldo)}</small></span><input type="text" class="form-control rep-lote-origem-valor" data-data="${escapeHtml(item.data)}" data-maximo="${autorizadoRestante}" data-autorizado="${autorizadoTotal}" value="${escapeHtml(valoresAtuais.get(item.data) || '')}" placeholder="${obterFormatoCompensacaoLoteRep_() === 'minutos' ? 'Minutos' : '00:00'}" maxlength="5" inputmode="numeric" oninput="atualizarTotalCompensacaoLoteRep_(this.closest('tr'))"></label>`;
+  }).join('') || '<small class="rep-lote-sem-origem">Adicione acima ao menos um dia e o limite autorizado no documento.</small>';
+  atualizarTotalCompensacaoLoteRep_(linha);
+}
+
+function atualizarTotalCompensacaoLoteRep_(linha) {
+  let total = 0;
+  let invalida = false;
+  let temPedido = false;
+  const origens = [], avisos = [];
+  const emp = obterServidorProjetadoLoteRep_();
+  const dia = emp?.dias.find(function(item) { return item.dataOriginal === linha.querySelector('.rep-lote-data')?.value; });
+  const deficit = dia ? obterDeficitProjetadoLoteRep_(emp, dia) : 0;
+  const campoMeta = linha && linha.querySelector('.rep-lote-meta-dia-valor');
+  const textoMeta = String(campoMeta?.value || '').trim();
+  const meta = textoMeta ? lerDuracaoCompensacaoLoteRep_(textoMeta) : null;
+  if (textoMeta && (meta === null || meta <= 0)) invalida = true;
+  (linha ? linha.querySelectorAll('.rep-lote-origem-valor') : []).forEach(function(input) {
+    if (!input.value.trim()) return;
+    temPedido = true;
+    const minutos = lerDuracaoCompensacaoLoteRep_(input.value.trim());
+    const maximo = Math.max(0, Number(input.dataset.maximo || 0));
+    if (minutos === null || minutos <= 0) invalida = true;
+    else {
+      const aplicado = Math.min(minutos, maximo, Math.max(0, Number(meta || 0) - total), Math.max(0, deficit - total));
+      if (aplicado < minutos) avisos.push(input.dataset.data.split('-').reverse().join('/') + ': só ' + formatarDuracaoCompensacaoLoteRep_(aplicado) + ' utilizáveis de ' + formatarDuracaoCompensacaoLoteRep_(minutos) + ' pedidos.');
+      if (aplicado) origens.push({ data: input.dataset.data, minutos: aplicado });
+      total += aplicado;
+    }
+    input.classList.toggle('input-error', minutos === null || minutos <= 0);
+  });
+  if (temPedido && (meta === null || meta <= 0)) invalida = true;
+  if (total > 0 && (meta === null || meta <= 0 || total > meta)) invalida = true;
+  if (campoMeta) campoMeta.classList.toggle('input-error', Boolean((textoMeta && (meta === null || meta <= 0 || total > meta)) || (!textoMeta && temPedido)));
+  const campo = linha && linha.querySelector('.rep-lote-horas');
+  if (campo) { campo.value = total ? formatarDuracaoCompensacaoLoteRep_(total) : ''; campo.classList.toggle('input-error', invalida); }
+  const resumo = linha && linha.querySelector('.rep-lote-total-lancado');
+  if (meta > total && total > 0 && !avisos.length) avisos.push('Pedido: ' + formatarDuracaoCompensacaoLoteRep_(meta) + '; aplicado: ' + formatarDuracaoCompensacaoLoteRep_(total) + '.');
+  if (resumo) resumo.textContent = (total ? 'Aplicado: ' + formatarDuracaoCompensacaoLoteRep_(total) + '. ' : '') + avisos.join(' ');
+  return { total: total, meta: meta, invalida: invalida, origens, avisos };
+}
+
+function obterFormatoCompensacaoLoteRep_() {
+  return document.getElementById('modal-lancamentos-lote-rep')?.dataset.formatoCompensacao === 'minutos' ? 'minutos' : 'horas';
+}
+
+function lerDuracaoCompensacaoLoteRep_(valor) {
+  const texto = String(valor || '').trim();
+  if (!texto) return null;
+  return obterFormatoCompensacaoLoteRep_() === 'minutos' ? (/^\d+$/.test(texto) ? Number(texto) : null) : horaParaMinutosRep_(texto);
+}
+
+function formatarDuracaoCompensacaoLoteRep_(minutos) {
+  const total = Math.max(0, Math.round(Number(minutos) || 0));
+  return obterFormatoCompensacaoLoteRep_() === 'minutos' ? String(total) : minutosParaHoraRep_(total);
+}
+
+function definirFormatoCompensacaoLoteRep_(formato) {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  if (!modal || !['horas', 'minutos'].includes(formato)) return;
+  const anterior = obterFormatoCompensacaoLoteRep_();
+  if (anterior === formato) return;
+  const campos = Array.from(modal.querySelectorAll('.rep-lote-autorizacao-limite, .rep-lote-origem-valor, .rep-lote-meta-dia-valor, .rep-lote-horas'));
+  const valores = campos.map(function(campo) {
+    const texto = campo.value.trim();
+    const minutos = !texto ? null : (anterior === 'minutos' ? (/^\d+$/.test(texto) ? Number(texto) : null) : horaParaMinutosRep_(texto));
+    return { campo: campo, texto: texto, minutos: minutos };
+  });
+  modal.dataset.formatoCompensacao = formato;
+  valores.forEach(function(item) { if (item.texto && item.minutos !== null) item.campo.value = formatarDuracaoCompensacaoLoteRep_(item.minutos); });
+  modal.querySelectorAll('.rep-lote-autorizacao-limite, .rep-lote-origem-valor, .rep-lote-meta-dia-valor, .rep-lote-horas').forEach(function(campo) { campo.placeholder = formato === 'minutos' ? 'Minutos' : '00:00'; });
+  modal.querySelectorAll('.rep-lote-formato-botoes button').forEach(function(botao) { botao.classList.toggle('ativo', botao.dataset.formato === formato); });
+  atualizarAutorizacoesCompensacaoLoteRep_();
+  renderizarIcones();
+}
+
+function preencherCompensacoesLoteRep_() {
+  const emp = obterServidorProjetadoLoteRep_();
+  const linhas = Array.from(document.querySelectorAll('#rep-lote-compensacoes tr'));
+  if (!emp || !linhas.length) return mostrarToast('Primeiro localize ou adicione os dias com débito.', 'warning');
+  let autorizacoes;
+  try { autorizacoes = obterAutorizacoesCompensacaoLoteRep_(true); }
+  catch (erro) { return mostrarToast(mensagemErro(erro), 'warning'); }
+  if (!autorizacoes.size) return mostrarToast('Informe ao menos um dia autorizado e o respectivo teto.', 'warning');
+  const usadosExistentes = obterUsoCompensacaoExistenteLoteRep_();
+  const disponivel = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, Math.max(0, Math.round(Number(item.minutos || 0)))]; }));
+  const restanteAutorizado = new Map(Array.from(autorizacoes.entries()).map(function(item) { return [item[0], Math.max(0, item[1] - (usadosExistentes.get(item[0]) || 0))]; }));
+  const possuiDistribuicaoManual = linhas.some(function(linha) { return Array.from(linha.querySelectorAll('.rep-lote-origem-valor')).some(function(input) { return input.value.trim(); }); });
+  if (possuiDistribuicaoManual && !window.confirm('Recalcular a compensação? Os valores preenchidos manualmente serão substituídos pela distribuição automática dentro dos limites autorizados.')) return;
+  linhas.forEach(function(linha) { linha.querySelectorAll('.rep-lote-origem-valor').forEach(function(input) { input.value = ''; }); });
+  let aplicado = 0;
+  linhas.forEach(function(linha) {
+    const dataDestino = linha.querySelector('.rep-lote-data')?.value;
+    const dia = (emp.dias || []).find(function(item) { return item.dataOriginal === dataDestino; });
+    const campoMeta = linha.querySelector('.rep-lote-meta-dia-valor');
+    const textoMeta = String(campoMeta?.value || '').trim();
+    const meta = textoMeta ? lerDuracaoCompensacaoLoteRep_(textoMeta) : null;
+    // Dia localizado não é autorização para compensar: o usuário precisa
+    // informar expressamente quanto deseja usar nesse dia.
+    if (!textoMeta) { atualizarTotalCompensacaoLoteRep_(linha); return; }
+    if (meta === null || meta <= 0) { campoMeta.classList.add('input-error'); atualizarTotalCompensacaoLoteRep_(linha); return; }
+    let deficit = dia ? obterDeficitProjetadoLoteRep_(emp, dia) : 0;
+    if (meta !== null) deficit = Math.min(deficit, meta);
+    if (!deficit) { atualizarTotalCompensacaoLoteRep_(linha); return; }
+    Array.from(linha.querySelectorAll('.rep-lote-origem-valor')).forEach(function(input) {
+      if (!deficit) return;
+      const origem = input.dataset.data;
+      const usar = Math.min(deficit, disponivel.get(origem) || 0, restanteAutorizado.get(origem) || 0);
+      if (!usar) return;
+      input.value = formatarDuracaoCompensacaoLoteRep_(usar);
+      deficit -= usar;
+      aplicado += usar;
+      disponivel.set(origem, (disponivel.get(origem) || 0) - usar);
+      restanteAutorizado.set(origem, (restanteAutorizado.get(origem) || 0) - usar);
+    });
+    atualizarTotalCompensacaoLoteRep_(linha);
+  });
+  const mensagem = !aplicado ? 'Informe “Quanto compensar” nos dias desejados e confira o saldo autorizado.' : 'Somente os dias com “Quanto compensar” preenchido foram compensados.';
+  mostrarToast(mensagem, aplicado ? 'success' : 'warning');
+}
+
+function abrirLancamentosLoteRep_(opcoes) {
+  opcoes = opcoes || {};
+  const emp = obterServidorSelecionadoRep_();
+  if (!emp) return mostrarToast('Selecione um servidor antes de abrir os ajustes em lote.', 'warning');
+  const modal = garantirModalLancamentosLoteRep_();
+  const inline = Boolean(opcoes.inline);
+  const areaManual = document.getElementById('rep-cartao-manual-inline');
+  if (inline && areaManual) {
+    areaManual.hidden = false;
+    areaManual.replaceChildren(modal);
+    modal.className = 'rep-inline-workspace';
+    modal.dataset.inline = 'sim';
+    const fechar = modal.querySelector('.modal-close');
+    const cancelar = modal.querySelector('.modal-footer .btn-secondary');
+    if (fechar) fechar.onclick = fecharEspacoManualInlineRep_;
+    if (cancelar) cancelar.onclick = fecharEspacoManualInlineRep_;
+  } else {
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    modal.className = 'modal-overlay';
+    modal.dataset.inline = '';
+    const fechar = modal.querySelector('.modal-close');
+    const cancelar = modal.querySelector('.modal-footer .btn-secondary');
+    if (fechar) fechar.onclick = function() { fecharModal('modal-lancamentos-lote-rep'); };
+    if (cancelar) cancelar.onclick = function() { fecharModal('modal-lancamentos-lote-rep'); };
+  }
+  modal.dataset.pis = emp.pis;
+  modal.dataset.modo = opcoes.cartaoManual ? 'cartao-manual' : 'ajuste';
+  modal.dataset.formatoCompensacao = 'horas';
+  modal.dataset.competencia = opcoes.competencia || '';
+  modal.dataset.local = opcoes.local || emp.lotacao || 'Local informado manualmente';
+  modal.dataset.dirty = '';
+  delete modal._sessaoLeituraCartaoIA;
+  delete modal._leituraParcialCartaoIA;
+  delete modal.dataset.leituraIaEmAndamento;
+  const titulo = modal.querySelector('.modal-title');
+  if (titulo) titulo.textContent = opcoes.cartaoManual ? 'Preencher cartão de ponto manual' : 'Ajustes de ponto em lote';
+  const intro = modal.querySelector('.rep-lote-intro');
+  if (intro) intro.textContent = opcoes.cartaoManual
+    ? 'As marcações já salvas foram carregadas: AFD fica protegido e manual pode ser corrigido. Use Tab, Enter, setas ou cole do Excel. O +1 só é sugerido automaticamente para horários entre 00:00 e 05:00; fora disso, marque-o se necessário.'
+    : 'Registre marcações esquecidas e compense déficits de vários dias em uma única conferência. O AFD original permanece preservado.';
+  const painelCartaoIA = document.getElementById('rep-cartao-ia');
+  if (painelCartaoIA) {
+    painelCartaoIA.hidden = !opcoes.cartaoManual;
+    const frenteIA = document.getElementById('rep-cartao-ia-frente');
+    const versoIA = document.getElementById('rep-cartao-ia-verso');
+    const resultadoIA = document.getElementById('rep-cartao-ia-resultado');
+    const statusIA = document.getElementById('rep-cartao-ia-status');
+    if (frenteIA) { frenteIA.value = ''; atualizarArquivoCartaoIA_(frenteIA, 'frente'); }
+    if (versoIA) { versoIA.value = ''; atualizarArquivoCartaoIA_(versoIA, 'verso'); }
+    if (resultadoIA) { resultadoIA.hidden = true; resultadoIA.replaceChildren(); }
+    if (statusIA) statusIA.textContent = '';
+  }
+  document.getElementById('rep-lote-servidor').textContent = emp.nome + ' · ' + emp.pis;
+  document.getElementById('rep-lote-marcacoes').innerHTML = '';
+  document.getElementById('rep-lote-compensacoes').innerHTML = '';
+  document.getElementById('rep-lote-autorizacoes').innerHTML = '';
+  const detalhesCompensacao = modal.querySelector('.rep-lote-compensacao-detalhes');
+  if (detalhesCompensacao) detalhesCompensacao.open = false;
+  document.getElementById('rep-lote-status').textContent = '';
+  if (opcoes.cartaoManual) {
+    preencherDiasCartaoManualRep_(opcoes.competencia, modal.dataset.local);
+    ativarNavegacaoPlanilhaCartaoManualRep_();
+    document.querySelector('#rep-lote-marcacoes .rep-lote-hora')?.focus();
+  }
+  else adicionarLinhaMarcacaoLoteRep_('', modal.dataset.local);
+  if (!inline) abrirModal('modal-lancamentos-lote-rep');
+  preencherAutorizacoesPersistidasLoteRep_(emp, modal);
+  carregarAutorizacoesCompensacaoLoteRep_(emp, modal);
+  renderizarIcones();
+}
+
+// Prévia isolada: usa o mesmo cálculo da conferência sem modificar as batidas salvas.
+let repPreviaLoteNoTurno_ = null;
+function obterServidorProjetadoLoteRep_(pisPreferido) {
+  // O formulário pertence ao servidor registrado no momento da abertura.
+  // Uma atualização leve da lista, portanto, não pode trocar nem invalidar
+  // um cartão que a pessoa já está preenchendo.
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const pisDoFormulario = normalizarPisRep(pisPreferido || modal?.dataset.pis || pisSelecionadoRep);
+  let emp = (dadosRepProcessados || []).find(function(item) {
+    return normalizarPisRep(item.pis) === pisDoFormulario;
+  }) || (!pisDoFormulario ? obterServidorSelecionadoRep_() : null);
+  // Um cartão manual pode ser o primeiro registro desta pessoa na
+  // competência; nesse caso ela ainda não integra dadosRepProcessados.
+  // Recupera o cadastro/base local para que o formulário continue salvável.
+  if (!emp && pisDoFormulario) {
+    const cadastro = typeof obterServidorPorIdentificadorRep_ === 'function'
+      ? obterServidorPorIdentificadorRep_(pisDoFormulario)
+      : null;
+    const nome = dadosRepCache?.employees?.get(pisDoFormulario) || cadastro?.nome || '';
+    if (nome) {
+      const lotacao = dadosRepCache?.lotacoes?.get(pisDoFormulario) || cadastro?.lotacao || 'Não informada';
+      if (dadosRepCache?.employees) dadosRepCache.employees.set(pisDoFormulario, nome);
+      if (dadosRepCache?.lotacoes) dadosRepCache.lotacoes.set(pisDoFormulario, lotacao);
+      emp = { pis: pisDoFormulario, nome: nome, lotacao: lotacao, dias: [], resumo: { origensSaldoCompensacao: [] } };
+    }
+  }
+  if (!emp) return null;
+  if (repPreviaLoteNoTurno_ && repPreviaLoteNoTurno_.original === emp) return repPreviaLoteNoTurno_.resultado;
+  const substituidos = new Set();
+  const novos = [];
+  document.querySelectorAll('#rep-lote-marcacoes tr').forEach(function(linha, indiceLinha) {
+    const data = linha.querySelector('.rep-lote-data')?.value;
+    linha.querySelectorAll('.rep-lote-hora').forEach(function(campo, indice) {
+      const id = String(campo.dataset.eventId || '');
+      if (campo.readOnly || (id && campo.dataset.manual !== 'sim')) return;
+      const offset = Number(campo.dataset.diaOffset || 0);
+      if (id && campo.value === String(campo.dataset.originalHora || '') && offset === Number(campo.dataset.originalOffset || 0)) return;
+      if (id) substituidos.add(id);
+      if (!campo.value) return;
+      const datetime = criarDataAjusteComOffsetRep_(data, campo.value, offset);
+      if (!datetime || !Number.isFinite(datetime.getTime())) return;
+      novos.push({ pis: emp.pis, datetime: datetime, dataReferencia: data, manual: true,
+        eventId: 'PREVIA|' + indiceLinha + '|' + indice, deviceSerial: 'MANUAL',
+        clock: linha.querySelector('.rep-lote-local')?.value || emp.lotacao });
+    });
+  });
+  let resultado = emp;
+  if (novos.length || substituidos.size) {
+    const ano = document.getElementById('rep-filter-ano')?.value || 'all';
+    const mes = document.getElementById('rep-filter-mes')?.value || 'all';
+    const batidas = (dadosRepCache.punches || []).filter(function(p) {
+      if (p.desconsiderada || normalizarPisRep(p.pis) !== normalizarPisRep(emp.pis) || substituidos.has(String(p.eventId || ''))) return false;
+      const data = p.dataReferencia || toDateStringRep(p.datetime);
+      return (ano === 'all' || data.slice(0, 4) === ano) && (mes === 'all' || data.slice(5, 7) === mes);
+    }).map(function(p) { return { ...p, datetime: new Date(p.datetime) }; });
+    resultado = processDataRep(dadosRepCache.employees, batidas.concat(novos), dadosRepCache.lotacoes).find(function(p) { return normalizarPisRep(p.pis) === normalizarPisRep(emp.pis); }) || { ...emp, dias: [], resumo: { origensSaldoCompensacao: [] } };
+  }
+  repPreviaLoteNoTurno_ = { original: emp, resultado: resultado };
+  queueMicrotask(function() { repPreviaLoteNoTurno_ = null; });
+  return resultado;
+}
+function obterDeficitProjetadoLoteRep_(emp, dia) {
+  return dia ? Math.round(obterDeficitDiaRep_(dia) * 60) : 0;
+}
+
+function adicionarDeficitsCompensacaoLoteRep_() {
+  const emp = obterServidorProjetadoLoteRep_();
+  if (!emp) return;
+  const existentes = new Set(Array.from(document.querySelectorAll('#rep-lote-compensacoes .rep-lote-data')).map(function(campo) { return campo.value; }).filter(Boolean));
+  const dias = (emp.dias || []).filter(function(dia) { return !dia.ausencia && !dia.diaExtra && obterDeficitProjetadoLoteRep_(emp, dia) > 0; });
+  let adicionados = 0;
+  dias.forEach(function(dia) { if (!existentes.has(dia.dataOriginal)) { adicionarLinhaCompensacaoLoteRep_(dia.dataOriginal, formatarDuracaoCompensacaoLoteRep_(obterDeficitProjetadoLoteRep_(emp, dia))); adicionados++; } });
+  if (!adicionados) mostrarToast('Não há outros déficits disponíveis para preencher.', 'info');
+}
+
+async function salvarLancamentosLoteRep_() {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  const emp = obterServidorProjetadoLoteRep_(modal?.dataset.pis);
+  const pis = modal && modal.dataset.pis;
+  if (!emp || !pis) return mostrarToast('Não foi possível localizar o servidor deste formulário. Atualize a tela e abra-o novamente.', 'warning');
+  const cartaoManual = modal && modal.dataset.modo === 'cartao-manual';
+  const linhasMarcacao = Array.from(document.querySelectorAll('#rep-lote-marcacoes tr')).filter(function(linha) {
+    const possuiHorario = Array.from(linha.querySelectorAll('.rep-lote-hora')).some(function(campo) { return campo.value; });
+    const possuiExistente = Boolean(linha.querySelector('.rep-lote-hora[data-event-id]:not([data-event-id=""])'));
+    return cartaoManual ? (possuiHorario || possuiExistente) : (linha.querySelector('.rep-lote-data').value || possuiHorario);
+  });
+  const linhasCompensacao = Array.from(document.querySelectorAll('#rep-lote-compensacoes tr')).filter(function(linha) { return linha.querySelector('.rep-lote-horas').value || Array.from(linha.querySelectorAll('.rep-lote-origem-valor')).some(function(campo) { return campo.value.trim(); }); });
+  const competenciaAutorizacao = String(modal?.dataset.competencia || obterCompetenciaSelecionadaRep_() || '');
+  const autorizacoesPersistidas = (autorizacoesCompensacaoRep || []).filter(function(item) { return normalizarPisRep(item.pis) === normalizarPisRep(pis) && (!competenciaAutorizacao || String(item.data || '').slice(0, 7) === competenciaAutorizacao); });
+  if (!linhasMarcacao.length && !linhasCompensacao.length && !document.querySelectorAll('#rep-lote-autorizacoes .rep-lote-autorizacao').length && !autorizacoesPersistidas.length) return mostrarToast('Inclua ao menos um ajuste ou teto autorizado.', 'warning');
+  const novos = [];
+  const paraDesconsiderar = [];
+  const origensAjuste = new Set();
+  const avisosInconsistencia = [];
+  const avisosLimiteCompensacao = [];
+  let compensacoes = [];
+  let limitesAutorizados = new Map();
+  try {
+  linhasMarcacao.forEach(function(linha, linhaIndice) {
+    const data = linha.querySelector('.rep-lote-data').value;
+    const camposHorarios = Array.from(linha.querySelectorAll('.rep-lote-hora'));
+    const valoresHorarios = camposHorarios.map(function(campo) { return campo.value; });
+    const linhaAlterada = camposHorarios.some(function(campo) {
+      if (campo.readOnly) return false;
+      const eventoId = String(campo.dataset.eventId || '');
+      if (!eventoId) return Boolean(campo.value);
+      return campo.value !== String(campo.dataset.originalHora || '') || Number(campo.dataset.diaOffset || 0) !== Number(campo.dataset.originalOffset || 0);
+    });
+    if (!linhaAlterada) return;
+    const paresIncompletos = [[0,1],[2,3],[4,5]].some(function(par) { return Boolean(valoresHorarios[par[0]]) !== Boolean(valoresHorarios[par[1]]); });
+    const horarios = valoresHorarios.filter(Boolean);
+    const justificativa = linha.querySelector('.rep-lote-justificativa').value.trim();
+    const possuiManualExistente = camposHorarios.some(function(campo) { return Boolean(campo.dataset.eventId) && campo.dataset.manual === 'sim'; });
+    if (!data || horarios.length > 6 || (!horarios.length && !possuiManualExistente)) throw new Error('Informe a data e ao menos uma marcação válida.');
+    const dataFormatada = data.split('-').reverse().join('/');
+    if (paresIncompletos) avisosInconsistencia.push(dataFormatada + ': há entrada ou saída sem o par correspondente.');
+    const chavesHorarios = camposHorarios.filter(function(campo) { return campo.value; }).map(function(campo) { return `${Number(campo.dataset.diaOffset || 0)}|${campo.value}`; });
+    if (new Set(chavesHorarios).size !== chavesHorarios.length) avisosInconsistencia.push(dataFormatada + ': há horários repetidos.');
+    const datasOrdenadas = camposHorarios.filter(function(campo) { return campo.value; }).map(function(campo) { return criarDataAjusteComOffsetRep_(data, campo.value, campo.dataset.diaOffset); });
+    if (datasOrdenadas.some(function(item, indice) { return indice > 0 && item <= datasOrdenadas[indice - 1]; })) avisosInconsistencia.push(dataFormatada + ': os horários estão fora de ordem; confira o botão +1 quando houver virada de dia.');
+    camposHorarios.forEach(function(campo, indice) {
+      const hora = campo.value;
+      const eventoId = String(campo.dataset.eventId || '');
+      const manualExistente = eventoId && campo.dataset.manual === 'sim';
+      const offset = Number(campo.dataset.diaOffset || 0);
+      const inalterado = manualExistente && hora === String(campo.dataset.originalHora || '') && offset === Number(campo.dataset.originalOffset || 0);
+      if (eventoId && campo.dataset.manual !== 'sim') return;
+      if (inalterado) return;
+      if (manualExistente) {
+        const existente = (dadosRepCache.punches || []).find(function(item) { return String(item.eventId || '') === eventoId; });
+        if (existente && !existente.desconsiderada) paraDesconsiderar.push({ evento: existente, justificativa: justificativa });
+      }
+      if (!hora) { if (manualExistente) origensAjuste.add(data); return; }
+      const datetime = criarDataAjusteComOffsetRep_(data, hora, offset);
+      if (!datetime) throw new Error('Horário inválido em ' + data.split('-').reverse().join('/') + '.');
+      const id = 'MANUAL|' + gerarUuidSeguroCliente_() + '|LOTE|' + linhaIndice + '|' + indice;
+      novos.push({ pis: pis, datetime: datetime, clock: linha.querySelector('.rep-lote-local').value.trim() || 'Local informado manualmente', deviceSerial: cartaoManual ? 'CARTÃO MANUAL' : 'AJUSTE MANUAL', nsr: 'MANUAL', lineNumber: '', eventId: id, eventKey: 'AJUSTE|' + id, nomeNoMomento: dadosRepCache.employees.get(String(pis)) || '', sourceFile: cartaoManual ? 'Cartão de ponto manual' : 'Ajuste compartilhado', rawTimestamp: datetime.getTime(), manual: true, ajusteCompartilhado: true, dataReferencia: data, ajusteOrigemData: data, justificativa: justificativa || (cartaoManual ? 'Transcrição do cartão de ponto manual.' : 'Ajuste manual informado na conferência.') });
+      origensAjuste.add(data);
+    });
+  });
+  const capacidades = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, Math.max(0, Math.round(Number(item.minutos || 0)))]; }));
+  limitesAutorizados = obterAutorizacoesCompensacaoLoteRep_(true);
+  const usoAutorizacaoExistente = obterUsoCompensacaoExistenteLoteRep_();
+  const autorizacaoRestante = new Map(Array.from(limitesAutorizados.entries()).map(function(item) { return [item[0], Math.max(0, item[1] - (usoAutorizacaoExistente.get(item[0]) || 0))]; }));
+  compensacoes = linhasCompensacao.map(function(linha) {
+    const data = linha.querySelector('.rep-lote-data').value;
+    const resultadoOrigens = atualizarTotalCompensacaoLoteRep_(linha);
+    let minutos = resultadoOrigens.total;
+    avisosLimiteCompensacao.push.apply(avisosLimiteCompensacao, resultadoOrigens.avisos || []);
+    if (resultadoOrigens.meta === null || resultadoOrigens.meta <= 0) throw new Error('Informe “Quanto compensar” no dia ' + (data ? data.split('-').reverse().join('/') : 'selecionado') + ' antes de salvar a compensação.');
+    const dia = (emp.dias || []).find(function(item) { return item.dataOriginal === data; });
+    const deficit = dia ? obterDeficitProjetadoLoteRep_(emp, dia) : 0;
+    if (!data || resultadoOrigens.invalida || !dia) throw new Error('Informe uma data com déficit e escolha uma quantidade válida em ao menos um dia de origem.');
+    if (!minutos || !deficit) return null;
+    let restanteDestino = Math.min(deficit, resultadoOrigens.meta);
+    const origens = resultadoOrigens.origens.map(function(item) { return { ...item }; });
+    origens.forEach(function(origem) {
+      const disponivel = capacidades.get(origem.data) || 0;
+      const permitido = autorizacaoRestante.get(origem.data) || 0;
+      const pedido = origem.minutos;
+      origem.minutos = Math.min(pedido, disponivel, permitido, restanteDestino);
+      if (origem.minutos < pedido) avisosLimiteCompensacao.push(origem.data.split('-').reverse().join('/') + ': aplicação limitada a ' + minutosParaHoraRep_(origem.minutos) + 'h pelo saldo restante do lote.');
+      restanteDestino -= origem.minutos;
+      capacidades.set(origem.data, disponivel - origem.minutos);
+      autorizacaoRestante.set(origem.data, permitido - origem.minutos);
+      origem.autorizado = limitesAutorizados.get(origem.data);
+    });
+    const aplicadas = origens.filter(function(origem) { return origem.minutos > 0; });
+    minutos = aplicadas.reduce(function(soma, origem) { return soma + origem.minutos; }, 0);
+    if (!minutos) return null;
+    return { pis: pis, data: data, minutos: minutos, observacao: linha.querySelector('.rep-lote-observacao').value.trim(), origens: aplicadas };
+  }).filter(Boolean);
+  } catch (erroValidacao) {
+    return mostrarToast(mensagemErro(erroValidacao), 'warning');
+  }
+  if (avisosInconsistencia.length) {
+    const avisosUnicos = Array.from(new Set(avisosInconsistencia));
+    const continuar = await abrirConfirm('Foram encontradas inconsistências que aparecerão como alerta na conferência:\n\n• ' + avisosUnicos.slice(0, 6).join('\n• ') + (avisosUnicos.length > 6 ? '\n• E mais ' + (avisosUnicos.length - 6) + ' ocorrência(s).' : '') + '\n\nDeseja salvar assim mesmo?', 'Salvar com alertas?');
+    if (!continuar) return;
+  }
+  const mapaPersistido = new Map(autorizacoesPersistidas.map(function(item) { return [item.data, { minutos: Number(item.minutos || 0), ordem: Number(item.ordem || 0) }]; }));
+  const ordemAutorizacoes = new Map(Array.from(document.querySelectorAll('#rep-lote-autorizacoes .rep-lote-autorizacao')).map(function(linha, indice) { return [linha.querySelector('.rep-lote-autorizacao-data').value, indice + 1]; }));
+  const autorizacoesMudaram = mapaPersistido.size !== limitesAutorizados.size || Array.from(limitesAutorizados.entries()).some(function(item) { const anterior = mapaPersistido.get(item[0]); return !anterior || anterior.minutos !== item[1] || anterior.ordem !== ordemAutorizacoes.get(item[0]); });
+  if (!novos.length && !paraDesconsiderar.length && !compensacoes.length && !autorizacoesMudaram) return mostrarToast(avisosLimiteCompensacao[0] || 'Nenhuma alteração nova foi informada.', 'info');
+  const botao = document.getElementById('rep-lote-salvar');
+  botao.disabled = true;
+  try {
+    paraDesconsiderar.forEach(function(item) {
+      item.evento.desconsiderada = true;
+      item.evento.ajusteJustificativa = item.justificativa || 'Substituído no cartão de ponto manual.';
+    });
+    const competencias = Array.from(new Set(Array.from(origensAjuste).map(function(data) { return data.slice(0,7); })));
+    for (let i = 0; i < competencias.length; i++) {
+      const competencia = competencias[i];
+      document.getElementById('rep-lote-status').textContent = 'Preparando marcações da competência ' + competencia + '...';
+      await salvarAjustesCompetenciaRep_(pis, competencia, novos.filter(function(item) { return item.dataReferencia.slice(0,7) === competencia; }), Array.from(origensAjuste).filter(function(data) { return data.slice(0,7) === competencia; }));
+    }
+    if (autorizacoesMudaram) {
+      document.getElementById('rep-lote-status').textContent = 'Salvando os tetos autorizados...';
+      mapaPersistido.forEach(function(_, data) { if (!limitesAutorizados.has(data)) enfileirarAlteracaoRep_('AUTORIZACAO_COMPENSACAO', { pis: pis, data: data, minutos: 0, ordem: 0 }, 'AUTORIZACAO_COMPENSACAO|' + normalizarPisRep(pis) + '|' + data); });
+      limitesAutorizados.forEach(function(minutos, data) { enfileirarAlteracaoRep_('AUTORIZACAO_COMPENSACAO', { pis: pis, data: data, minutos: minutos, ordem: ordemAutorizacoes.get(data) || 0 }, 'AUTORIZACAO_COMPENSACAO|' + normalizarPisRep(pis) + '|' + data); });
+      autorizacoesCompensacaoRep = (autorizacoesCompensacaoRep || []).filter(function(item) { return !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && (!competenciaAutorizacao || String(item.data || '').slice(0, 7) === competenciaAutorizacao)); });
+      limitesAutorizados.forEach(function(minutos, data) { autorizacoesCompensacaoRep.push({ pis: pis, data: data, minutos: minutos, ordem: ordemAutorizacoes.get(data) || 0 }); });
+    }
+    compensacoes.forEach(function(dados, indice) {
+      document.getElementById('rep-lote-status').textContent = 'Preparando compensação ' + (indice + 1) + ' de ' + compensacoes.length + '...';
+      enfileirarAlteracaoRep_('COMPENSACAO', dados, 'COMPENSACAO|' + normalizarPisRep(pis) + '|' + dados.data);
+      compensacoesRep = (compensacoesRep || []).filter(function(item) { return !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === dados.data); });
+      compensacoesRep.push(dados);
+    });
+    if (novos.length) dadosRepCache.punches.push(...novos);
+    // A fila já agenda o envio; a tela é liberada sem aguardar a rede.
+    modal.dataset.dirty = '';
+    if (modal.dataset.inline === 'sim') fecharEspacoManualInlineRep_();
+    else fecharModal('modal-lancamentos-lote-rep');
+    const resultados = document.getElementById('rep-results-container');
+    if (resultados) resultados.style.display = 'block';
+    ['rep-btn-export', 'rep-btn-pdf', 'rep-btn-alertas-servidor', 'rep-btn-alertas-geral', 'rep-btn-autorizacao-he', 'rep-btn-lancamento', 'rep-btn-lancamento-lote'].forEach(function(id) {
+      const botaoAcao = document.getElementById(id);
+      if (botaoAcao) botaoAcao.style.display = 'inline-flex';
+    });
+    if (cartaoManual && competencias.length) {
+      const competenciaExibida = competencias.slice().sort().reverse()[0];
+      const partesCompetencia = competenciaExibida.split('-');
+      const seletorAno = document.getElementById('rep-filter-ano');
+      const seletorMes = document.getElementById('rep-filter-mes');
+      if (seletorAno && !Array.from(seletorAno.options).some(function(item) { return item.value === partesCompetencia[0]; })) {
+        seletorAno.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(partesCompetencia[0])}">${escapeHtml(partesCompetencia[0])}</option>`);
+      }
+      if (seletorAno) seletorAno.value = partesCompetencia[0];
+      if (seletorMes) seletorMes.value = partesCompetencia[1];
+      const buscaRep = document.getElementById('rep-search-input');
+      const statusRep = document.getElementById('rep-filter-status');
+      const conferenciaRep = document.getElementById('rep-filter-conferencia');
+      const lotacaoRep = document.getElementById('rep-filter-lotacao');
+      const localRep = document.getElementById('rep-filter-local');
+      if (buscaRep) buscaRep.value = '';
+      if (statusRep) statusRep.value = 'all';
+      if (conferenciaRep) conferenciaRep.value = 'all';
+      if (lotacaoRep) lotacaoRep.value = 'all';
+      // O local do cartão manual pode não existir nos relógios carregados.
+      // Não deixar esse filtro excluir a pessoa que acabou de ser incluída.
+      if (localRep) localRep.value = 'all';
+      pisSelecionadoRep = pis;
+    }
+    agendarReprocessamentoRepLeve_(260, pis);
+    if (avisosLimiteCompensacao.length) mostrarToast('Salvo considerando somente o saldo real disponível. ' + avisosLimiteCompensacao[0], 'warning');
+    else mostrarToast(cartaoManual
+      ? origensAjuste.size + ' dia(s) do cartão manual atualizado(s) no cálculo.'
+      : (linhasMarcacao.length + compensacoes.length) + ' ajuste(s) de ponto salvo(s) em lote.', 'success');
+  } catch (erro) {
+    document.getElementById('rep-lote-status').textContent = 'A gravação foi interrompida: ' + mensagemErro(erro);
+    mostrarToast('Não foi possível concluir todos os ajustes: ' + mensagemErro(erro), 'error');
+  } finally { botao.disabled = false; }
+}
+
+function minutosParaRelogioHe_(minutos) {
+  minutos = ((Math.round(minutos) % 1440) + 1440) % 1440;
+  return String(Math.floor(minutos / 60)).padStart(2, '0') + ':' + String(minutos % 60).padStart(2, '0');
+}
+
+/** A autorização sempre usa a representação administrativa arredondada. */
+function arredondarHorarioAutorizacaoHe_(horario) {
+  const minutos = horaParaMinutosRep_(horario);
+  if (minutos == null) return null;
+  const data = new Date(2000, 0, 1, Math.floor(minutos / 60), minutos % 60, 0, 0);
+  const arredondada = roundTimeRep(data);
+  return arredondada.getHours() * 60 + arredondada.getMinutes();
+}
+
+function obterPeriodoAutorizacaoHeRep_(dia, extraMinutos) {
+  const batidas = dia && dia.batidas || [];
+  const detalhadas = dia && dia.batidasDetalhadas || [];
+  const primeiroHorarioReal = detalhadas.length ? detalhadas[0].horarioOriginal : (batidas.length ? batidas[0] : '');
+  const ultimoHorarioReal = detalhadas.length ? detalhadas[detalhadas.length - 1].horarioOriginal : (batidas.length ? batidas[batidas.length - 1] : '');
+  const fim = arredondarHorarioAutorizacaoHe_(ultimoHorarioReal);
+  const inicioDiaExtra = dia && dia.diaExtra ? arredondarHorarioAutorizacaoHe_(primeiroHorarioReal) : null;
+  return {
+    inicio: dia && dia.diaExtra
+      ? (inicioDiaExtra == null ? '' : minutosParaRelogioHe_(inicioDiaExtra))
+      : (fim == null ? '' : minutosParaRelogioHe_(fim - extraMinutos)),
+    fim: fim == null ? '' : minutosParaRelogioHe_(fim)
+  };
+}
+
+async function salvarDescricaoHoraExtraRep_(descricao) {
+  return chamarBackendPromessa_('salvarDescricaoAutorizacaoHorasExtras', [descricao]);
+}
+
+async function salvarDescricaoHoraExtraServidorRep_(matricula, descricao) {
+  return chamarBackendPromessa_('salvarDescricaoAutorizacaoHorasExtrasServidor', [matricula, descricao]);
+}
+
+async function gerenciarDescricaoHoraExtraRep_(acao, descricao, novoTexto) {
+  return chamarBackendPromessa_('gerenciarDescricaoAutorizacaoHorasExtras', [acao, descricao, novoTexto || '']);
+}
+
+const janelasAutorizacaoHeRep_ = new Set();
+window.addEventListener('message', async function(event) {
+  const dados = event && event.data;
+  if (!dados || !janelasAutorizacaoHeRep_.has(event.source)) return;
+  try {
+    if (dados.tipo === 'SALVAR_DESCRICAO_HE') {
+      const descricoes = await salvarDescricaoHoraExtraRep_(dados.descricao);
+      event.source.postMessage({ tipo: 'DESCRICAO_HE_SALVA', descricao: dados.descricao, descricoes: descricoes }, '*');
+    } else if (dados.tipo === 'SALVAR_DESCRICAO_HE_SERVIDOR') {
+      await salvarDescricaoHoraExtraServidorRep_(dados.matricula, dados.descricao);
+      event.source.postMessage({ tipo: 'DESCRICAO_HE_SERVIDOR_SALVA' }, '*');
+    } else if (dados.tipo === 'GERENCIAR_DESCRICAO_HE') {
+      const descricoes = await gerenciarDescricaoHoraExtraRep_(dados.acao, dados.descricao, dados.novoTexto);
+      event.source.postMessage({ tipo: 'DESCRICAO_HE_GERENCIADA', acao: dados.acao, descricao: dados.descricao, novoTexto: dados.novoTexto, descricoes: descricoes }, '*');
+    } else return;
+  } catch (erro) {
+    event.source.postMessage({ tipo: 'DESCRICAO_HE_ERRO', mensagem: mensagemErro(erro) }, '*');
+  }
+});
+
+async function exportarAutorizacaoHorasExtrasRep_() {
+  const emp = obterServidorSelecionadoRep_();
+  const competencia = obterCompetenciaSelecionadaRep_();
+  if (!emp || !competencia) return mostrarToast('Selecione um servidor, um ano e um mês específicos.', 'warning');
+  const janela = window.open('', '_blank');
+  if (!janela) return mostrarToast('Permita a abertura da janela para gerar a autorização.', 'warning');
+  janelasAutorizacaoHeRep_.add(janela);
+  try {
+    const servidor = obterServidorPorIdentificadorRep_(emp.pis) || {};
+    const identificadorDescricao = String(servidor.matricula || emp.pis || '');
+    const config = await chamarBackendPromessa_('obterConfiguracaoAutorizacaoHorasExtras', [identificadorDescricao]);
+    const dias = (emp.dias || []).filter(function(dia) { return Number(dia.extraDia || 0) > 0 && !dia.pendencia && !dia.ausencia; });
+    const meses = ['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+    const partesCompetencia = competencia.split('-').map(Number);
+    const ultimoDia = new Date(partesCompetencia[0], partesCompetencia[1], 0).getDate();
+    let totalMinutos = 0;
+    const valores = dias.map(function(dia) {
+      const extraMinutos = Math.max(0, Math.round(Number(dia.extraDia || 0) * 60));
+      totalMinutos += extraMinutos;
+      const periodoExtra = obterPeriodoAutorizacaoHeRep_(dia, extraMinutos);
+      return { data: dia.dataFormatada || '', inicio: periodoExtra.inicio, fim: periodoExtra.fim, total: minutosParaHoraRep_(extraMinutos) };
+    });
+    // A autorização é uma folha única: reserva sempre espaço para os 31 dias,
+    // total, assinatura e rodapé, inclusive nos meses com muitos registros.
+    const quantidadeLinhas = Math.max(31, valores.length);
+    while (valores.length < quantidadeLinhas) valores.push({ data: '', inicio: '', fim: '', total: '' });
+    const alturaLinha = quantidadeLinhas > 31 ? 2.4 : 2.85;
+    const campo = function(valor, classe) {
+      const tamanho = String(valor || '').length;
+      const ajuste = tamanho > 32 ? ' texto-muito-longo' : (tamanho > 20 ? ' texto-longo' : '');
+      return '<input class="campo ' + (classe || '') + ajuste + '" value="' + escapeHtml(valor || '') + '" autocomplete="off">';
+    };
+    const opcoesDescricao = (config.descricoes || [config.descricaoPadrao]).map(function(item) { return '<option value="' + escapeHtml(item) + '">' + escapeHtml(item) + '</option>'; }).join('');
+    const descricaoInicial = config.descricaoServidor || config.descricaoPadrao || '';
+    const identificadorDescricaoJs = JSON.stringify(identificadorDescricao);
+    const linhas = valores.map(function(item, indice) {
+      return '<tr><td>' + campo(item.data, 'data') + '</td><td>' + campo('', 'normal') + '</td><td>' + campo('', 'normal') + '</td><td>' + campo(item.inicio, 'hora') + '</td><td>' + campo(item.fim, 'hora') + '</td><td>' + campo(item.total, 'total-dia') + '</td>' + (indice === 0 ? '<td class="descricao" rowspan="' + (quantidadeLinhas + 1) + '"><div class="descricao-controles"><select id="descricao-modelo" onchange="usarDescricao(this.value)"><option value="">Descrição pronta...</option>' + opcoesDescricao + '</select><button type="button" onclick="novaDescricao()">+ Nova</button><button type="button" onclick="editarDescricao()">Editar</button><button type="button" onclick="excluirDescricao()">Excluir</button></div><div id="descricao-servicos" class="descricao-texto" contenteditable="true" spellcheck="true">' + escapeHtml(descricaoInicial) + '</div></td>' : '') + '</tr>';
+    }).join('');
+    const periodo = '01/' + String(partesCompetencia[1]).padStart(2,'0') + '/' + partesCompetencia[0] + ' A ' + String(ultimoDia).padStart(2,'0') + '/' + String(partesCompetencia[1]).padStart(2,'0') + '/' + partesCompetencia[0];
+    const assets = window.HE_MODELO_ASSETS || {};
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Autorização de Horas Extras</title><style>
+      @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}html{background:#e5e7eb}body{position:relative;width:210mm;min-height:297mm;margin:16px auto;padding:8mm;background:#fff;color:#000;font-family:Arial,sans-serif;font-size:10pt;box-shadow:0 8px 34px rgba(0,0,0,.22)}
+      .acoes{position:fixed;right:18px;top:16px;z-index:5;display:flex;align-items:center;gap:8px;max-width:calc(100vw - 36px)}.acoes button{height:36px;padding:7px 10px;border:1px solid #0f766e;border-radius:2px;background:#0f766e;color:#fff;font-weight:700;cursor:pointer}.acoes .sec{background:#fff;color:#0f766e}.cabecalho{height:18mm;position:relative;display:flex;align-items:center;justify-content:center;text-align:center}.cabecalho img{position:absolute;object-fit:contain}.cabecalho .brasao{left:0;width:17mm;height:18mm}.cabecalho .selo{right:0;width:15mm;height:18mm}.cabecalho .prefeitura{font-family:"Times New Roman",serif;font-size:15pt;line-height:1.05}.cabecalho .sub{font-family:"Times New Roman",serif;font-size:8.5pt;font-style:italic;margin-top:1px}.titulo{margin:2.5mm 0 3mm;text-align:center;font-size:12pt;font-weight:800}
+      table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #000;padding:0;overflow:hidden}input.campo{display:block;width:100%;height:100%;min-height:0;padding:.55mm 1.1mm;border:0;border-radius:0;background:transparent;color:#000;font:inherit;outline:0;min-width:0}input.campo:focus,[contenteditable]:focus{box-shadow:inset 0 0 0 2px #0f766e}.dados{margin-bottom:2.5mm}.dados td{height:5.1mm}.dados input.campo{font-size:9pt}.dados input.texto-longo{font-size:8.5pt}.dados input.texto-muito-longo{font-size:7.5pt}.dados .rotulo{padding:.55mm .8mm;font-size:8pt;font-weight:800;white-space:nowrap;text-overflow:clip}.dados col.c1{width:16%}.dados col.c2{width:21%}.dados col.c3{width:11%}.dados col.c4{width:18%}.dados col.c5{width:14%}.dados col.c6{width:20%}
+      .horas{break-inside:avoid;page-break-inside:avoid}.horas col.data{width:16%}.horas col.normal{width:6.2%}.horas col.he{width:9.2%}.horas col.total{width:10.7%}.horas col.desc{width:42.5%}.horas thead th{height:12.5mm;padding:.7mm .4mm;text-align:center;font-size:8pt;font-weight:800;line-height:1.12;word-break:normal}.horas tbody td{height:${alturaLinha}mm;text-align:center}.horas tbody input.campo{font-size:7.5pt}.horas tbody tr:not(.total-linha) td:nth-child(6) input.campo{font-weight:800}.horas .descricao{vertical-align:top;text-align:left;overflow:visible}.descricao-controles{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1mm;min-height:0!important;padding:1mm!important;border-bottom:1px solid #000}.descricao-controles select,.descricao-controles button{min-width:0;height:5.5mm;border:1px solid #666;border-radius:0;background:#fff;color:#111;font-size:8pt}.descricao-controles button{padding:0 1mm;font-weight:700;cursor:pointer}.descricao-texto{min-height:0!important;height:auto;max-height:none;overflow:visible;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.25;padding:1.3mm;outline:0;font-size:8.5pt}.horas .total-linha td{height:5mm;font-size:9pt;font-weight:800;text-align:right}.horas .total-linha .total-geral{padding-right:1mm;text-align:center}
+      .assinatura{position:absolute;left:8mm;right:8mm;bottom:13mm;width:auto;margin:0;text-align:center}.assinatura input{display:block;width:55%;margin:0 auto;border:0;border-radius:0;background:transparent;text-align:center;outline:0}.assinatura .nome{font-size:10pt;font-weight:800}.assinatura .cargo{font-size:9pt;margin-top:.6mm}.rodape{position:absolute;left:8mm;right:8mm;bottom:3mm;margin:0;text-align:center;font-size:7pt;line-height:1.2}
+      @media print{html{background:#fff}body{position:relative;width:auto;min-height:281mm;margin:0;padding:0 0 25mm;box-shadow:none}.acoes,.descricao-controles{display:none}.descricao-texto{height:auto;max-height:none;overflow:visible;padding-top:1.3mm}input.campo:focus,[contenteditable]:focus{box-shadow:none}}
+      @media screen and (max-width:900px){body{transform-origin:top left;margin:0;box-shadow:none}.acoes{position:sticky;justify-content:flex-end;padding:8px;background:#fff}}
+    </style></head><body><div class="acoes"><button class="sec" onclick="recalcular()">Recalcular total</button><button onclick="recalcular();salvarDescricaoServidor();window.print()">Imprimir / salvar PDF</button></div>
+      <header class="cabecalho"><img class="brasao" src="${assets.brasao || ''}" alt="Brasão"><div><div class="prefeitura">Prefeitura Municipal de São Sebastião</div><div class="sub">ESTÂNCIA BALNEÁRIA – ESTADO DE SÃO PAULO</div></div><img class="selo" src="${assets.selo || ''}" alt="São Sebastião - SP - Brasil"></header>
+      <div class="titulo">AUTORIZAÇÃO DE HORAS EXTRAS</div>
+      <table class="dados"><colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"><col class="c5"><col class="c6"></colgroup><tr><td class="rotulo">NOME:</td><td colspan="5">${campo(emp.nome)}</td></tr><tr><td class="rotulo">MAT.:</td><td>${campo(servidor.matricula || '')}</td><td class="rotulo">FUNÇÃO:</td><td colspan="3">${campo(servidor.cargo || '')}</td></tr><tr><td class="rotulo">SETOR</td><td>${campo(config.setor || servidor.lotacao || '')}</td><td class="rotulo">LOCAL:</td><td>${campo(servidor.lotacao || '')}</td><td class="rotulo">SECRETARIA:</td><td>${campo(config.secretaria || 'SETUR')}</td></tr><tr><td class="rotulo">PERÍODO:</td><td colspan="3">${campo(periodo)}</td><td class="rotulo">MÊS:</td><td>${campo(meses[partesCompetencia[1]-1] + '/' + partesCompetencia[0])}</td></tr></table>
+      <table class="horas"><colgroup><col class="data"><col class="normal"><col class="normal"><col class="he"><col class="he"><col class="total"><col class="desc"></colgroup><thead><tr><th>DATA</th><th colspan="2">PERÍODO DE<br>TRABALHO<br>(NORMAL)</th><th colspan="2">HORAS EXTRAS</th><th>TOTAL DE<br>HORAS<br>EXTRAS</th><th>DESCRIÇÃO DOS SERVIÇOS</th></tr></thead><tbody>${linhas}<tr class="total-linha"><td colspan="5">TOTAL:</td><td class="total-geral"><input class="campo" id="total-geral" value="${minutosParaHoraRep_(totalMinutos)}"></td></tr></tbody></table>
+      <div class="assinatura"><input class="nome" value="${escapeHtml(config.secretarioNome || 'LEANDRO PEREIRA DA SILVA')}"><input class="cargo" value="${escapeHtml(config.secretarioCargo || 'Secretário de Turismo')}"></div>
+      <footer class="rodape">Rua Prefeito João Cupertino dos Santos, 218 - Centro - CEP 11.608.611 - São Sebastião/SP<br>Tel.: (12) 3891-2160&nbsp;&nbsp;&nbsp; www.saosebastiao.sp.gov.br</footer>
+      <script>function minutos(v){var m=String(v||'').match(/^(\\d{1,3}):(\\d{2})$/);return m?Number(m[1])*60+Number(m[2]):0}function relogio(m){return Math.floor(m/60)+':'+String(m%60).padStart(2,'0')}function recalcular(){var t=0;document.querySelectorAll('.total-dia').forEach(function(c){t+=minutos(c.value)});document.getElementById('total-geral').value=relogio(t)}function usarDescricao(v){if(v)document.getElementById('descricao-servicos').textContent=v}function descricaoSelecionada(){return document.getElementById('descricao-modelo').value}function salvarDescricaoServidor(){var v=String(document.getElementById('descricao-servicos').textContent||'').trim();if(v&&window.opener)window.opener.postMessage({tipo:'SALVAR_DESCRICAO_HE_SERVIDOR',matricula:${identificadorDescricaoJs},descricao:v},'*')}function novaDescricao(){var v=prompt('Digite a nova descrição de serviços:');if(!v)return;window.opener.postMessage({tipo:'SALVAR_DESCRICAO_HE',descricao:v},'*')}function editarDescricao(){var atual=descricaoSelecionada();if(!atual)return alert('Selecione uma descrição salva para editar.');var novo=prompt('Corrija a descrição:',atual);if(!novo||novo===atual)return;window.opener.postMessage({tipo:'GERENCIAR_DESCRICAO_HE',acao:'EDITAR',descricao:atual,novoTexto:novo},'*')}function excluirDescricao(){var atual=descricaoSelecionada();if(!atual)return alert('Selecione uma descrição salva para excluir.');if(!confirm('Excluir a descrição das próximas autorizações?'))return;window.opener.postMessage({tipo:'GERENCIAR_DESCRICAO_HE',acao:'EXCLUIR',descricao:atual},'*')}function substituirOpcoes(lista,selecionada){var s=document.getElementById('descricao-modelo');s.innerHTML='<option value="">Descrição pronta...</option>';(lista||[]).forEach(function(item){var o=document.createElement('option');o.value=item;o.textContent=item;s.appendChild(o)});s.value=selecionada||''}window.addEventListener('message',function(e){var d=e.data||{};if(d.tipo==='DESCRICAO_HE_SALVA'){substituirOpcoes(d.descricoes,d.descricao);usarDescricao(d.descricao);alert('Descrição salva para as próximas autorizações.')}else if(d.tipo==='DESCRICAO_HE_GERENCIADA'){var selecionada=d.acao==='EDITAR'?d.novoTexto:'';substituirOpcoes(d.descricoes,selecionada);if(selecionada)usarDescricao(selecionada);alert(d.acao==='EDITAR'?'Descrição corrigida.':'Descrição excluída.')}else if(d.tipo==='DESCRICAO_HE_ERRO'){alert('Não foi possível salvar a descrição: '+d.mensagem)}});document.querySelectorAll('.total-dia').forEach(function(c){c.addEventListener('change',recalcular)})<\/script></body></html>`;
+    janela.document.open(); janela.document.write(html); janela.document.close(); janela.focus();
+  } catch (erro) {
+    janela.close();
+    mostrarToast('Não foi possível gerar a autorização: ' + mensagemErro(erro), 'error');
+  }
+}
+
+async function ajustarPenalidadePeriodoFeriasFicha_(matricula, referencia, atual) {
+  const informado = window.prompt('Dias de penalidade para este período aquisitivo (0 a 30):', String(atual || 0));
+  if (informado === null) return;
+  const dias = Number(informado);
+  if (!Number.isInteger(dias) || dias < 0 || dias > 30) return mostrarToast('Informe um número inteiro entre 0 e 30.', 'warning');
+  try {
+    exibirLoader(true, 'Atualizando o período aquisitivo...');
+    await chamarBackendPromessa_('salvarPenalidadePeriodoFerias', [{ matricula: matricula, referencia: referencia, dias: dias }]);
+    const servidores = await chamarBackendPromessa_('obterListaServidores', []);
+    AppState.servidores = Array.isArray(servidores) ? servidores : AppState.servidores;
+    fecharModal('modal-ficha-servidor');
+    abrirFichaServidor(matricula);
+    mostrarToast('Penalidade aplicada diretamente ao período aquisitivo.', 'success');
+  } catch (erro) { mostrarToast('Não foi possível salvar a penalidade: ' + mensagemErro(erro), 'error'); }
+  finally { exibirLoader(false); }
+}
+
+async function ajustarPenalidadeAbonosFicha_(matricula, atual) {
+  const informado = window.prompt('Quantidade de abonadas perdidas no ano (0 a 5):', String(atual || 0));
+  if (informado === null) return;
+  const dias = Number(informado);
+  if (!Number.isInteger(dias) || dias < 0 || dias > 5) return mostrarToast('Informe um número inteiro entre 0 e 5.', 'warning');
+  try {
+    exibirLoader(true, 'Atualizando a penalidade de abonos...');
+    await chamarBackendPromessa_('salvarPenalidadeAbonosServidor', [{ matricula: matricula, dias: dias }]);
+    const servidores = await chamarBackendPromessa_('obterListaServidores', []);
+    AppState.servidores = Array.isArray(servidores) ? servidores : AppState.servidores;
+    fecharModal('modal-ficha-servidor');
+    abrirFichaServidor(matricula);
+    mostrarToast('Penalidade de abonos atualizada na ficha individual.', 'success');
+  } catch (erro) { mostrarToast('Não foi possível salvar a penalidade: ' + mensagemErro(erro), 'error'); }
+  finally { exibirLoader(false); }
+}
+window.addEventListener('beforeunload', function(evento) {
+  const modal = document.getElementById('modal-lancamentos-lote-rep');
+  if (!modal || modal.dataset.modo !== 'cartao-manual' || modal.dataset.dirty !== 'sim') return;
+  evento.preventDefault();
+  evento.returnValue = '';
+});
+// Feriados recorrentes; referência municipal: Decreto São Sebastião 9964/2026.
+// Pontos facultativos e escalas especiais são configurados pela equipe.
+function calendarioFeriadosEntidade_(ano) {
+  ano=Number(ano);if(!Number.isInteger(ano)||ano<2000||ano>2100)return [];
+  const a=ano%19,b=Math.floor(ano/100),c=ano%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),mes=Math.floor((h+l-7*m+114)/31),dia=(h+l-7*m+114)%31+1;
+  const fixos=[['01-01','Confraternização Universal'],['01-20','Padroeiro de São Sebastião'],['03-16','Aniversário de São Sebastião'],['04-21','Tiradentes'],['05-01','Dia do Trabalho'],['07-09','Revolução Constitucionalista (SP)'],['09-07','Independência do Brasil'],['10-12','Nossa Senhora Aparecida'],['11-02','Finados'],['11-15','Proclamação da República'],['12-25','Natal']];
+  if(ano>=2024)fixos.push(['11-20','Consciência Negra']);
+  const lista=fixos.map(([data,nome])=>({data:ano+'-'+data,nome}));
+  [[-2,'Paixão de Cristo'],[60,'Corpus Christi (São Sebastião)']].forEach(([offset,nome])=>{const dt=new Date(Date.UTC(ano,mes-1,dia+offset));lista.push({data:dt.toISOString().slice(0,10),nome});});
+  return lista.sort((a,b)=>a.data.localeCompare(b.data));
+}
+
+// Controles da conferência: nenhuma ação altera o AFD original.
+function prepararWhatsappCadastro_(matricula) {
+  let campo = document.getElementById('serv-whatsapp');
+  if (!campo) {
+    const grupo = document.createElement('div'); grupo.className = 'form-group';
+    grupo.innerHTML = '<label class="form-label" for="serv-whatsapp">WhatsApp (opcional)</label><input id="serv-whatsapp" class="form-control" type="tel" autocomplete="tel" placeholder="DDD e número"><small class="form-help">Usado para abrir a conversa com as pendências do ponto. Você confirma o envio no WhatsApp.</small>';
+    document.getElementById('serv-email').closest('.form-group').after(grupo);
+    campo = grupo.querySelector('input');
+  }
+  campo.value = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula))?.whatsapp || '';
+}
+function numeroWhatsappRep_(valor) {
+  const n = String(valor || '').replace(/\D/g, '');
+  return /^55[1-9]\d{9,10}$/.test(n) ? n : /^[1-9]\d{9,10}$/.test(n) ? '55' + n : '';
+}
+function botaoWhatsappServidorRep_(cadastro, pis) {
+  return numeroWhatsappRep_(cadastro?.whatsapp) ? `<button type="button" class="rep-unir-registros rep-whatsapp" onclick="abrirWhatsappPendenciasRep_('${pis}')" title="Abrir conversa com as pendências, sem enviar automaticamente"><svg viewBox="0 0 24 24" aria-hidden="true" width="17" height="17"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.65 15L2 22l5.13-1.34A10 10 0 1 0 12 2m0 18a8 8 0 0 1-4.08-1.12l-.3-.18-3.04.8.81-2.96-.2-.31A8 8 0 1 1 12 20m4.4-5.9c-.24-.12-1.42-.7-1.64-.78s-.38-.12-.54.12-.62.78-.76.94-.28.18-.52.06a6.55 6.55 0 0 1-3.25-2.84c-.25-.43.25-.4.72-1.35.08-.16.04-.3-.02-.42l-.74-1.8c-.19-.47-.39-.4-.54-.4H8.65c-.16 0-.42.06-.64.3s-.84.82-.84 2 .86 2.32.98 2.48 1.7 2.6 4.12 3.64c1.53.66 2.13.72 2.9.6.46-.07 1.42-.58 1.62-1.14s.2-1.04.14-1.14-.23-.15-.47-.27"/></svg><span class="rep-whatsapp-rotulo">WhatsApp</span></button>` : '';
+}
+function abrirWhatsappPendenciasRep_(pis) {
+  try {
+    if (repOnlineCarregando || repTemAlteracoesPendentes_() || (typeof existemGravacoesPendentes_ === 'function' && existemGravacoesPendentes_())) throw Error('Aguarde o carregamento e os salvamentos antes de preparar a mensagem.');
+    const competencia = obterCompetenciaAtualRep_();
+    if (!competencia || (falhasIntegridadeRep || []).length) throw Error('Selecione o mês e conclua a leitura íntegra do REP.');
+    const emp = obterServidoresCompetenciaRelatorioAlertasRep_(competencia, pis).find(e => normalizarPisRep(e.pis) === normalizarPisRep(pis));
+    const numero = numeroWhatsappRep_(obterServidorCadastroRep_(emp)?.whatsapp);
+    if (!emp || !numero) throw Error('Confira o WhatsApp no cadastro da pessoa.');
+    const texto = montarMensagemPendenciasMesRep_(emp, competencia, autorizacoesCompensacaoRep, compensacoesRep).texto;
+    window.open('https://wa.me/' + numero + '?text=' + encodeURIComponent(texto), '_blank', 'noopener,noreferrer');
+  } catch (erro) { mostrarToast(mensagemErro(erro), 'warning'); }
+}
+function usarTodoSaldoAutorizacaoRep_(botao) {
+  const linha = botao.closest('.rep-lote-autorizacao'), data = linha.querySelector('.rep-lote-autorizacao-data').value;
+  const emp = obterServidorProjetadoLoteRep_();
+  const origem = emp?.resumo.origensSaldoCompensacao?.find(o => o.data === data);
+  const disponivel = Math.max(0, Number(origem?.minutosBrutos ?? origem?.minutos ?? 0));
+  const usado = obterUsoCompensacaoExistenteLoteRep_().get(data) || 0;
+  if (!data || !disponivel) return mostrarToast('Escolha um dia com saldo disponível.', 'warning');
+  linha.querySelector('.rep-lote-autorizacao-limite').value = formatarDuracaoCompensacaoLoteRep_(disponivel + usado);
+  atualizarAutorizacoesCompensacaoLoteRep_();
+}
+function usarTodoDebitoLoteRep_(botao) {
+  const linha = botao.closest('tr'), data = linha.querySelector('.rep-lote-data').value;
+  const emp = obterServidorProjetadoLoteRep_(), dia = emp?.dias.find(d => d.dataOriginal === data);
+  if (!dia) return mostrarToast('Escolha o dia que será compensado.', 'warning');
+  const minutos = Math.max(0, Math.round(obterDeficitProjetadoLoteRep_(emp, dia)));
+  linha.querySelector('.rep-lote-meta-dia-valor').value = formatarDuracaoCompensacaoLoteRep_(minutos);
+  atualizarTotalCompensacaoLoteRep_(linha);
+}
+function marcacoesAlvoLimpezaRep_(pis, datas) {
+  const conjunto = new Set(datas);
+  return (dadosRepCache.punches || []).filter(p => normalizarPisRep(p.pis) === normalizarPisRep(pis) && conjunto.has(p.dataReferencia || toDateStringRep(p.datetime)));
+}
+async function limparMarcacoesServidorRep_(pis, datas, motivo) {
+  if (repOnlineCarregando) throw Error('Aguarde o término da leitura.');
+  const alvos = marcacoesAlvoLimpezaRep_(pis, datas);
+  const estados = alvos.map(p => ({p,desconsiderada:p.desconsiderada,ajusteJustificativa:p.ajusteJustificativa}));
+  try {
+    alvos.forEach(p => { p.desconsiderada = true; p.ajusteJustificativa = motivo; });
+    const origens=Array.from(new Set(datas.concat(alvos.flatMap(p=>[toDateStringRep(p.datetime),p.ajusteOrigemData].filter(Boolean)))));
+    const meses=Array.from(new Set(origens.map(d=>d.slice(0,7))));
+    if(meses.some(m=>montarAjustesCompetenciaRep_(pis,m,[]).length>500))throw Error('Há mais de 500 ajustes; a limpeza foi interrompida para preservar os registros.');
+    for(const mes of meses)await salvarAjustesCompetenciaRep_(pis,mes,[],origens.filter(d=>d.slice(0,7)===mes));
+  } catch (erro) { estados.forEach(e => { e.p.desconsiderada=e.desconsiderada;e.p.ajusteJustificativa=e.ajusteJustificativa; }); throw erro; }
+}
+async function limparDiaServidorRep_(pis, data) {
+  const emp = (dadosRepProcessados || []).find(e => normalizarPisRep(e.pis) === normalizarPisRep(pis));
+  if (!emp || !confirm('Retirar todas as marcações de ' + emp.nome + ' em ' + data.split('-').reverse().join('/') + '?\nOs registros originais permanecem na auditoria e podem ser restaurados em Ajustar.')) return;
+  try { await limparMarcacoesServidorRep_(pis,[data],'Todas as marcações do dia retiradas pelo operador.'); atualizarProcessamentoRep({notificarEntidade:false}); }
+  catch(e) { mostrarToast(mensagemErro(e),'error'); }
+}
+async function invalidarTrabalhoAusenciaRep_(pis,data) {
+  if (!confirm('Desconsiderar as batidas de trabalho deste dia e suas horas extras? O afastamento do RH será mantido.')) return;
+  try { await limparMarcacoesServidorRep_(pis,[data],'Trabalho desconsiderado durante afastamento do RH.'); atualizarProcessamentoRep({notificarEntidade:false}); }
+  catch(e) { mostrarToast(mensagemErro(e),'error'); }
+}
+async function resetarServidorMesRep_(pis) {
+  const competencia = obterCompetenciaAtualRep_();
+  const emp = (dadosRepProcessados || []).find(e => normalizarPisRep(e.pis) === normalizarPisRep(pis));
+  if (!competencia || !emp || repOnlineCarregando) return mostrarToast('Selecione a pessoa e o mês após concluir a leitura.', 'warning');
+  if (repTemAlteracoesPendentes_()) return mostrarToast('Aguarde a fila terminar antes de resetar.', 'warning');
+  if (!confirm('Resetar o espelho de ' + emp.nome + ' em ' + competencia.split('-').reverse().join('/') + '?\nSerão retiradas as marcações, compensações, limites autorizados, validações e ajustes de saldo deste mês.\nOs lançamentos do RH, os AFDs originais e os outros servidores serão preservados.')) return;
+  const ano=Number(competencia.slice(0,4)),mes=Number(competencia.slice(5)),datas=Array.from({length:new Date(ano,mes,0).getDate()},(_,i)=>competencia+'-'+String(i+1).padStart(2,'0'));
+  try {
+    await limparMarcacoesServidorRep_(pis,datas,'Reset do espelho mensal solicitado pelo operador.');
+    const mesmo = item => normalizarPisRep(item.pis)===normalizarPisRep(pis)&&String(item.data||'').slice(0,7)===competencia;
+    const grupos=[['COMPENSACAO',compensacoesRep,{minutos:0,origens:[],observacao:''}],['AUTORIZACAO_COMPENSACAO',autorizacoesCompensacaoRep,{minutos:0,ordem:0}],['VALIDACAO',validacoesRep,{validado:false,observacao:''}],['DESCARTE_HE',descartesHoraExtraRep,{descartado:false,saldoAjustado:false}]];
+    grupos.forEach(([tipo,lista,dados])=>lista.filter(mesmo).forEach(item=>enfileirarAlteracaoRep_(tipo,{pis,data:item.data,...dados},tipo+'|'+normalizarPisRep(pis)+'|'+item.data)));
+    validacoesRep=validacoesRep.filter(i=>!mesmo(i));descartesHoraExtraRep=descartesHoraExtraRep.filter(i=>!mesmo(i));compensacoesRep=compensacoesRep.filter(i=>!mesmo(i));autorizacoesCompensacaoRep=autorizacoesCompensacaoRep.filter(i=>!mesmo(i));
+    atualizarProcessamentoRep({notificarEntidade:false});
+    mostrarToast('Espelho mensal limpo. Acompanhe a confirmação na fila de sincronização.', 'info');
+  } catch(e) { mostrarToast(mensagemErro(e),'error'); }
+}
+function atualizarPreviaLeituraRep_(atual,total,nome) {
+  const container=document.getElementById('rep-servidores-list');if(!container)return;
+  document.getElementById('global-loader')?.classList.add('rep-loader-previa');
+  // Resumo leve por arquivo: evita reprocessar o mês inteiro em cada AFD.
+  container.setAttribute('aria-busy','true'); container.inert=true;
+  let previa=container.querySelector('.rep-previa-arquivos');
+  if(!previa){container.innerHTML='<div class="rep-previa-arquivos"><strong>Leitura em andamento — edição liberada ao concluir</strong><div></div></div>';previa=container.firstElementChild;}
+  const linha=document.createElement('p');linha.textContent=atual+'/'+total+' · '+nome+' · '+dadosRepCache.punches.length.toLocaleString('pt-BR')+' marcações recebidas';previa.lastElementChild.append(linha);
+  let nomes=previa.querySelector('.rep-previa-nomes');if(!nomes){nomes=document.createElement('small');nomes.className='rep-previa-nomes';previa.append(nomes);}
+  nomes.textContent=Array.from(dadosRepCache.employees.values()).slice(0,24).join(' · ');
+}
+
+const cartoesEspelhoAnimados_ = new Set();
+let observadorCartoesRep_ = null;
+let observadorIdentidadeRep_ = null;
+function animarCartoesEspelhoRep_(container) {
+  observadorIdentidadeRep_?.disconnect();
+  const identidade=container.querySelector('.rep-identidade-fixa'),cabecalho=container.querySelector('.rep-detalhe-cabecalho');
+  if(identidade&&cabecalho&&window.IntersectionObserver){observadorIdentidadeRep_=new IntersectionObserver(([entry])=>{identidade.classList.toggle('visivel',!entry.isIntersecting&&entry.boundingClientRect.top<0);});observadorIdentidadeRep_.observe(cabecalho);}
+  const reduzido=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if(reduzido || !window.IntersectionObserver)return;
+  observadorCartoesRep_?.disconnect();
+  const observer=observadorCartoesRep_=new IntersectionObserver(entradas=>entradas.forEach(({target,isIntersecting})=>{
+    if(!isIntersecting)return;
+    target.animate([{opacity:.35,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:320,easing:'ease-out'});observer.unobserve(target);
+  }),{threshold:.05});
+  container.querySelectorAll('.rep-evento,.rep-status,.rep-compensacao-dia,.rep-ausencia-dia').forEach((card,i)=>{
+    const chave=pisSelecionadoRep+'|'+(card.closest('tr')?.dataset.repData||'')+'|'+(card.dataset.eventId||card.className+'|'+card.textContent);
+    if(cartoesEspelhoAnimados_.has(chave))return;cartoesEspelhoAnimados_.add(chave);observer.observe(card);
+  });
+
+  if(cartoesEspelhoAnimados_.size>4000)cartoesEspelhoAnimados_.clear();
+}
+function avisoDiaSaidaLancamento_() {
+  const tipo=document.getElementById('lanc-tipo')?.value||'';
+  if(!/FERIAS|ABON|LICENCA/i.test(normalizarTextoRep_(tipo))||/CREDITO|PENALIDADE|AJUSTE/.test(normalizarTextoRep_(tipo)))return '';
+  const campos=Array.from(document.querySelectorAll('#form-lancamento input[type=date]')).filter(c=>c.id==='lanc-data-inicio'||c.id==='lanc-data-falta');
+  const datas=tipo==='Abonada Eleitoral' ? Array.from(new Set((typeof obterDatasAbonoEleitoral_==='function'?obterDatasAbonoEleitoral_():[]).concat(document.getElementById('lanc-data-eleitoral-nova')?.value||[]))).filter(Boolean) : [campos.find(c=>c.offsetParent!==null&&c.value)?.value].filter(Boolean);
+  const avisos=datas.map(data=>{const partes=data.split('-').map(Number),dia=new Date(partes[0],partes[1]-1,partes[2]).getDay();const feriado=calendarioFeriadosEntidade_(partes[0]).find(f=>f.data===data),cadastrado=(feriadosCompartilhadosRep||[]).some(f=>f.data===data);if(dia!==0&&dia!==6&&!feriado&&!cadastrado)return '';return data.split('-').reverse().join('/')+' — '+(feriado?feriado.nome:dia===0?'domingo':dia===6?'sábado':'feriado cadastrado');}).filter(Boolean);
+  return avisos.length ? 'Atenção à data de saída: '+avisos.join('; ')+'. Confira uma data de saída em dia útil.' : '';
+}
+document.addEventListener('change',function(event){
+  if(!event.target.closest('#form-lancamento'))return;
+  let aviso=document.getElementById('lanc-aviso-dia-saida');
+  if(!aviso){aviso=document.createElement('p');aviso.id='lanc-aviso-dia-saida';aviso.className='form-help rep-aviso-calendario';aviso.setAttribute('role','status');document.getElementById('form-lancamento').append(aviso);}
+  aviso.textContent=avisoDiaSaidaLancamento_();aviso.hidden=!aviso.textContent;
+});
+
+function prepararCoberturaDocumentoMedico_() {
+  const tipo=document.getElementById('lanc-tipo')?.value,form=document.getElementById('form-lancamento');
+  let grupo=document.getElementById('lanc-cobertura-medica-grupo');
+  if(!grupo){grupo=document.createElement('div');grupo.id='lanc-cobertura-medica-grupo';grupo.className='form-group';grupo.innerHTML='<label class="form-label" for="lanc-cobertura-medica">O que este documento justifica?</label><select id="lanc-cobertura-medica" class="form-control" onchange="document.getElementById(\'form-lancamento\').dataset.coberturaMedica=this.value;prepararCoberturaDocumentoMedico_()"></select><small class="form-help">Escolha o período aceito pelo RH. No atestado, esta opção vale para o primeiro dia; os seguintes continuam cobertos integralmente.</small>';document.getElementById('lanc-tipo').closest('.form-group').after(grupo);}
+  const medico=tipo==='Atestado'||tipo==='Declaração de Horas';grupo.hidden=!medico;
+  const select=grupo.querySelector('select');select.disabled=!medico;
+  const atual=form.dataset.coberturaMedica||'';
+  select.innerHTML=(tipo==='Atestado'?'<option value="">Dia inteiro (todos os dias do atestado)</option>':'')+'<option value="HORAS">Somente as horas informadas</option><option value="RESTANTE_DIA">Restante da jornada, sem retorno ao trabalho</option>';
+  select.value=atual||(tipo==='Atestado'?'':'HORAS');if(!medico){select.value='';return;}
+  const campo=document.getElementById('lanc-qtd-horas');
+  if(tipo==='Atestado'&&select.value==='HORAS'){
+    document.getElementById('bloco-horas').style.display='flex';campo.disabled=false;campo.required=true;
+    document.getElementById('lanc-qtd-horas-label').textContent='Horas justificadas no primeiro dia (HH:MM) *';
+    document.getElementById('lanc-mes-he-grupo').style.display='none';document.getElementById('lanc-ano-he-grupo').style.display='none';
+  }else if(select.value==='RESTANTE_DIA'){campo.required=false;campo.disabled=true;document.getElementById('bloco-horas').style.display='none';}
+  else if(tipo==='Atestado'){campo.required=false;campo.disabled=true;document.getElementById('bloco-horas').style.display='none';}
+  else {campo.required=true;campo.disabled=false;document.getElementById('bloco-horas').style.display='flex';}
+}
+
+// Estado exclusivo do diagnóstico. Não usa dadosRepCache nem envia operações.
+let inspecaoAfdIsolada_ = null;
+let geracaoInspecaoAfd_ = 0;
+let filtroInspecaoAfdTimer_ = null;
+function abrirInspecaoAfdIsolado_() {
+  let modal=document.getElementById('modal-inspecao-afd');
+  if(!modal){modal=document.createElement('div');modal.id='modal-inspecao-afd';modal.className='modal-overlay';modal.innerHTML=`<div class="modal-content large"><div class="modal-header"><div><h3 class="modal-title">Inspecionar AFD isolado</h3><small>Consulta local, separada do espelho e da sincronização.</small></div><button class="modal-close" onclick="fecharInspecaoAfdIsolado_()" aria-label="Fechar inspeção">×</button></div><div class="modal-body"><label class="anexo-dropzone" id="inspecao-afd-drop" ondragover="event.preventDefault()" ondrop="event.preventDefault();lerAfdIsolado_(event.dataTransfer.files)"><input type="file" accept=".txt,.afd" onchange="lerAfdIsolado_(this.files)"><span>Escolha ou arraste um único AFD (.txt ou .afd)</span></label><p class="form-help">O arquivo não é enviado ao Drive e não modifica pessoas, marcações ou cálculos do Leitor REP. Ao fechar, esta análise é descartada.</p><p id="inspecao-afd-status" role="status" aria-live="polite"></p><div id="inspecao-afd-resumo"></div><div id="inspecao-afd-filtros" hidden class="form-row"><div class="form-group"><label for="inspecao-afd-modo">Visualização</label><select id="inspecao-afd-modo" class="form-control" onchange="filtrarInspecaoAfd_()"><option value="batidas">Marcações originais</option><option value="registros">Todos os registros do arquivo</option></select></div><div class="form-group" style="flex:2"><label for="inspecao-afd-busca">Pesquisar</label><input id="inspecao-afd-busca" class="form-control" placeholder="Nome, PIS/CPF, data, horário ou NSR" oninput="clearTimeout(filtroInspecaoAfdTimer_);filtroInspecaoAfdTimer_=setTimeout(filtrarInspecaoAfd_,250)"></div></div><div id="inspecao-afd-tabela" class="rep-table-wrap"></div><div id="inspecao-afd-paginacao" class="rep-paginacao"></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="fecharInspecaoAfdIsolado_()">Fechar e descartar análise</button></div></div>`;document.body.append(modal);}
+  abrirModal('modal-inspecao-afd');
+}
+function fecharInspecaoAfdIsolado_() {
+  geracaoInspecaoAfd_++;inspecaoAfdIsolada_=null;clearTimeout(filtroInspecaoAfdTimer_);
+  ['inspecao-afd-status','inspecao-afd-resumo','inspecao-afd-tabela','inspecao-afd-paginacao'].forEach(id=>{document.getElementById(id).textContent='';});
+  document.getElementById('inspecao-afd-filtros').hidden=true;
+  const input=document.querySelector('#inspecao-afd-drop input');input.value='';input.disabled=false;
+  fecharModal('modal-inspecao-afd');
+}
+async function lerAfdIsolado_(arquivos) {
+  const status=document.getElementById('inspecao-afd-status');
+  if(!arquivos||arquivos.length!==1){status.textContent='Selecione somente um AFD para manter a análise isolada.';return;}
+  const file=arquivos[0];
+  if(!/\.(txt|afd)$/i.test(file.name)||file.size>50*1024*1024){status.textContent='Use um arquivo .txt ou .afd de até 50 MB.';return;}
+  const geracao=++geracaoInspecaoAfd_;inspecaoAfdIsolada_=null;
+  document.getElementById('inspecao-afd-filtros').hidden=true;
+  ['inspecao-afd-resumo','inspecao-afd-tabela','inspecao-afd-paginacao'].forEach(id=>document.getElementById(id).textContent='');
+  status.textContent='Interpretando somente '+file.name+'…';
+  const input=document.querySelector('#inspecao-afd-drop input');input.disabled=true;
+  try{
+    const texto=await file.text();const leitura=await parseAFDRep(texto,file.name);
+    if(geracao!==geracaoInspecaoAfd_)return;
+    const batidas=[];
+    for(let i=0;i<leitura.punches.length;i++){
+      const p=leitura.punches[i],data=toDateStringRep(p.datetime).split('-').reverse().join('/'),hora=String(p.datetime.getHours()).padStart(2,'0')+':'+String(p.datetime.getMinutes()).padStart(2,'0');
+      const nome=leitura.employees.get(p.pis)||p.nomeNoMomento||'Nome não consta no arquivo';
+      batidas.push({p,nome,data,hora,busca:normalizarTextoBusca([nome,p.pis,data,hora,p.nsr].join(' '))});
+      if(i%4000===3999){await new Promise(r=>setTimeout(r,0));if(geracao!==geracaoInspecaoAfd_)return;}
+    }
+    inspecaoAfdIsolada_={leitura,batidas,registros:texto.replaceAll('\r\n','\n').replaceAll('\r','\n').split('\n'),pagina:1,filtrados:[]};
+    const a=leitura.audit,m=leitura.metadata;
+    document.getElementById('inspecao-afd-resumo').innerHTML=`<p><b>${escapeHtml(file.name)}</b> · REP ${escapeHtml(m.deviceSerial||'não identificado')} · ${escapeHtml(m.employerName||'Empregador não informado')}</p><p>${batidas.length.toLocaleString('pt-BR')} marcações válidas · ${leitura.employees.size} cadastros · ${a.marcacoesInvalidas} marcações inválidas · ${a.quebrasNsr} interrupções de sequência NSR</p><p>${a.ajustesRelogio} ajustes do relógio · ${a.eventosTecnicos} eventos técnicos · ${a.linhasCurtas} linhas incompletas · ${a.tiposDesconhecidos} tipos desconhecidos</p><details><summary>Diagnóstico da leitura</summary><p>Tipos encontrados: ${escapeHtml(Object.entries(a.registrosPorTipo).map(([t,n])=>t+': '+n).join(' · '))}</p><p>Sequência interrompida ou quantidade ímpar é um indício para conferir, não prova de defeito no relógio. Esta consulta não verifica a assinatura digital do AFD.</p>${(a.erros||[]).slice(0,30).map(e=>'<p>Linha '+e.linha+': '+escapeHtml(e.motivo)+'</p>').join('')}</details>`;
+    status.textContent='Leitura local concluída. Nenhum dado foi importado.';
+    document.getElementById('inspecao-afd-busca').value='';document.getElementById('inspecao-afd-modo').value='batidas';document.getElementById('inspecao-afd-filtros').hidden=false;
+    filtrarInspecaoAfd_();
+  }catch(e){if(geracao===geracaoInspecaoAfd_)status.textContent='Não foi possível interpretar: '+mensagemErro(e);}
+  finally{if(geracao===geracaoInspecaoAfd_)input.disabled=false;}
+}
+function filtrarInspecaoAfd_() {
+  const estado=inspecaoAfdIsolada_;if(!estado)return;
+  estado.modo=document.getElementById('inspecao-afd-modo').value;
+  const busca=normalizarTextoBusca(document.getElementById('inspecao-afd-busca').value);
+  const lista=estado.modo==='registros'?estado.registros:estado.batidas;
+  estado.filtrados=[];
+  lista.forEach((item,i)=>{if(!busca||(estado.modo==='registros'?normalizarTextoBusca(item):item.busca).includes(busca))estado.filtrados.push(i);});estado.pagina=1;renderizarInspecaoAfd_();
+}
+function renderizarInspecaoAfd_(delta) {
+  const s=inspecaoAfdIsolada_;if(!s)return;const paginas=Math.max(1,Math.ceil(s.filtrados.length/100));s.pagina=Math.min(paginas,Math.max(1,s.pagina+(delta||0)));
+  const linhas=s.filtrados.slice((s.pagina-1)*100,s.pagina*100).map(i=>{if(s.modo==='registros')return '<tr><td>'+(i+1)+'</td><td><code style="white-space:pre-wrap;overflow-wrap:anywhere">'+escapeHtml(s.registros[i])+'</code></td></tr>';const b=s.batidas[i];return '<tr><td>'+b.data+'</td><td>'+b.hora+'</td><td>'+escapeHtml(b.nome)+'</td><td>'+escapeHtml(b.p.pis)+'</td><td>'+escapeHtml(b.p.nsr)+'</td><td>'+escapeHtml(b.p.clock)+'</td></tr>';}).join('');
+  document.getElementById('inspecao-afd-tabela').innerHTML='<table class="custom-table"><thead><tr>'+(s.modo==='registros'?'<th>Linha</th><th>Registro original</th>':'<th>Data</th><th>Hora</th><th>Nome no arquivo</th><th>PIS/CPF</th><th>NSR</th><th>Local registrado</th>')+'</tr></thead><tbody>'+linhas+'</tbody></table>';
+  document.getElementById('inspecao-afd-paginacao').innerHTML='<span>'+s.filtrados.length.toLocaleString('pt-BR')+' resultados · Página '+s.pagina+' de '+paginas+'</span><div><button type="button" class="btn btn-secondary" onclick="renderizarInspecaoAfd_(-1)" '+(s.pagina===1?'disabled':'')+'>Anterior</button><button type="button" class="btn btn-secondary" onclick="renderizarInspecaoAfd_(1)" '+(s.pagina===paginas?'disabled':'')+'>Próxima</button></div>';
+}
+function instalarAcessoInspecaoAfd_(){const topo=document.querySelector('.rep-page-header > div');if(!topo||document.getElementById('rep-inspecao-isolada'))return;const botao=document.createElement('button');botao.id='rep-inspecao-isolada';botao.type='button';botao.className='rep-ajustar-dia';botao.textContent='Inspecionar AFD isolado';botao.title='Testar um arquivo local sem importar para o REP';botao.onclick=abrirInspecaoAfdIsolado_;topo.append(botao);}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',instalarAcessoInspecaoAfd_);else instalarAcessoInspecaoAfd_();
+
+
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.getElementById('modal-inspecao-afd')?.classList.contains('active')){e.preventDefault();e.stopImmediatePropagation();fecharInspecaoAfdIsolado_();}},true);
+</script>

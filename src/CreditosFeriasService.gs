@@ -130,6 +130,7 @@ function processarCreditosGerais_(diasFuturos, exibirAlertas) {
       "Executou rotina de créditos de férias. Novos: " + gerados + " | Duplicados pulados: " + duplicados + " | Erros: " + erros,
       "", "", "", ""
     );
+    if (gerados > 0) solicitarReconferenciaEntidade_('GERAR_CREDITOS_FERIAS');
     
     return {
       novos: gerados,
@@ -206,6 +207,7 @@ function salvarPenalidadePeriodoFerias(dados) {
     const antes = Number(aba.getRange(linha, idxPenalidade + 1).getValue() || 0);
     aba.getRange(linha, idxPenalidade + 1).setValue(dias);
     lancarLogSemLock_('PENALIDADE_FERIAS', 'Creditos_Ferias', 'Atualizou penalidade do período ' + referencia + '.', 'Dias', String(antes), String(dias), matricula);
+    solicitarReconferenciaEntidade_('PENALIDADE_FERIAS');
     return { sucesso: true, matricula: matricula, referencia: referencia, dias: dias };
   } finally { lock.releaseLock(); }
 }
