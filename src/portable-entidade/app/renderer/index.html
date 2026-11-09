@@ -18054,14 +18054,22 @@ function salvarSaldoDiretoRep_(pis, data, campo) {
     pis, data, descartado: false, saldoAjustado: true, saldoMinutos: minutos,
     atualizadoPor: AppState.usuarioLogado?.nome || AppState.usuarioLogado?.email || ''
   });
-  atualizarProcessamentoRep({ notificarEntidade: false });
+  if (typeof agendarReprocessamentoRepLeve_ === 'function') {
+    agendarReprocessamentoRepLeve_(40, pis);
+  } else {
+    setTimeout(function() { atualizarProcessamentoRep({ notificarEntidade: false }); }, 40);
+  }
   mostrarToast(`Saldo de ${data.split('-').reverse().join('/')} ajustado para ${formatHoursRep(minutos / 60)}h.`, 'success');
 }
 
 function restaurarSaldoDiretoRep_(pis, data) {
   enfileirarAlteracaoRep_('DESCARTE_HE', { pis, data, descartado: false, saldoAjustado: false }, `DESCARTE_HE|${normalizarPisRep(pis)}|${data}`);
   descartesHoraExtraRep = (descartesHoraExtraRep || []).filter(item => !(normalizarPisRep(item.pis) === normalizarPisRep(pis) && item.data === data));
-  atualizarProcessamentoRep({ notificarEntidade: false });
+  if (typeof agendarReprocessamentoRepLeve_ === 'function') {
+    agendarReprocessamentoRepLeve_(40, pis);
+  } else {
+    setTimeout(function() { atualizarProcessamentoRep({ notificarEntidade: false }); }, 40);
+  }
   mostrarToast('Saldo calculado pelo ponto restaurado.', 'success');
 }
 
@@ -18224,7 +18232,7 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
   const avisoFiltro = filtroDiasRepAtual === 'todos' ? '' : `<div class="rep-filtro-dias-ativo"><span>Exibindo ${rotulosFiltro[filtroDiasRepAtual]}: <b>${diasFiltrados.length}</b></span><button type="button" onclick="definirFiltroDiasRep('todos')">Mostrar todos os dias</button></div>`;
   const painelApontamentosServidor = apontamentosServidor.length ? `<section class="rep-apontamentos-servidor"><header><b>Apontamentos do servidor nesta competência</b><button type="button" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Novo apontamento</button></header>${htmlApontamentosRep_(apontamentosServidor)}</section>` : '';
 
-  container.innerHTML = `<div class="rep-painel-pessoas">
+  const novoHtmlPainel_ = `<div class="rep-painel-pessoas">
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
       <div class="rep-identidade-fixa"><strong>${escapeHtml(selecionado.nome)}</strong><span>${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')} · ${escapeHtml(selecionado.lotacao || 'Não informada')}</span></div>
@@ -18242,6 +18250,22 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
       <div class="rep-table-wrap rep-tabela-detalhe-wrap"><table class="custom-table rep-tabela-detalhe"><thead><tr><th>Data</th><th>Marcações (registrada → considerada)</th><th title="Total considerado após entradas, saídas e intervalo">Horas trabalhadas</th><th title="Diferença entre as horas trabalhadas e a jornada.">Horas extras</th><th>Situação</th></tr></thead><tbody>${dias}</tbody></table></div>
     </section>
   </div>`;
+  if (container && document.activeElement && container.contains(document.activeElement)) {
+    try { document.activeElement.blur(); } catch (e) {}
+  }
+  try {
+    container.innerHTML = novoHtmlPainel_;
+  } catch (erroHtml) {
+    if (erroHtml && erroHtml.name === 'NotFoundError') {
+      try {
+        if (typeof container.replaceChildren === 'function') container.replaceChildren();
+        else while (container.firstChild) container.removeChild(container.firstChild);
+      } catch (eLimpeza) {}
+      container.innerHTML = novoHtmlPainel_;
+    } else {
+      throw erroHtml;
+    }
+  }
   const listaAtual = container.querySelector('.rep-pessoas');
   if (listaAtual) {
     listaAtual.scrollTop = rolagemPessoasRep;
@@ -18291,6 +18315,9 @@ function renderizarTabelaPaginadaRep(servidores, container) {
       <td>${emp.naoConciliado ? 'Não' : 'Sim'}</td>
     </tr>`;
   });
+  if (container && document.activeElement && container.contains(document.activeElement)) {
+    try { document.activeElement.blur(); } catch (e) {}
+  }
   container.innerHTML = `<div class="rep-paginacao"><span>Exibindo ${registros.length ? inicio + 1 : 0}–${Math.min(inicio + ITENS_POR_PAGINA_REP, registros.length)} de ${registros.length.toLocaleString('pt-BR')} dias processados</span><div><button class="btn btn-secondary" onclick="mudarPaginaRep(-1)" ${paginaRepAtual === 1 ? 'disabled' : ''}>Anterior</button><span>Página ${paginaRepAtual} de ${totalPaginas}</span><button class="btn btn-secondary" onclick="mudarPaginaRep(1)" ${paginaRepAtual === totalPaginas ? 'disabled' : ''}>Próxima</button></div></div>
     <div class="rep-table-wrap"><table class="custom-table rep-tabela-leitura"><thead><tr><th>Data</th><th>Batidas</th><th>Horas</th><th>Saldo estimado</th><th>Local do relógio</th><th>Situação</th><th>PIS vinculado</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
 }
@@ -18326,6 +18353,9 @@ function renderizarListaRep() {
   });
 
   if (filtered.length === 0) {
+    if (listContainer && document.activeElement && listContainer.contains(document.activeElement)) {
+      try { document.activeElement.blur(); } catch (e) {}
+    }
     listContainer.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary);">Nenhum servidor encontrado com os filtros atuais.</div>';
     return;
   }
