@@ -960,18 +960,26 @@
             
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Data de Admissão</label>
+                <label class="form-label" for="serv-admissao">Data de Admissão</label>
                 <input type="date" id="serv-admissao" class="form-control">
               </div>
               <div class="form-group">
-                <label class="form-label">Aniversário (dia e mês)</label>
+                <label class="form-label" for="serv-aniversario">Aniversário (dia e mês)</label>
                 <input type="text" id="serv-aniversario" class="form-control" inputmode="numeric" maxlength="5" placeholder="DD/MM" pattern="\d{2}/\d{2}">
-                <p class="form-help">Se ficar vazio, o sistema usa a abonada natalícia mais recente quando existir.</p>
+                <p class="form-help">Para abonada natalícia quando existir.</p>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="serv-email">E-mail <span id="serv-email-obrigatorio">*</span></label>
+                <input type="email" id="serv-email" class="form-control" required placeholder="Ex: servidor@saosebastiao.sp.gov.br">
+                <p class="form-help" id="serv-identificacao-ajuda" style="display:none;">Opcional para Estagiário e PEAD.</p>
               </div>
               <div class="form-group">
-                <label class="form-label">E-mail <span id="serv-email-obrigatorio">*</span></label>
-                <input type="email" id="serv-email" class="form-control" required placeholder="Ex: servidor@saosebastiao.sp.gov.br">
-                <p class="form-help" id="serv-identificacao-ajuda" style="display:none;">Matrícula e e-mail são opcionais para Estagiário e PEAD. Se a matrícula ficar vazia, o sistema criará um identificador interno.</p>
+                <label class="form-label" for="serv-whatsapp">Telefone / WhatsApp (opcional)</label>
+                <input type="tel" id="serv-whatsapp" class="form-control" autocomplete="tel" placeholder="(00) 00000-0000 ou DDD e número">
+                <p class="form-help">Para contato e comunicados do ponto.</p>
               </div>
             </div>
 

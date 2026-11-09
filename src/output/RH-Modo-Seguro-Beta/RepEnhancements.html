@@ -1816,11 +1816,14 @@ function prepararWhatsappCadastro_(matricula) {
   let campo = document.getElementById('serv-whatsapp');
   if (!campo) {
     const grupo = document.createElement('div'); grupo.className = 'form-group';
-    grupo.innerHTML = '<label class="form-label" for="serv-whatsapp">WhatsApp (opcional)</label><input id="serv-whatsapp" class="form-control" type="tel" autocomplete="tel" placeholder="DDD e número"><small class="form-help">Usado para abrir a conversa com as pendências do ponto. Você confirma o envio no WhatsApp.</small>';
-    document.getElementById('serv-email').closest('.form-group').after(grupo);
+    grupo.innerHTML = '<label class="form-label" for="serv-whatsapp">Telefone / WhatsApp (opcional)</label><input id="serv-whatsapp" class="form-control" type="tel" autocomplete="tel" placeholder="(00) 00000-0000 ou DDD e número"><small class="form-help">Para contato e comunicados do ponto.</small>';
+    const emailGroup = document.getElementById('serv-email')?.closest('.form-group');
+    if (emailGroup) emailGroup.after(grupo);
     campo = grupo.querySelector('input');
   }
-  campo.value = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula))?.whatsapp || '';
+  if (campo) {
+    campo.value = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula))?.whatsapp || '';
+  }
 }
 function numeroWhatsappRep_(valor) {
   const n = String(valor || '').replace(/\D/g, '');

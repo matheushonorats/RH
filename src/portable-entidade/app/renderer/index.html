@@ -619,6 +619,8 @@ body {
   z-index: 20000;
   backdrop-filter: blur(4px);
   padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .modal-overlay.active {
@@ -628,18 +630,29 @@ body {
 .modal-content {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-lg, 12px);
   width: 100%;
   max-width: 600px;
-  max-height: calc(100dvh - 32px);
+  max-height: min(90vh, 90dvh, 700px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   animation: modalSlideUp 0.25s ease-out;
+  box-shadow: 0 24px 64px rgba(0,0,0,.35);
+  box-sizing: border-box;
 }
 
 .modal-content.large {
   max-width: 900px;
+  max-height: min(92vh, 92dvh, 760px);
+}
+
+.modal-content > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @keyframes modalSlideUp {
@@ -648,15 +661,16 @@ body {
 }
 
 .modal-header {
-  padding: 20px 24px;
+  padding: 15px 22px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .modal-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -665,12 +679,12 @@ body {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0;
+  border-radius: var(--radius-sm, 6px);
   transition: all 0.2s ease;
 }
 
@@ -680,18 +694,58 @@ body {
 }
 
 .modal-body {
-  padding: 24px;
-  flex: 1;
+  padding: 18px 22px;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-footer {
-  padding: 16px 24px;
+  padding: 13px 22px;
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+  flex-shrink: 0;
+  background-color: var(--bg-secondary);
+}
+
+/* Otimização de formulários em modais */
+.modal-body .form-group {
+  margin-bottom: 12px;
+}
+
+.modal-body .form-label {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.modal-body .form-control {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.modal-body .form-help {
+  font-size: 11px;
+  margin-top: 3px;
+  margin-bottom: 0;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.modal-body .form-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.modal-body .form-row .form-group {
+  flex: 1;
+  min-width: 130px;
 }
 
 /* Abas (Tabs) para Ficha do Servidor */
@@ -4742,6 +4796,81 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 @media(max-width:700px){.rep-identidade-fixa{top:0}.rep-identidade-fixa span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#global-loader.rep-loader-previa{padding:8px}}
 @media(prefers-reduced-motion:reduce){#loader-afd-progress .loader-afd-dot.carregando{animation:none}.loader-entidade::after{transition:none}}
 
+
+/* Controles de agrupamento da barra lateral do REP */
+.rep-pessoas-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  gap: 8px;
+}
+.rep-modo-agrupamento {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+.rep-btn-modo {
+  background: none;
+  border: none;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+.rep-btn-modo:hover {
+  color: var(--text-primary);
+}
+.rep-btn-modo.active {
+  background: var(--bg-secondary);
+  color: var(--brand-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+}
+.rep-grupo-sidebar {
+  border-bottom: 1px solid var(--border-color);
+}
+.rep-grupo-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+.rep-grupo-sidebar-header:hover {
+  background: var(--bg-tertiary);
+}
+.rep-grupo-sidebar-header .rep-grupo-seta {
+  display: inline-block;
+  font-size: 10px;
+  margin-right: 6px;
+  transition: transform 0.2s ease;
+}
+.rep-grupo-sidebar-header small {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.rep-grupo-sidebar-itens {
+  background: var(--bg-primary);
+}
+
 /* FIM FLUXO AJUSTES REP */
 </style>
 <style>
@@ -5146,8 +5275,10 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
 .rep-tabela-detalhe th { padding:9px 7px; font-size:11px; white-space:normal; word-break:normal; }
 .rep-tabela-detalhe .rep-status { display:flex; flex-direction:column; align-items:flex-start; gap:3px; white-space:normal; overflow-wrap:normal; }
 .rep-tabela-detalhe .rep-status > b,.rep-tabela-detalhe .rep-status > span { width:auto; max-width:100%; white-space:normal; word-break:normal; }
-.modal-content { max-height:calc(100dvh - 32px); display:flex; flex-direction:column; }
-.modal-body { min-height:0; overflow:auto; }
+.modal-content { max-height:min(90vh, 90dvh, 700px); display:flex; flex-direction:column; }
+.modal-content.large { max-height:min(92vh, 92dvh, 760px); }
+.modal-content > form { display:flex; flex-direction:column; flex:1 1 auto; min-height:0; overflow:hidden; }
+.modal-body { min-height:0; overflow-y:auto; overflow-x:hidden; }
 .modal-footer { flex-shrink:0; }
 .data-protection-card { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:center; padding:18px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-secondary); }
 .data-protection-card h3 { margin:4px 0; }
@@ -6123,18 +6254,26 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
             
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Data de Admissão</label>
+                <label class="form-label" for="serv-admissao">Data de Admissão</label>
                 <input type="date" id="serv-admissao" class="form-control">
               </div>
               <div class="form-group">
-                <label class="form-label">Aniversário (dia e mês)</label>
+                <label class="form-label" for="serv-aniversario">Aniversário (dia e mês)</label>
                 <input type="text" id="serv-aniversario" class="form-control" inputmode="numeric" maxlength="5" placeholder="DD/MM" pattern="\d{2}/\d{2}">
-                <p class="form-help">Se ficar vazio, o sistema usa a abonada natalícia mais recente quando existir.</p>
+                <p class="form-help">Para abonada natalícia quando existir.</p>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="serv-email">E-mail <span id="serv-email-obrigatorio">*</span></label>
+                <input type="email" id="serv-email" class="form-control" required placeholder="Ex: pessoa@organizacao.com">
+                <p class="form-help" id="serv-identificacao-ajuda" style="display:none;">Opcional para Estagiário e PEAD.</p>
               </div>
               <div class="form-group">
-                <label class="form-label">E-mail <span id="serv-email-obrigatorio">*</span></label>
-                <input type="email" id="serv-email" class="form-control" required placeholder="Ex: pessoa@organizacao.com">
-                <p class="form-help" id="serv-identificacao-ajuda" style="display:none;">Matrícula e e-mail são opcionais para Estagiário e PEAD. Se a matrícula ficar vazia, o sistema criará um identificador interno.</p>
+                <label class="form-label" for="serv-whatsapp">Telefone / WhatsApp (opcional)</label>
+                <input type="tel" id="serv-whatsapp" class="form-control" autocomplete="tel" placeholder="(00) 00000-0000 ou DDD e número">
+                <p class="form-help">Para contato e comunicados do ponto.</p>
               </div>
             </div>
 
@@ -16842,19 +16981,8 @@ function atualizarProcessamentoRep(opcoes) {
   const pessoas = repContextoProcessamento_ === contexto && Array.isArray(opcoes.pessoas) && opcoes.pessoas.length
     ? new Set(opcoes.pessoas.map(normalizarPisRep)) : null;
 
+  // Otimização de performance: extrai servidores extras instantaneamente sem iterar batidas ativas
   const pessoasCompetencia = new Set();
-  (dadosRepCache.punches || []).forEach(p => {
-    const pis = normalizarPisRep(p.pis);
-    if (!pis) return;
-    if (pessoas && !pessoas.has(pis)) return;
-    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
-    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
-    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
-    if (anoSel !== 'all' && y !== anoSel) return;
-    if (mesSel !== 'all' && m !== mesSel) return;
-    if (localSel !== 'all' && !String(p.clock || '').split(', ').includes(localSel)) return;
-    pessoasCompetencia.add(pis);
-  });
   if (anoSel !== 'all' && mesSel !== 'all') {
     const compSel = `${anoSel}-${mesSel}`;
     (ajustesCompartilhadosRep || []).forEach(a => {
@@ -16862,6 +16990,11 @@ function atualizarProcessamentoRep(opcoes) {
         const pis = normalizarPisRep(a.pis);
         if (pis && (!pessoas || pessoas.has(pis))) pessoasCompetencia.add(pis);
       }
+    });
+  } else {
+    (ajustesCompartilhadosRep || []).forEach(a => {
+      const pis = normalizarPisRep(a.pis);
+      if (pis && (!pessoas || pessoas.has(pis))) pessoasCompetencia.add(pis);
     });
   }
   if (pisSelecionadoRep && (!pessoas || pessoas.has(normalizarPisRep(pisSelecionadoRep)))) {
@@ -18204,7 +18337,7 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
   const controleVinculo = cadastroSelecionado
     ? `<span class="rep-vinculo-confirmado">Cadastro associado</span><button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Gerenciar vínculo / unir outro</button>`
     : `<button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">Vincular ao cadastro / unir</button>`;
-  const resumo = servidores.map(emp => {
+  const renderizarItemServidor_ = emp => {
     const pisNormalizado = normalizarPisRep(emp.pis);
     const cadastroEmp = contextoVisual.cadastroPorPis.get(pisNormalizado) || null;
     const abertos = (contextoVisual.apontamentosPorPis.get(pisNormalizado) || []).filter(item => item.status !== 'CONCLUIDO').length;
@@ -18214,10 +18347,75 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
       <span class="rep-pessoa-identidade"><strong>${escapeHtml(emp.nome)}</strong><small>${emp.pis} · ${escapeHtml(emp.lotacao || 'Não informada')}</small></span>
       <span class="rep-pessoa-metricas"><small>${obterVinculoVisualRep_(cadastroEmp, true)}<b class="rep-mini-indicador he">HE ${formatHoursRep(emp.resumo.horasExtras)}h</b><i class="rep-mini-indicador vr">${emp.resumo.valeRefeicao} VR</i><i class="rep-mini-indicador apontamento ${abertos ? 'tem-apontamento' : ''}" title="Apontamentos abertos">${abertos} AP</i><i class="rep-mini-indicador alerta ${emp.resumo.pendencias ? 'tem-alerta' : ''}">${emp.resumo.pendencias} alertas</i></small><button type="button" class="rep-conferencia-servidor ${conferencia ? 'conferido' : ''}" onclick="event.stopPropagation(); alternarConferenciaServidorRep('${emp.pis}', this)" title="${conferencia ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferencia ? 'circle-check-big' : 'circle'}"></span>${escapeHtml(rotuloConferencia)}</button></span>
     </div>`;
-  }).join('');
+  };
+
+  const termoBuscaAtual_ = normalizarTextoBusca(document.getElementById('rep-search-input')?.value || '');
+  let resumo = '';
+
+  if (modoAgrupamentoRep === 'alfabetico') {
+    const mapaLetras = new Map();
+    servidores.forEach(emp => {
+      const letra = (normalizarTextoBusca(emp.nome || '')[0] || '#').toUpperCase();
+      if (!mapaLetras.has(letra)) mapaLetras.set(letra, []);
+      mapaLetras.get(letra).push(emp);
+    });
+    const letrasOrdenadas = Array.from(mapaLetras.keys()).sort();
+    resumo = letrasOrdenadas.map(letra => {
+      const listaLetra = mapaLetras.get(letra);
+      const chave = 'letra-' + letra;
+      const temSelecionado = listaLetra.some(emp => emp.pis === pisSelecionadoRep);
+      if (temSelecionado || termoBuscaAtual_.length > 0) gruposExpandidosSidebarRep.add(chave);
+      const expandido = gruposExpandidosSidebarRep.has(chave);
+      return `<div class="rep-grupo-sidebar">
+        <div class="rep-grupo-sidebar-header" onclick="alternarGrupoSidebarRep('${chave}')" role="button" tabindex="0">
+          <div><span class="rep-grupo-seta" id="rep-grupo-seta-${chave}" style="transform:${expandido ? 'rotate(90deg)' : 'rotate(0deg)'}">▶</span><b>Letra ${letra}</b></div>
+          <small>${listaLetra.length}</small>
+        </div>
+        <div class="rep-grupo-sidebar-itens" id="rep-grupo-conteudo-${chave}" style="display:${expandido ? 'block' : 'none'};">
+          ${listaLetra.map(renderizarItemServidor_).join('')}
+        </div>
+      </div>`;
+    }).join('');
+  } else if (modoAgrupamentoRep === 'lotacao') {
+    const mapaLotacao = new Map();
+    servidores.forEach(emp => {
+      const loc = emp.lotacao || 'Não informada';
+      if (!mapaLotacao.has(loc)) mapaLotacao.set(loc, []);
+      mapaLotacao.get(loc).push(emp);
+    });
+    const locsOrdenadas = Array.from(mapaLotacao.keys()).sort((a,b) => a.localeCompare(b));
+    resumo = locsOrdenadas.map(loc => {
+      const listaLoc = mapaLotacao.get(loc);
+      const chave = 'loc-' + loc.replace(/[^a-zA-Z0-9]/g, '_');
+      const temSelecionado = listaLoc.some(emp => emp.pis === pisSelecionadoRep);
+      if (temSelecionado || termoBuscaAtual_.length > 0) gruposExpandidosSidebarRep.add(chave);
+      const expandido = gruposExpandidosSidebarRep.has(chave);
+      return `<div class="rep-grupo-sidebar">
+        <div class="rep-grupo-sidebar-header" onclick="alternarGrupoSidebarRep('${chave}')" role="button" tabindex="0">
+          <div><span class="rep-grupo-seta" id="rep-grupo-seta-${chave}" style="transform:${expandido ? 'rotate(90deg)' : 'rotate(0deg)'}">▶</span><b>${escapeHtml(loc)}</b></div>
+          <small>${listaLoc.length}</small>
+        </div>
+        <div class="rep-grupo-sidebar-itens" id="rep-grupo-conteudo-${chave}" style="display:${expandido ? 'block' : 'none'};">
+          ${listaLoc.map(renderizarItemServidor_).join('')}
+        </div>
+      </div>`;
+    }).join('');
+  } else {
+    resumo = servidores.map(renderizarItemServidor_).join('');
+  }
 
   if (buscaRepAguardandoSelecao_) {
-    container.innerHTML = `<div class="rep-painel-pessoas"><aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside><section class="rep-detalhe rep-busca-selecao"><span data-lucide="mouse-pointer-click"></span><strong>Escolha um servidor na lista</strong><small>Os dias e lançamentos aparecem depois que você clicar no nome à esquerda.</small></section></div>`;
+    container.innerHTML = `<div class="rep-painel-pessoas"><aside class="rep-pessoas">
+        <div class="rep-pessoas-topo">
+          <div class="rep-pessoas-titulo">Servidores <span>${servidores.length}</span></div>
+          <div class="rep-modo-agrupamento">
+            <button type="button" class="rep-btn-modo ${modoAgrupamentoRep === 'alfabetico' ? 'active' : ''}" onclick="alternarModoAgrupamentoRep('alfabetico')" title="Agrupar por letra inicial (A-Z)">A-Z</button>
+            <button type="button" class="rep-btn-modo ${modoAgrupamentoRep === 'lotacao' ? 'active' : ''}" onclick="alternarModoAgrupamentoRep('lotacao')" title="Agrupar por lotação/setor">Lotação</button>
+            <button type="button" class="rep-btn-modo ${modoAgrupamentoRep === 'lista' ? 'active' : ''}" onclick="alternarModoAgrupamentoRep('lista')" title="Lista contínua">Geral</button>
+          </div>
+        </div>
+        ${resumo}
+      </aside><section class="rep-detalhe rep-busca-selecao"><span data-lucide="mouse-pointer-click"></span><strong>Escolha um servidor na lista</strong><small>Os dias e lançamentos aparecem depois que você clicar no nome à esquerda.</small></section></div>`;
     const listaAtual = container.querySelector('.rep-pessoas');
     if (listaAtual) listaAtual.scrollTop = rolagemPessoasRep;
     renderizarIcones();
@@ -18263,7 +18461,17 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
       : `<div class="rep-saldo-celula"><span>${!Number.isFinite(dia.extraDia) ? '—' : (dia.pendencia ? 'Conferir' : saldoValor + 'h')}</span><span class="rep-sinalizadores rep-sinalizadores-saldo">${sinalizadoresSaldo}</span></div>`;
     const classesDia = [dia.semRegistro ? 'rep-dia-sem-registro' : '', dia.diaExtra ? 'rep-dia-nao-util' : ''].filter(Boolean).join(' ');
     return `<tr class="${classesDia}" data-rep-data="${dia.dataOriginal}" ondragover="permitirSoltarMarcacaoRep_(event)" ondragleave="sairDestinoMarcacaoRep_(event)" ondrop="soltarMarcacaoRep_(event,'${dia.dataOriginal}')">
-      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia"><button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar</button><button type="button" class="rep-ajustar-dia adicionar-marcacao" onclick="abrirInsercaoMarcacaoDiaRep_('${selecionado.pis}','${dia.dataOriginal}')">+ Batidas</button><button type="button" class="rep-ajustar-dia lancamento" onclick="abrirLancamentoDiretoRep_('', '${dia.dataOriginal}', '${selecionado.pis}')">+ Lançamento</button></div><details class="rep-menu-dia"><summary>Mais ações</summary><div><button type="button" class="rep-ajustar-dia" onclick="limparDiaServidorRep_('${selecionado.pis}','${dia.dataOriginal}')">Limpar marcações do dia</button></div></details></td>
+      <td><strong>${dia.dataFormatada}</strong><small class="rep-dia-semana">${dia.diaSemana}</small><div class="rep-acoes-dia">
+        <button type="button" class="rep-ajustar-dia adicionar-marcacao" onclick="abrirInsercaoMarcacaoDiaRep_('${selecionado.pis}','${dia.dataOriginal}')" title="Inserir batida rápida">+ Batidas</button>
+        <details class="rep-menu-dia">
+          <summary>Mais ações</summary>
+          <div>
+            <button type="button" class="rep-ajustar-dia" onclick="abrirAjusteDiaRep('${selecionado.pis}','${dia.dataOriginal}')">Ajustar dia</button>
+            <button type="button" class="rep-ajustar-dia" onclick="abrirLancamentoDiretoRep_('', '${dia.dataOriginal}', '${selecionado.pis}')">+ Lançamento</button>
+            <button type="button" class="rep-ajustar-dia" onclick="limparDiaServidorRep_('${selecionado.pis}','${dia.dataOriginal}')">Limpar marcações do dia</button>
+          </div>
+        </details>
+      </div></td>
       <td><div class="rep-linha-tempo">${eventos}</div><div id="rep-insercao-${dia.dataOriginal.replace(/[^\d]/g,'')}" hidden></div>${infoAusencia}${infoDeclaracao}${infoCompensacao}${infoOrigemCompensacao}${infoValidacao}${infoDescarteHe}${htmlApontamentosRep_(apontamentosDia)}</td>
       <td>${dia.semRegistro || !Number.isFinite(dia.totalDia) ? '—' : (dia.pendencia ? 'Conferir' : formatHoursRep(dia.totalDia) + 'h')}</td>
       <td class="${dia.extraDia > 0 ? 'rep-valor-positivo' : (dia.extraDia < 0 ? 'rep-valor-negativo' : '')}">${campoSaldo}<div class="rep-validacao-saldo">${acaoValidacao}</div>${dia.ausencia && !dia.semRegistro ? `<button type="button" class="rep-ajustar-dia" onclick="invalidarTrabalhoAusenciaRep_('${selecionado.pis}','${dia.dataOriginal}')">Desconsiderar trabalho neste dia</button>` : ''}</td>
@@ -18285,7 +18493,22 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
     <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
     <section class="rep-detalhe">
       <div class="rep-identidade-fixa"><strong>${escapeHtml(selecionado.nome)}</strong><span>${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')} · ${escapeHtml(selecionado.lotacao || 'Não informada')}</span></div>
-      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><div class="rep-identidade-titulo"><h3>${escapeHtml(selecionado.nome)}</h3>${obterVinculoVisualRep_(cadastroSelecionado, false)}</div><strong class="rep-identidade-cargo">${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')}</strong><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">${controleVinculo}<details class="rep-menu-dia rep-menu-servidor"><summary>Mais ações</summary><div><button type="button" class="rep-unir-registros" onclick="restaurarServidorMesRep_('${selecionado.pis}')" style="color:var(--brand-primary);font-weight:700;">Restaurar batidas originais deste mês</button><button type="button" class="rep-unir-registros" onclick="resetarServidorMesRep_('${selecionado.pis}')">Zerar/retirar marcações deste mês</button></div></details>${botaoWhatsappServidorRep_(cadastroSelecionado, selecionado.pis)}<button type="button" class="rep-conferencia-cabecalho ${conferenciaSelecionado ? 'conferido' : ''}" onclick="alternarConferenciaServidorRep('${selecionado.pis}', this)" title="${conferenciaSelecionado ? 'Desmarcar conferência' : 'Marcar como conferido'}"><span data-lucide="${conferenciaSelecionado ? 'circle-check-big' : 'circle-check'}"></span>${conferenciaSelecionado ? 'Conferido' : 'Conferir'}</button><button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button></div></div>
+      <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><div class="rep-identidade-titulo"><h3>${escapeHtml(selecionado.nome)}</h3>${obterVinculoVisualRep_(cadastroSelecionado, false)}</div><strong class="rep-identidade-cargo">${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')}</strong><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">
+            ${cadastroSelecionado ? '<span class="rep-vinculo-confirmado">Cadastro associado</span>' : '<button type="button" class="rep-unir-registros" onclick="abrirFusaoRep(\'' + selecionado.pis + '\')">Vincular cadastro</button>'}
+            ${botaoWhatsappServidorRep_(cadastroSelecionado, selecionado.pis)}
+            <button type="button" class="rep-conferencia-cabecalho ${conferenciaSelecionado ? 'conferido' : ''}" onclick="alternarConferenciaServidorRep('${selecionado.pis}', this)" title="${conferenciaSelecionado ? 'Desmarcar conferência' : 'Marcar como conferido'}">
+              <span data-lucide="${conferenciaSelecionado ? 'circle-check-big' : 'circle-check'}"></span>${conferenciaSelecionado ? 'Conferido' : 'Conferir'}
+            </button>
+            <details class="rep-menu-dia rep-menu-servidor">
+              <summary>Mais ações</summary>
+              <div>
+                <button type="button" class="rep-unir-registros" onclick="abrirApontamentoRep('${selecionado.pis}','','SERVIDOR','','')">Apontar no servidor</button>
+                <button type="button" class="rep-unir-registros" onclick="abrirFusaoRep('${selecionado.pis}')">${cadastroSelecionado ? 'Gerenciar vínculo / unir outro' : 'Vincular ao cadastro / unir'}</button>
+                <button type="button" class="rep-unir-registros" onclick="restaurarServidorMesRep_('${selecionado.pis}')" style="color:var(--brand-primary);font-weight:700;">Restaurar batidas originais do relógio (AFD)</button>
+                <button type="button" class="rep-unir-registros" onclick="resetarServidorMesRep_('${selecionado.pis}')">Zerar / desconsiderar marcações deste mês</button>
+              </div>
+            </details>
+          </div></div>
         <div class="rep-grupo-resumo">
           <button type="button" class="rep-indicador-resumo destaque ${filtroDiasRepAtual === 'he' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('he')" aria-pressed="${filtroDiasRepAtual === 'he'}"><small>Horas extras válidas</small><b>${formatHoursRep(selecionado.resumo.horasExtras || 0)}h</b><em>Saldo para compensação: ${formatHoursRep(selecionado.resumo.saldoDisponivelCompensacao || 0)}h · ${formatHoursRep(selecionado.resumo.horasRetiradasCompensacao || 0)}h já usadas</em></button>
           <button type="button" class="rep-indicador-resumo vr ${filtroDiasRepAtual === 'vr' ? 'ativo' : ''}" onclick="definirFiltroDiasRep('vr')" aria-pressed="${filtroDiasRepAtual === 'vr'}"><small>Vales-refeição extras</small><b>${selecionado.resumo.valeRefeicao}</b><em>Jornada considerada ≥ 6h em dia não útil</em></button>
@@ -18370,6 +18593,34 @@ function renderizarTabelaPaginadaRep(servidores, container) {
   }
   container.innerHTML = `<div class="rep-paginacao"><span>Exibindo ${registros.length ? inicio + 1 : 0}–${Math.min(inicio + ITENS_POR_PAGINA_REP, registros.length)} de ${registros.length.toLocaleString('pt-BR')} dias processados</span><div><button class="btn btn-secondary" onclick="mudarPaginaRep(-1)" ${paginaRepAtual === 1 ? 'disabled' : ''}>Anterior</button><span>Página ${paginaRepAtual} de ${totalPaginas}</span><button class="btn btn-secondary" onclick="mudarPaginaRep(1)" ${paginaRepAtual === totalPaginas ? 'disabled' : ''}>Próxima</button></div></div>
     <div class="rep-table-wrap"><table class="custom-table rep-tabela-leitura"><thead><tr><th>Data</th><th>Batidas</th><th>Horas</th><th>Saldo estimado</th><th>Local do relógio</th><th>Situação</th><th>PIS vinculado</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+}
+
+
+let modoAgrupamentoRep = (function() {
+  try { return localStorage.getItem('rep_modo_agrupamento') || 'alfabetico'; } catch (_) { return 'alfabetico'; }
+})();
+let gruposExpandidosSidebarRep = new Set();
+
+function alternarModoAgrupamentoRep(modo) {
+  modoAgrupamentoRep = modo;
+  try { localStorage.setItem('rep_modo_agrupamento', modo); } catch (_) {}
+  renderizarListaRep();
+}
+
+function alternarGrupoSidebarRep(chaveGrupo) {
+  if (gruposExpandidosSidebarRep.has(chaveGrupo)) {
+    gruposExpandidosSidebarRep.delete(chaveGrupo);
+  } else {
+    gruposExpandidosSidebarRep.add(chaveGrupo);
+  }
+  const el = document.getElementById('rep-grupo-conteudo-' + chaveGrupo);
+  const seta = document.getElementById('rep-grupo-seta-' + chaveGrupo);
+  if (el) {
+    el.style.display = gruposExpandidosSidebarRep.has(chaveGrupo) ? 'block' : 'none';
+  }
+  if (seta) {
+    seta.style.transform = gruposExpandidosSidebarRep.has(chaveGrupo) ? 'rotate(90deg)' : 'rotate(0deg)';
+  }
 }
 
 function renderizarListaRep() {
@@ -20994,11 +21245,14 @@ function prepararWhatsappCadastro_(matricula) {
   let campo = document.getElementById('serv-whatsapp');
   if (!campo) {
     const grupo = document.createElement('div'); grupo.className = 'form-group';
-    grupo.innerHTML = '<label class="form-label" for="serv-whatsapp">WhatsApp (opcional)</label><input id="serv-whatsapp" class="form-control" type="tel" autocomplete="tel" placeholder="DDD e número"><small class="form-help">Usado para abrir a conversa com as pendências do ponto. Você confirma o envio no WhatsApp.</small>';
-    document.getElementById('serv-email').closest('.form-group').after(grupo);
+    grupo.innerHTML = '<label class="form-label" for="serv-whatsapp">Telefone / WhatsApp (opcional)</label><input id="serv-whatsapp" class="form-control" type="tel" autocomplete="tel" placeholder="(00) 00000-0000 ou DDD e número"><small class="form-help">Para contato e comunicados do ponto.</small>';
+    const emailGroup = document.getElementById('serv-email')?.closest('.form-group');
+    if (emailGroup) emailGroup.after(grupo);
     campo = grupo.querySelector('input');
   }
-  campo.value = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula))?.whatsapp || '';
+  if (campo) {
+    campo.value = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula))?.whatsapp || '';
+  }
 }
 function numeroWhatsappRep_(valor) {
   const n = String(valor || '').replace(/\D/g, '');

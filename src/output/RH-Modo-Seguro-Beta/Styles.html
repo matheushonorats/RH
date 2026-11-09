@@ -606,6 +606,8 @@ body {
   z-index: 20000;
   backdrop-filter: blur(4px);
   padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .modal-overlay.active {
@@ -615,18 +617,29 @@ body {
 .modal-content {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-lg, 12px);
   width: 100%;
   max-width: 600px;
-  max-height: calc(100dvh - 32px);
+  max-height: min(90vh, 90dvh, 700px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   animation: modalSlideUp 0.25s ease-out;
+  box-shadow: 0 24px 64px rgba(0,0,0,.35);
+  box-sizing: border-box;
 }
 
 .modal-content.large {
   max-width: 900px;
+  max-height: min(92vh, 92dvh, 760px);
+}
+
+.modal-content > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 @keyframes modalSlideUp {
@@ -635,15 +648,16 @@ body {
 }
 
 .modal-header {
-  padding: 20px 24px;
+  padding: 15px 22px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .modal-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -652,12 +666,12 @@ body {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0;
+  border-radius: var(--radius-sm, 6px);
   transition: all 0.2s ease;
 }
 
@@ -667,18 +681,58 @@ body {
 }
 
 .modal-body {
-  padding: 24px;
-  flex: 1;
+  padding: 18px 22px;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-footer {
-  padding: 16px 24px;
+  padding: 13px 22px;
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+  flex-shrink: 0;
+  background-color: var(--bg-secondary);
+}
+
+/* Otimização de formulários em modais */
+.modal-body .form-group {
+  margin-bottom: 12px;
+}
+
+.modal-body .form-label {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.modal-body .form-control {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.modal-body .form-help {
+  font-size: 11px;
+  margin-top: 3px;
+  margin-bottom: 0;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.modal-body .form-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+
+.modal-body .form-row .form-group {
+  flex: 1;
+  min-width: 130px;
 }
 
 /* Abas (Tabs) para Ficha do Servidor */
@@ -4539,6 +4593,81 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 @keyframes rep-arquivo-pulso{50%{background:rgba(16,185,129,.13)}}
 @media(max-width:700px){.rep-identidade-fixa{top:0}.rep-identidade-fixa span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#global-loader.rep-loader-previa{padding:8px}}
 @media(prefers-reduced-motion:reduce){#loader-afd-progress .loader-afd-dot.carregando{animation:none}.loader-entidade::after{transition:none}}
+
+
+/* Controles de agrupamento da barra lateral do REP */
+.rep-pessoas-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  gap: 8px;
+}
+.rep-modo-agrupamento {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+.rep-btn-modo {
+  background: none;
+  border: none;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+.rep-btn-modo:hover {
+  color: var(--text-primary);
+}
+.rep-btn-modo.active {
+  background: var(--bg-secondary);
+  color: var(--brand-primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+}
+.rep-grupo-sidebar {
+  border-bottom: 1px solid var(--border-color);
+}
+.rep-grupo-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+.rep-grupo-sidebar-header:hover {
+  background: var(--bg-tertiary);
+}
+.rep-grupo-sidebar-header .rep-grupo-seta {
+  display: inline-block;
+  font-size: 10px;
+  margin-right: 6px;
+  transition: transform 0.2s ease;
+}
+.rep-grupo-sidebar-header small {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.rep-grupo-sidebar-itens {
+  background: var(--bg-primary);
+}
 
 /* FIM FLUXO AJUSTES REP */
 .rep-lote-secao > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
