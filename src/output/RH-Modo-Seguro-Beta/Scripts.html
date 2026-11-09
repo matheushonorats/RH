@@ -11445,7 +11445,17 @@ function renderizarPainelRep(servidores, container, contextoVisual) {
   const avisoDesconsideradas_ = temMarcacoesOriginaisDesconsideradas_ ? `<div class="rep-aviso-desconsideradas" style="margin: 10px 0; padding: 10px 14px; border-radius: 8px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-primary);"><div style="display: flex; align-items: center; gap: 8px;"><span data-lucide="rotate-ccw" style="color: #f59e0b; width: 18px; height: 18px; flex-shrink: 0;"></span><span><strong>Marcações desconsideradas neste mês:</strong> As batidas do relógio (AFD) foram retiradas nesta competência.</span></div><button type="button" class="btn btn-secondary" onclick="restaurarServidorMesRep_('${selecionado.pis}')" style="white-space: nowrap; font-weight: 700; color: var(--brand-primary);"><span data-lucide="rotate-ccw"></span> Restaurar marcações originais</button></div>` : '';
 
   container.innerHTML = `<div class="rep-painel-pessoas">
-    <aside class="rep-pessoas"><div class="rep-pessoas-titulo">Servidores encontrados <span>${servidores.length}</span></div>${resumo}</aside>
+    <aside class="rep-pessoas">
+      <div class="rep-pessoas-topo">
+        <div class="rep-pessoas-titulo">Servidores <span>${servidores.length}</span></div>
+        <div class="rep-modo-agrupamento">
+          <button type="button" class="rep-btn-modo ${modoAgrupamentoRep === 'alfabetico' ? 'active' : ''}" onclick="alternarModoAgrupamentoRep('alfabetico')" title="Agrupar por letra inicial (A-Z)">A-Z</button>
+          <button type="button" class="rep-btn-modo ${modoAgrupamentoRep === 'lotacao' ? 'active' : ''}" onclick="alternarModoAgrupamentoRep('lotacao')" title="Agrupar por lotação/setor">Lotação</button>
+          <button type="button" class="rep-btn-modo ${modoAgrupamentoRep === 'lista' ? 'active' : ''}" onclick="alternarModoAgrupamentoRep('lista')" title="Lista contínua">Geral</button>
+        </div>
+      </div>
+      ${resumo}
+    </aside>
     <section class="rep-detalhe">
       <div class="rep-identidade-fixa"><strong>${escapeHtml(selecionado.nome)}</strong><span>${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')} · ${escapeHtml(selecionado.lotacao || 'Não informada')}</span></div>
       <header class="rep-detalhe-cabecalho"><div><span class="page-eyebrow">CONFERÊNCIA INDIVIDUAL</span><div class="rep-identidade-titulo"><h3>${escapeHtml(selecionado.nome)}</h3>${obterVinculoVisualRep_(cadastroSelecionado, false)}</div><strong class="rep-identidade-cargo">${escapeHtml(cadastroSelecionado?.cargo || 'Cargo não informado')}</strong><small>Identificador: ${selecionado.pis} · Lotação: ${escapeHtml(selecionado.lotacao || 'Não informada')}</small><div class="rep-controle-vinculo">
