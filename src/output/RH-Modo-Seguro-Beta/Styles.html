@@ -4537,11 +4537,12 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 .rep-lote-autorizacao-cabecalho { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
 .rep-lote-autorizacao-cabecalho > div { display: grid; gap: 2px; }
 .rep-lote-autorizacoes { display: grid; gap: 7px; margin-bottom: 16px; }
-.rep-lote-autorizacao { display: grid; grid-template-columns: 32px 170px 140px minmax(110px,1fr) 96px; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
+.rep-lote-autorizacao { display: grid; grid-template-columns: 32px 145px 125px auto minmax(130px, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
 .rep-lote-autorizacao label { display: grid; gap: 3px; }
-.rep-lote-autorizacao small, .rep-lote-autorizacao-saldo { color: var(--text-secondary); font-size: 10px; }
+.rep-lote-autorizacao small, .rep-lote-autorizacao-saldo { color: var(--text-secondary); font-size: 10px; line-height: 1.35; }
+.rep-lote-autorizacao .rep-ajustar-dia { margin-top: 14px; height: 30px; display: inline-flex; align-items: center; white-space: nowrap; }
 .rep-lote-autorizacao-ordem { align-self: center; display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--brand-primary) 15%, var(--bg-tertiary)); color: var(--brand-primary); font-size: 11px; font-weight: 800; }
-.rep-lote-autorizacao-acoes { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.rep-lote-autorizacao-acoes { display: flex; align-items: center; justify-content: flex-end; gap: 2px; margin-top: 14px; }
 .rep-lote-autorizacao-acoes button { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .rep-lote-autorizacao-acoes button:hover { background: var(--bg-tertiary); color: var(--brand-primary); }
 .rep-lote-autorizacao-acoes svg { width: 14px; height: 14px; }
@@ -4572,7 +4573,9 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 .rep-identidade-fixa{position:sticky;top:0;z-index:12;display:flex;align-items:center;flex-wrap:wrap;gap:4px 16px;padding:10px 14px;background:var(--bg-secondary);box-shadow:0 5px 16px #0002;border-bottom:1px solid var(--border-color);font-size:12px}
 .rep-identidade-fixa{max-height:0;padding:0 14px;visibility:hidden;overflow:hidden;border-bottom:0;box-shadow:none;transition:max-height .2s ease,padding .2s ease}
 .rep-identidade-fixa.visivel{max-height:64px;padding:8px 14px;visibility:visible;border-bottom:1px solid var(--border-color);box-shadow:0 4px 12px #0001}
-.rep-menu-dia{position:relative;display:inline-block;margin-top:6px;font-size:11px;font-weight:400}.rep-menu-dia summary{cursor:pointer;color:var(--text-secondary);padding:4px}.rep-menu-dia>div{position:absolute;left:0;top:100%;z-index:18;min-width:170px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px #0003}.rep-menu-servidor{margin:0}.rep-whatsapp-rotulo{display:none}
+.rep-menu-dia{position:relative;display:inline-block;margin:0;font-size:11px;font-weight:400}.rep-menu-dia summary{cursor:pointer;color:var(--text-secondary);padding:4px}.rep-menu-dia>div{position:absolute;left:0;top:100%;z-index:18;min-width:170px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px #0003}.rep-menu-servidor{margin:0}.rep-whatsapp-rotulo{display:none}
+.rep-acoes-dia{display:inline-flex;align-items:center;gap:5px;margin-top:5px}.rep-acoes-dia .rep-ajustar-dia{margin:0;height:22px;display:inline-flex;align-items:center;padding:0 7px;border-radius:4px;font-size:10px;font-weight:600}.rep-acoes-dia .rep-menu-dia{margin:0;display:inline-flex;align-items:center}.rep-acoes-dia .rep-menu-dia summary{display:inline-flex;align-items:center;height:22px;padding:0 7px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;list-style:none;user-select:none;transition:all .15s ease}.rep-acoes-dia .rep-menu-dia summary:hover{color:var(--brand-primary);border-color:var(--brand-primary)}.rep-acoes-dia .rep-menu-dia summary::-webkit-details-marker{display:none}
+.rep-controle-vinculo{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}.rep-controle-vinculo .rep-vinculo-confirmado,.rep-controle-vinculo .rep-unir-registros,.rep-controle-vinculo .rep-whatsapp,.rep-controle-vinculo .rep-conferencia-cabecalho,.rep-controle-vinculo .rep-menu-servidor summary{display:inline-flex;align-items:center;justify-content:center;height:26px;line-height:1;margin:0;padding:0 9px;border-radius:6px;font-size:11px;font-weight:600;box-sizing:border-box;text-decoration:none}.rep-controle-vinculo .rep-menu-servidor{margin:0;display:inline-flex;align-items:center}.rep-controle-vinculo .rep-menu-servidor summary{gap:4px;border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer;list-style:none;user-select:none;transition:all .15s ease}.rep-controle-vinculo .rep-menu-servidor summary::-webkit-details-marker{display:none}.rep-controle-vinculo .rep-menu-servidor summary:hover{color:var(--brand-primary);border-color:var(--brand-primary)}
 .rep-identidade-fixa span{color:var(--text-secondary);font-size:11px}
 .rep-validacao-saldo{display:flex;justify-content:center;margin-top:8px}
 .rep-whatsapp{display:inline-flex;align-items:center;gap:5px;color:#25b96c}
@@ -4606,6 +4609,9 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
+  box-sizing: border-box;
+  overflow: hidden;
+  width: 100%;
 }
 .rep-pessoas-topo .rep-pessoas-titulo {
   position: static;
@@ -4639,7 +4645,8 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   box-sizing: border-box;
 }
 .rep-btn-modo {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   text-align: center;
   background: none;
   border: none;
@@ -4651,6 +4658,8 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   border-radius: 4px;
   transition: all 0.15s ease;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rep-btn-modo:hover {
   color: var(--text-primary);

@@ -58,6 +58,17 @@ for(const[edicao,fonte]of Object.entries(fontes)){
   vm.runInContext('let limitesAutorizados,compensacoes;const avisosLimiteCompensacao=[];\n'+normalizacao+'\nglobalThis.salvas=compensacoes;',ctx);
   assert.equal(ctx.salvas.length,1);assert.equal(ctx.salvas[0].minutos,27);assert.equal(ctx.salvas[0].origens[0].minutos,27);assert.equal(ctx.salvas[0].origens[0].autorizado,30);
  });
+ test(edicao+': re-compensar dia com compensação prévia restaura saldo e não limita a zero',()=>{
+  const{ctx,emp,linha,rows}=preparar();
+  emp.resumo.origensSaldoCompensacao[0].minutos = 0;
+  emp.dias[0].compensacao = { origensAplicadas: [{ data: '2026-10-01', minutos: 27 }] };
+  ctx.compensacoesRep = [{ pis: 'A', data: '2026-10-02', minutos: 27, origens: [{ data: '2026-10-01', minutos: 27 }] }];
+  linha('2026-10-02', '00:30');
+  ctx.emp=emp;ctx.linhasCompensacao=rows;ctx.pis='A';
+  const normalizacao=trecho(fonte,'  const capacidades = new Map((emp.resumo.origensSaldoCompensacao', '  } catch (erroValidacao)');
+  vm.runInContext('let limitesAutorizados,compensacoes;const avisosLimiteCompensacao=[];\n'+normalizacao+'\nglobalThis.salvas=compensacoes;',ctx);
+  assert.equal(ctx.salvas.length,1);assert.equal(ctx.salvas[0].minutos,27);assert.equal(ctx.salvas[0].origens[0].minutos,27);
+ });
 }
 test('base local preserva documento de 30 e grava somente 27 minutos efetivos',t=>{
  const os=require('node:os');const{LocalRuntime}=require('../portable-entidade/app/local-runtime.cjs');

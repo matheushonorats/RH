@@ -4550,11 +4550,12 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 .rep-lote-autorizacao-cabecalho { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
 .rep-lote-autorizacao-cabecalho > div { display: grid; gap: 2px; }
 .rep-lote-autorizacoes { display: grid; gap: 7px; margin-bottom: 16px; }
-.rep-lote-autorizacao { display: grid; grid-template-columns: 32px 170px 140px minmax(110px,1fr) 96px; gap: 8px; align-items: end; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
+.rep-lote-autorizacao { display: grid; grid-template-columns: 32px 145px 125px auto minmax(130px, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
 .rep-lote-autorizacao label { display: grid; gap: 3px; }
-.rep-lote-autorizacao small, .rep-lote-autorizacao-saldo { color: var(--text-secondary); font-size: 10px; }
+.rep-lote-autorizacao small, .rep-lote-autorizacao-saldo { color: var(--text-secondary); font-size: 10px; line-height: 1.35; }
+.rep-lote-autorizacao .rep-ajustar-dia { margin-top: 14px; height: 30px; display: inline-flex; align-items: center; white-space: nowrap; }
 .rep-lote-autorizacao-ordem { align-self: center; display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--brand-primary) 15%, var(--bg-tertiary)); color: var(--brand-primary); font-size: 11px; font-weight: 800; }
-.rep-lote-autorizacao-acoes { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.rep-lote-autorizacao-acoes { display: flex; align-items: center; justify-content: flex-end; gap: 2px; margin-top: 14px; }
 .rep-lote-autorizacao-acoes button { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .rep-lote-autorizacao-acoes button:hover { background: var(--bg-tertiary); color: var(--brand-primary); }
 .rep-lote-autorizacao-acoes svg { width: 14px; height: 14px; }
@@ -4774,7 +4775,9 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 .rep-identidade-fixa{position:sticky;top:0;z-index:12;display:flex;align-items:center;flex-wrap:wrap;gap:4px 16px;padding:10px 14px;background:var(--bg-secondary);box-shadow:0 5px 16px #0002;border-bottom:1px solid var(--border-color);font-size:12px}
 .rep-identidade-fixa{max-height:0;padding:0 14px;visibility:hidden;overflow:hidden;border-bottom:0;box-shadow:none;transition:max-height .2s ease,padding .2s ease}
 .rep-identidade-fixa.visivel{max-height:64px;padding:8px 14px;visibility:visible;border-bottom:1px solid var(--border-color);box-shadow:0 4px 12px #0001}
-.rep-menu-dia{position:relative;display:inline-block;margin-top:6px;font-size:11px;font-weight:400}.rep-menu-dia summary{cursor:pointer;color:var(--text-secondary);padding:4px}.rep-menu-dia>div{position:absolute;left:0;top:100%;z-index:18;min-width:170px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px #0003}.rep-menu-servidor{margin:0}.rep-whatsapp-rotulo{display:none}
+.rep-menu-dia{position:relative;display:inline-block;margin:0;font-size:11px;font-weight:400}.rep-menu-dia summary{cursor:pointer;color:var(--text-secondary);padding:4px}.rep-menu-dia>div{position:absolute;left:0;top:100%;z-index:18;min-width:170px;padding:8px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px #0003}.rep-menu-servidor{margin:0}.rep-whatsapp-rotulo{display:none}
+.rep-acoes-dia{display:inline-flex;align-items:center;gap:5px;margin-top:5px}.rep-acoes-dia .rep-ajustar-dia{margin:0;height:22px;display:inline-flex;align-items:center;padding:0 7px;border-radius:4px;font-size:10px;font-weight:600}.rep-acoes-dia .rep-menu-dia{margin:0;display:inline-flex;align-items:center}.rep-acoes-dia .rep-menu-dia summary{display:inline-flex;align-items:center;height:22px;padding:0 7px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:10px;font-weight:600;cursor:pointer;list-style:none;user-select:none;transition:all .15s ease}.rep-acoes-dia .rep-menu-dia summary:hover{color:var(--brand-primary);border-color:var(--brand-primary)}.rep-acoes-dia .rep-menu-dia summary::-webkit-details-marker{display:none}
+.rep-controle-vinculo{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px}.rep-controle-vinculo .rep-vinculo-confirmado,.rep-controle-vinculo .rep-unir-registros,.rep-controle-vinculo .rep-whatsapp,.rep-controle-vinculo .rep-conferencia-cabecalho,.rep-controle-vinculo .rep-menu-servidor summary{display:inline-flex;align-items:center;justify-content:center;height:26px;line-height:1;margin:0;padding:0 9px;border-radius:6px;font-size:11px;font-weight:600;box-sizing:border-box;text-decoration:none}.rep-controle-vinculo .rep-menu-servidor{margin:0;display:inline-flex;align-items:center}.rep-controle-vinculo .rep-menu-servidor summary{gap:4px;border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer;list-style:none;user-select:none;transition:all .15s ease}.rep-controle-vinculo .rep-menu-servidor summary::-webkit-details-marker{display:none}.rep-controle-vinculo .rep-menu-servidor summary:hover{color:var(--brand-primary);border-color:var(--brand-primary)}
 .rep-identidade-fixa span{color:var(--text-secondary);font-size:11px}
 .rep-validacao-saldo{display:flex;justify-content:center;margin-top:8px}
 .rep-whatsapp{display:inline-flex;align-items:center;gap:5px;color:#25b96c}
@@ -4808,6 +4811,9 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
+  box-sizing: border-box;
+  overflow: hidden;
+  width: 100%;
 }
 .rep-pessoas-topo .rep-pessoas-titulo {
   position: static;
@@ -4841,7 +4847,8 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   box-sizing: border-box;
 }
 .rep-btn-modo {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   text-align: center;
   background: none;
   border: none;
@@ -4853,6 +4860,8 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   border-radius: 4px;
   transition: all 0.15s ease;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rep-btn-modo:hover {
   color: var(--text-primary);
@@ -5335,7 +5344,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
 <script src="diagnostics-ui.js"></script>
 <script src="desktop-storage.js"></script>
   </head>
-  <body class="dark-mode" data-app-version="1.43" data-app-url="">
+  <body class="dark-mode" data-app-version="1.44" data-app-url="">
     
     <!-- TELA DE LOGIN CUSTOMIZADO -->
     <div id="login-container" class="login-overlay" style="display: none;">
@@ -5380,7 +5389,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
             <strong>Gestão de Pessoas</strong>
             <span>Central de Documentos</span>
           </div>
-          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.43</a>
+          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.44</a>
         </div>
 
         <nav class="desktop-navigation" aria-label="Navegação principal">
@@ -20557,7 +20566,7 @@ function adicionarLinhaCompensacaoLoteRep_(data, horas) {
   if (!corpo) return;
   const tr = document.createElement('tr');
   tr.dataset.deficitSugerido = horas || '';
-  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}" onchange="renderizarOrigensCompensacaoLoteRep_(this.closest('tr'))"></td><td class="rep-lote-origens"></td><td><label class="rep-lote-meta-dia"><small>Quanto compensar</small><input type="text" class="form-control rep-lote-meta-dia-valor" value="" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalCompensacaoLoteRep_(this.closest('tr'))"></label><button type="button" class="rep-ajustar-dia" onclick="usarTodoDebitoLoteRep_(this)">Usar horas devidas</button><small class="rep-lote-total-lancado"></small><input type="text" class="form-control rep-lote-horas" value="" placeholder="00:00" readonly></td><td><input type="text" class="form-control rep-lote-observacao" placeholder="Opcional"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
+  tr.innerHTML = `<td><input type="date" class="form-control rep-lote-data" value="${escapeHtml(data || '')}" onchange="renderizarOrigensCompensacaoLoteRep_(this.closest('tr'))"></td><td class="rep-lote-origens"></td><td><label class="rep-lote-meta-dia"><small>Quanto compensar</small><input type="text" class="form-control rep-lote-meta-dia-valor" value="${escapeHtml(horas || '')}" placeholder="00:00" maxlength="5" inputmode="numeric" oninput="atualizarTotalCompensacaoLoteRep_(this.closest('tr'))"></label><button type="button" class="rep-ajustar-dia" onclick="usarTodoDebitoLoteRep_(this)">Usar horas devidas</button><small class="rep-lote-total-lancado"></small><input type="text" class="form-control rep-lote-horas" value="" placeholder="00:00" readonly></td><td><input type="text" class="form-control rep-lote-observacao" placeholder="Opcional"></td><td><button type="button" class="rep-lote-remove" title="Remover linha" onclick="this.closest('tr').remove()"><span data-lucide="trash-2"></span></button></td>`;
   // Primeiro define o débito desejado, depois escolhe/distribui as origens.
   tr.insertBefore(tr.children[2], tr.children[1]);
   corpo.appendChild(tr);
@@ -20585,10 +20594,15 @@ function moverAutorizacaoCompensacaoLoteRep_(botao, direcao) {
   atualizarAutorizacoesCompensacaoLoteRep_();
 }
 
-function obterUsoCompensacaoExistenteLoteRep_() {
+function obterUsoCompensacaoExistenteLoteRep_(destinosIgnorar) {
   const emp = obterServidorSelecionadoRep_();
   const uso = new Map();
-  (compensacoesRep || []).filter(function(item) { return emp && normalizarPisRep(item.pis) === normalizarPisRep(emp.pis) && Number(item.minutos || 0) > 0; }).forEach(function(item) {
+  const ignorar = destinosIgnorar instanceof Set
+    ? destinosIgnorar
+    : new Set(Array.isArray(destinosIgnorar) ? destinosIgnorar : (destinosIgnorar ? [destinosIgnorar] : []));
+  (compensacoesRep || []).filter(function(item) {
+    return emp && normalizarPisRep(item.pis) === normalizarPisRep(emp.pis) && Number(item.minutos || 0) > 0 && !ignorar.has(item.data);
+  }).forEach(function(item) {
     (Array.isArray(item.origens) ? item.origens : []).forEach(function(origem) {
       uso.set(origem.data, (uso.get(origem.data) || 0) + Math.max(0, Math.round(Number(origem.minutos || 0))));
     });
@@ -20596,9 +20610,9 @@ function obterUsoCompensacaoExistenteLoteRep_() {
   return uso;
 }
 
-function obterAutorizacoesCompensacaoLoteRep_(validar) {
+function obterAutorizacoesCompensacaoLoteRep_(validar, destinosIgnorar) {
   const autorizacoes = new Map();
-  const usoExistente = obterUsoCompensacaoExistenteLoteRep_();
+  const usoExistente = obterUsoCompensacaoExistenteLoteRep_(destinosIgnorar);
   Array.from(document.querySelectorAll('#rep-lote-autorizacoes .rep-lote-autorizacao')).forEach(function(linha) {
     const data = linha.querySelector('.rep-lote-autorizacao-data').value;
     const texto = linha.querySelector('.rep-lote-autorizacao-limite').value.trim();
@@ -20617,7 +20631,13 @@ function obterAutorizacoesCompensacaoLoteRep_(validar) {
 function atualizarAutorizacoesCompensacaoLoteRep_() {
   const emp = obterServidorProjetadoLoteRep_();
   const saldos = new Map(((emp && emp.resumo.origensSaldoCompensacao) || []).map(function(item) { return [item.data, Math.max(0, Math.round(Number(item.minutosBrutos != null ? item.minutosBrutos : item.minutos || 0)))]; }));
-  const usoExistente = obterUsoCompensacaoExistenteLoteRep_();
+  const destinosNoForm = new Set(Array.from(document.querySelectorAll('#rep-lote-compensacoes .rep-lote-data')).map(function(c) { return c.value; }).filter(Boolean));
+  (emp?.dias || []).filter(function(d) { return destinosNoForm.has(d.dataOriginal); }).forEach(function(d) {
+    (d.compensacao?.origensAplicadas || []).forEach(function(origem) {
+      saldos.set(origem.data, (saldos.get(origem.data) || 0) + Math.max(0, Math.round(Number(origem.minutos || 0))));
+    });
+  });
+  const usoExistente = obterUsoCompensacaoExistenteLoteRep_(destinosNoForm);
   document.querySelectorAll('#rep-lote-autorizacoes .rep-lote-autorizacao').forEach(function(linha, indice) {
     linha.dataset.ordem = String(indice + 1);
     const marcador = linha.querySelector('.rep-lote-autorizacao-ordem');
@@ -20656,9 +20676,19 @@ function renderizarOrigensCompensacaoLoteRep_(linha) {
   const container = linha && linha.querySelector('.rep-lote-origens');
   if (!emp || !container) return;
   const valoresAtuais = new Map(Array.from(container.querySelectorAll('.rep-lote-origem-valor')).map(function(input) { return [input.dataset.data, input.value]; }));
-  const autorizacoes = obterAutorizacoesCompensacaoLoteRep_(false);
-  const usoExistente = obterUsoCompensacaoExistenteLoteRep_();
-  const saldosPorData = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, item]; }));
+  const destinosNoForm = new Set(Array.from(document.querySelectorAll('#rep-lote-compensacoes .rep-lote-data')).map(function(c) { return c.value; }).filter(Boolean));
+  if (dataDestino) destinosNoForm.add(dataDestino);
+  const autorizacoes = obterAutorizacoesCompensacaoLoteRep_(false, destinosNoForm);
+  const usoExistente = obterUsoCompensacaoExistenteLoteRep_(destinosNoForm);
+  const saldosPorData = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, { ...item, minutos: Math.max(0, Math.round(Number(item.minutos || 0))) }]; }));
+  (emp.dias || []).filter(function(d) { return destinosNoForm.has(d.dataOriginal); }).forEach(function(d) {
+    (d.compensacao?.origensAplicadas || []).forEach(function(origem) {
+      const saldoObj = saldosPorData.get(origem.data) || { data: origem.data, minutos: 0, minutosBrutos: 0 };
+      saldoObj.minutos = (Number(saldoObj.minutos) || 0) + Math.max(0, Math.round(Number(origem.minutos || 0)));
+      saldoObj.minutosBrutos = (Number(saldoObj.minutosBrutos) || 0) + Math.max(0, Math.round(Number(origem.minutos || 0)));
+      saldosPorData.set(origem.data, saldoObj);
+    });
+  });
   // A ordem de inserção do Map é a ordem do documento definida pelo RH.
   // Nunca ordenar por data aqui: a distribuição automática deve consumir as HE nessa sequência.
   const origens = Array.from(autorizacoes.keys()).map(function(dataOrigem) { return saldosPorData.get(dataOrigem); })
@@ -20748,12 +20778,18 @@ function preencherCompensacoesLoteRep_() {
   const emp = obterServidorProjetadoLoteRep_();
   const linhas = Array.from(document.querySelectorAll('#rep-lote-compensacoes tr'));
   if (!emp || !linhas.length) return mostrarToast('Primeiro localize ou adicione os dias com débito.', 'warning');
+  const destinosNoForm = new Set(linhas.map(function(l) { return l.querySelector('.rep-lote-data')?.value; }).filter(Boolean));
   let autorizacoes;
-  try { autorizacoes = obterAutorizacoesCompensacaoLoteRep_(true); }
+  try { autorizacoes = obterAutorizacoesCompensacaoLoteRep_(true, destinosNoForm); }
   catch (erro) { return mostrarToast(mensagemErro(erro), 'warning'); }
   if (!autorizacoes.size) return mostrarToast('Informe ao menos um dia autorizado e o respectivo teto.', 'warning');
-  const usadosExistentes = obterUsoCompensacaoExistenteLoteRep_();
+  const usadosExistentes = obterUsoCompensacaoExistenteLoteRep_(destinosNoForm);
   const disponivel = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, Math.max(0, Math.round(Number(item.minutos || 0)))]; }));
+  (emp.dias || []).filter(function(d) { return destinosNoForm.has(d.dataOriginal); }).forEach(function(d) {
+    (d.compensacao?.origensAplicadas || []).forEach(function(origem) {
+      disponivel.set(origem.data, (disponivel.get(origem.data) || 0) + Math.max(0, Math.round(Number(origem.minutos || 0))));
+    });
+  });
   const restanteAutorizado = new Map(Array.from(autorizacoes.entries()).map(function(item) { return [item[0], Math.max(0, item[1] - (usadosExistentes.get(item[0]) || 0))]; }));
   const possuiDistribuicaoManual = linhas.some(function(linha) { return Array.from(linha.querySelectorAll('.rep-lote-origem-valor')).some(function(input) { return input.value.trim(); }); });
   if (possuiDistribuicaoManual && !window.confirm('Recalcular a compensação? Os valores preenchidos manualmente serão substituídos pela distribuição automática dentro dos limites autorizados.')) return;
@@ -20763,7 +20799,14 @@ function preencherCompensacoesLoteRep_() {
     const dataDestino = linha.querySelector('.rep-lote-data')?.value;
     const dia = (emp.dias || []).find(function(item) { return item.dataOriginal === dataDestino; });
     const campoMeta = linha.querySelector('.rep-lote-meta-dia-valor');
-    const textoMeta = String(campoMeta?.value || '').trim();
+    let textoMeta = String(campoMeta?.value || '').trim();
+    if (!textoMeta && dia) {
+      const defSugerido = formatarDuracaoCompensacaoLoteRep_(obterDeficitProjetadoLoteRep_(emp, dia));
+      if (defSugerido && defSugerido !== '00:00' && defSugerido !== '0') {
+        textoMeta = defSugerido;
+        if (campoMeta) campoMeta.value = defSugerido;
+      }
+    }
     const meta = textoMeta ? lerDuracaoCompensacaoLoteRep_(textoMeta) : null;
     // Dia localizado não é autorização para compensar: o usuário precisa
     // informar expressamente quanto deseja usar nesse dia.
@@ -21001,8 +21044,14 @@ async function salvarLancamentosLoteRep_() {
     });
   });
   const capacidades = new Map((emp.resumo.origensSaldoCompensacao || []).map(function(item) { return [item.data, Math.max(0, Math.round(Number(item.minutos || 0)))]; }));
-  limitesAutorizados = obterAutorizacoesCompensacaoLoteRep_(true);
-  const usoAutorizacaoExistente = obterUsoCompensacaoExistenteLoteRep_();
+  const datasCompensacaoNoFormulario = new Set(linhasCompensacao.map(function(linha) { return linha.querySelector('.rep-lote-data')?.value; }).filter(Boolean));
+  (emp.dias || []).filter(function(dia) { return datasCompensacaoNoFormulario.has(dia.dataOriginal); }).forEach(function(dia) {
+    (dia.compensacao?.origensAplicadas || []).forEach(function(origem) {
+      capacidades.set(origem.data, (capacidades.get(origem.data) || 0) + Math.max(0, Math.round(Number(origem.minutos || 0))));
+    });
+  });
+  limitesAutorizados = obterAutorizacoesCompensacaoLoteRep_(true, datasCompensacaoNoFormulario);
+  const usoAutorizacaoExistente = obterUsoCompensacaoExistenteLoteRep_(datasCompensacaoNoFormulario);
   const autorizacaoRestante = new Map(Array.from(limitesAutorizados.entries()).map(function(item) { return [item[0], Math.max(0, item[1] - (usoAutorizacaoExistente.get(item[0]) || 0))]; }));
   compensacoes = linhasCompensacao.map(function(linha) {
     const data = linha.querySelector('.rep-lote-data').value;
@@ -21106,7 +21155,9 @@ async function salvarLancamentosLoteRep_() {
       pisSelecionadoRep = pis;
     }
     agendarReprocessamentoRepLeve_(260, pis);
-    if (avisosLimiteCompensacao.length) mostrarToast('Salvo considerando somente o saldo real disponível. ' + avisosLimiteCompensacao[0], 'warning');
+    if (avisosLimiteCompensacao.length && compensacoes.length) mostrarToast('Salvo considerando somente o saldo real disponível. ' + avisosLimiteCompensacao[0], 'warning');
+    else if (!linhasMarcacao.length && !compensacoes.length && autorizacoesMudaram) mostrarToast('Limites autorizados salvos com sucesso. Adicione dias em “Dias que serão compensados” para aplicar a compensação.', 'success');
+    else if (avisosLimiteCompensacao.length) mostrarToast('Salvo considerando somente o saldo real disponível. ' + avisosLimiteCompensacao[0], 'warning');
     else mostrarToast(cartaoManual
       ? origensAjuste.size + ' dia(s) do cartão manual atualizado(s) no cálculo.'
       : (linhasMarcacao.length + compensacoes.length) + ' ajuste(s) de ponto salvo(s) em lote.', 'success');
@@ -21327,10 +21378,17 @@ function abrirWhatsappPendenciasRep_(pis) {
 function usarTodoSaldoAutorizacaoRep_(botao) {
   const linha = botao.closest('.rep-lote-autorizacao'), data = linha.querySelector('.rep-lote-autorizacao-data').value;
   const emp = obterServidorProjetadoLoteRep_();
-  const origem = emp?.resumo.origensSaldoCompensacao?.find(o => o.data === data);
-  const disponivel = Math.max(0, Number(origem?.minutosBrutos ?? origem?.minutos ?? 0));
-  const usado = obterUsoCompensacaoExistenteLoteRep_().get(data) || 0;
-  if (!data || !disponivel) return mostrarToast('Escolha um dia com saldo disponível.', 'warning');
+  let origem = emp?.resumo.origensSaldoCompensacao?.find(function(o) { return o.data === data; });
+  let disponivel = Math.max(0, Number(origem?.minutosBrutos ?? origem?.minutos ?? 0));
+  const diaOrigem = emp?.dias?.find(function(d) { return d.dataOriginal === data; });
+  if (!disponivel && diaOrigem) {
+    const extraMin = diaOrigem.extraDia && diaOrigem.extraDia > 0 ? Math.round(diaOrigem.extraDia * 60) : 0;
+    const compOrigem = Math.max(0, Math.round(Number(diaOrigem.minutosCompensadosComoOrigem || 0)));
+    disponivel = extraMin + compOrigem;
+  }
+  const destinosNoForm = new Set(Array.from(document.querySelectorAll('#rep-lote-compensacoes .rep-lote-data')).map(function(c) { return c.value; }).filter(Boolean));
+  const usado = obterUsoCompensacaoExistenteLoteRep_(destinosNoForm).get(data) || 0;
+  if (!data || (!disponivel && !usado)) return mostrarToast('Escolha um dia com saldo disponível.', 'warning');
   linha.querySelector('.rep-lote-autorizacao-limite').value = formatarDuracaoCompensacaoLoteRep_(disponivel + usado);
   atualizarAutorizacoesCompensacaoLoteRep_();
 }
