@@ -4597,32 +4597,60 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 
 /* Controles de agrupamento da barra lateral do REP */
 .rep-pessoas-topo {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  gap: 8px;
+}
+.rep-pessoas-topo .rep-pessoas-titulo {
+  position: static;
+  padding: 0;
+  background: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rep-pessoas-topo .rep-pessoas-titulo span {
+  background: var(--bg-tertiary);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--brand-primary);
+  font-weight: 700;
 }
 .rep-modo-agrupamento {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   gap: 2px;
   background: var(--bg-tertiary);
   padding: 2px;
   border-radius: 6px;
   border: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 .rep-btn-modo {
+  flex: 1;
+  text-align: center;
   background: none;
   border: none;
-  padding: 3px 8px;
+  padding: 4px 2px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 .rep-btn-modo:hover {
   color: var(--text-primary);
@@ -4631,6 +4659,7 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   background: var(--bg-secondary);
   color: var(--brand-primary);
   box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  font-weight: 700;
 }
 .rep-grupo-sidebar {
   border-bottom: 1px solid var(--border-color);

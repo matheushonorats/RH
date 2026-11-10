@@ -86,6 +86,7 @@ for(const [edicao,fonte] of Object.entries(fontes)){
   const {ctx}=preparar();const r=ctx.montarMensagemPendenciasMesRep_(pessoa(),'2026-10',ctx.autorizacoesCompensacaoRep,ctx.compensacoesRep);
   assert.match(r.texto,/A jornada ficou 15 minutos abaixo do previsto/);assert.match(r.texto,/Horários registrados: 08:00 · 12:00 · 13:00/);
   assert.ok(!/aguarda.*autorização|uso autorizado/.test(r.texto));assert.match(r.texto,/Esse total pode mudar/);
+  assert.match(r.texto,/O que você precisa fazer/);assert.match(r.texto,/Responda diretamente a esta mensagem/);
   assert.ok(r.texto.length<1500);assert.ok(!/quantidade ímpar|jornada considerada|limite autorizado ainda utilizável|saldo líquido/.test(r.texto));
  });
 }

@@ -560,7 +560,7 @@ function montarMensagemPendenciasMesRep_(emp, competencia, autorizacoes, compens
   const rotulo = meses[Number(competencia.slice(5)) - 1] + '/' + competencia.slice(0,4);
   const dataBr = function(data) { return String(data).split('-').reverse().join('/'); };
   const dias = (emp.dias || []).filter(function(dia) { return String(dia.dataOriginal || '').slice(0,7) === competencia; }).slice().sort(function(a,b) { return a.dataOriginal.localeCompare(b.dataOriginal); });
-  const linhas = ['Olá, ' + String(emp.nome || 'servidor(a)').trim() + '!', '', '*Conferência do ponto — ' + rotulo + '*', 'As justificativas e compensações já lançadas foram consideradas.', ''];
+  const linhas = ['Olá, ' + String(emp.nome || 'servidor(a)').trim() + '!', '', '*Conferência do ponto — ' + rotulo + '*'];
   let diasPendentes = 0, minutosDevidos = 0, diasSemCalculo = 0;
   const pendencias = [];
   dias.forEach(function(dia) {
@@ -575,11 +575,11 @@ function montarMensagemPendenciasMesRep_(emp, competencia, autorizacoes, compens
     if (dia.pendencia) diasSemCalculo++;
     pendencias.push('• ' + dataBr(dia.dataOriginal) + ' — ' + explicarPendenciaMensagemRep_(dia, minutos));
   });
-  if (emp.naoConciliado) linhas.push('O RH precisa conferir sua identificação no cadastro do ponto.', '');
+  if (emp.naoConciliado) linhas.push('', 'O RH precisa conferir sua identificação no cadastro do ponto.');
   if (pendencias.length) {
-    linhas.push('*Ainda precisamos conferir:*', ...pendencias);
+    linhas.push('', '*Pendências a regularizar:*', ...pendencias);
     if (minutosDevidos > 0) linhas.push('', '*' + (diasSemCalculo ? 'Horas já apuradas para regularizar: ' : 'Total de horas a regularizar: ') + formatarDuracaoMensagemRep_(minutosDevidos) + '*');
-  } else linhas.push('Não há ajustes de ponto a solicitar neste mês.');
+  } else linhas.push('', 'Não há ajustes de ponto a solicitar neste mês.');
   if (diasSemCalculo) linhas.push(minutosDevidos > 0 ? 'Esse total pode mudar após a conferência dos horários acima.' : 'As horas devidas serão confirmadas depois de conferir esses horários.');
 
   const limites = new Map(), usados = new Map();
@@ -620,7 +620,19 @@ function montarMensagemPendenciasMesRep_(emp, competencia, autorizacoes, compens
   if (origens.length) {
     linhas.push('Total disponível: ' + formatarDuracaoMensagemRep_(saldoTotal) + '.', 'O uso dessas horas precisa ser confirmado com o RH.');
   } else if (minutosDevidos > 0) linhas.push('', 'Não há horas disponíveis para compensação neste mês.');
-  if (pendencias.length) linhas.push('', 'Por favor, confira as datas e envie ao RH as justificativas ou os horários que faltam para acertarmos o ponto.');
+  if (pendencias.length) {
+    const acoes = [];
+    if (diasSemCalculo > 0) acoes.push('1. *Falta de batida:* informe o horário em que você entrou ou saiu.');
+    if (minutosDevidos > 0) {
+      if (origens.length > 0) {
+        acoes.push((acoes.length + 1) + '. *Falta ou horas devidas:* envie o atestado/declaração ou autorize abater do seu saldo de horas.');
+      } else {
+        acoes.push((acoes.length + 1) + '. *Falta ou horas devidas:* envie o comprovante (atestado médico ou declaração).');
+      }
+    }
+    if (!acoes.length) acoes.push('1. *Conferência de horários:* confirme os horários corretos trabalhados nas datas acima.');
+    linhas.push('', '*O que você precisa fazer:*', ...acoes, '', '👉 Responda diretamente a esta mensagem com as informações ou documentos para acertarmos o seu ponto.');
+  }
   return { texto: linhas.join('\n'), diasPendentes, minutosDevidos, saldoTotal, autorizadoTotal };
 }
 

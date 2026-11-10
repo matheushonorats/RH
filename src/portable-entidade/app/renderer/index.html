@@ -4799,32 +4799,60 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 
 /* Controles de agrupamento da barra lateral do REP */
 .rep-pessoas-topo {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  gap: 8px;
+}
+.rep-pessoas-topo .rep-pessoas-titulo {
+  position: static;
+  padding: 0;
+  background: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rep-pessoas-topo .rep-pessoas-titulo span {
+  background: var(--bg-tertiary);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--brand-primary);
+  font-weight: 700;
 }
 .rep-modo-agrupamento {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   gap: 2px;
   background: var(--bg-tertiary);
   padding: 2px;
   border-radius: 6px;
   border: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 .rep-btn-modo {
+  flex: 1;
+  text-align: center;
   background: none;
   border: none;
-  padding: 3px 8px;
+  padding: 4px 2px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 .rep-btn-modo:hover {
   color: var(--text-primary);
@@ -4833,6 +4861,7 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
   background: var(--bg-secondary);
   color: var(--brand-primary);
   box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  font-weight: 700;
 }
 .rep-grupo-sidebar {
   border-bottom: 1px solid var(--border-color);
@@ -5306,7 +5335,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
 <script src="diagnostics-ui.js"></script>
 <script src="desktop-storage.js"></script>
   </head>
-  <body class="dark-mode" data-app-version="1.42" data-app-url="">
+  <body class="dark-mode" data-app-version="1.43" data-app-url="">
     
     <!-- TELA DE LOGIN CUSTOMIZADO -->
     <div id="login-container" class="login-overlay" style="display: none;">
@@ -5351,7 +5380,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
             <strong>Gestão de Pessoas</strong>
             <span>Central de Documentos</span>
           </div>
-          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.42</a>
+          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.43</a>
         </div>
 
         <nav class="desktop-navigation" aria-label="Navegação principal">
@@ -19999,7 +20028,7 @@ function montarMensagemPendenciasMesRep_(emp, competencia, autorizacoes, compens
   const rotulo = meses[Number(competencia.slice(5)) - 1] + '/' + competencia.slice(0,4);
   const dataBr = function(data) { return String(data).split('-').reverse().join('/'); };
   const dias = (emp.dias || []).filter(function(dia) { return String(dia.dataOriginal || '').slice(0,7) === competencia; }).slice().sort(function(a,b) { return a.dataOriginal.localeCompare(b.dataOriginal); });
-  const linhas = ['Olá, ' + String(emp.nome || 'servidor(a)').trim() + '!', '', '*Conferência do ponto — ' + rotulo + '*', 'As justificativas e compensações já lançadas foram consideradas.', ''];
+  const linhas = ['Olá, ' + String(emp.nome || 'servidor(a)').trim() + '!', '', '*Conferência do ponto — ' + rotulo + '*'];
   let diasPendentes = 0, minutosDevidos = 0, diasSemCalculo = 0;
   const pendencias = [];
   dias.forEach(function(dia) {
@@ -20014,11 +20043,11 @@ function montarMensagemPendenciasMesRep_(emp, competencia, autorizacoes, compens
     if (dia.pendencia) diasSemCalculo++;
     pendencias.push('• ' + dataBr(dia.dataOriginal) + ' — ' + explicarPendenciaMensagemRep_(dia, minutos));
   });
-  if (emp.naoConciliado) linhas.push('O RH precisa conferir sua identificação no cadastro do ponto.', '');
+  if (emp.naoConciliado) linhas.push('', 'O RH precisa conferir sua identificação no cadastro do ponto.');
   if (pendencias.length) {
-    linhas.push('*Ainda precisamos conferir:*', ...pendencias);
+    linhas.push('', '*Pendências a regularizar:*', ...pendencias);
     if (minutosDevidos > 0) linhas.push('', '*' + (diasSemCalculo ? 'Horas já apuradas para regularizar: ' : 'Total de horas a regularizar: ') + formatarDuracaoMensagemRep_(minutosDevidos) + '*');
-  } else linhas.push('Não há ajustes de ponto a solicitar neste mês.');
+  } else linhas.push('', 'Não há ajustes de ponto a solicitar neste mês.');
   if (diasSemCalculo) linhas.push(minutosDevidos > 0 ? 'Esse total pode mudar após a conferência dos horários acima.' : 'As horas devidas serão confirmadas depois de conferir esses horários.');
 
   const limites = new Map(), usados = new Map();
@@ -20059,7 +20088,19 @@ function montarMensagemPendenciasMesRep_(emp, competencia, autorizacoes, compens
   if (origens.length) {
     linhas.push('Total disponível: ' + formatarDuracaoMensagemRep_(saldoTotal) + '.', 'O uso dessas horas precisa ser confirmado com o RH.');
   } else if (minutosDevidos > 0) linhas.push('', 'Não há horas disponíveis para compensação neste mês.');
-  if (pendencias.length) linhas.push('', 'Por favor, confira as datas e envie ao RH as justificativas ou os horários que faltam para acertarmos o ponto.');
+  if (pendencias.length) {
+    const acoes = [];
+    if (diasSemCalculo > 0) acoes.push('1. *Falta de batida:* informe o horário em que você entrou ou saiu.');
+    if (minutosDevidos > 0) {
+      if (origens.length > 0) {
+        acoes.push((acoes.length + 1) + '. *Falta ou horas devidas:* envie o atestado/declaração ou autorize abater do seu saldo de horas.');
+      } else {
+        acoes.push((acoes.length + 1) + '. *Falta ou horas devidas:* envie o comprovante (atestado médico ou declaração).');
+      }
+    }
+    if (!acoes.length) acoes.push('1. *Conferência de horários:* confirme os horários corretos trabalhados nas datas acima.');
+    linhas.push('', '*O que você precisa fazer:*', ...acoes, '', '👉 Responda diretamente a esta mensagem com as informações ou documentos para acertarmos o seu ponto.');
+  }
   return { texto: linhas.join('\n'), diasPendentes, minutosDevidos, saldoTotal, autorizadoTotal };
 }
 
