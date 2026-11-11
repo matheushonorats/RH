@@ -13,6 +13,7 @@ const fonte = fs.readFileSync(path.join(web, 'Scripts.html'), 'utf8').replace(/\
 let html = fs.readFileSync(path.join(desktop, 'renderer/index.html'), 'utf8').replace(/\r\n/g, '\n');
 const trechos = [
   ['const LOADER_FRASES_REP_', 'function animarEntidadeDuranteCarga_('],
+  ['function obterIdentificadorCartaoManualRep_(', 'function assinaturaLancamentosQueAfetamRep_('],
   ['function assinaturaLancamentosQueAfetamRep_(', 'function nomeValidoRep('],
   ['function obterDeficitDiaRep_(', 'function processDataRep('],
   ['function aplicarDeclaracoesHorasRep_(', 'function aplicarDescartesHoraExtraRep_('],
@@ -25,6 +26,8 @@ const trechos = [
   ['function processDataRep(', 'function completarDiasSemRegistroRep_('],
   ['function preencherCompensacaoMaximaRep_(', 'async function restaurarAjustesDiaRep('],
   ['function definirFiltroDiasRep(', 'function obterCompetenciaAtualRep_('],
+  ['function renderizarAuditoriaArquivosRep(', 'let repContextoProcessamento_'],
+  ['function abrirFusaoRep(', 'function updateDashboardRep('],
   ['function renderizarPainelRep(', 'function mudarPaginaRep('],
   ['function obterAlertasAtivosDiaRep_(', 'function exportarRelatorioAlertasRep_('],
   ['function ajustarCamposFormularioLancamento(', 'function ajustarCamposAbonoEleitoral_('],

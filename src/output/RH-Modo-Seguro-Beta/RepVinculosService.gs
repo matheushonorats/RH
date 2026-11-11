@@ -40,14 +40,25 @@ function listarVinculosRep() {
     }));
 }
 
+function encontrarServidorPorIdentificadorVinculoRep_(identificador) {
+  const chave = normalizarIdentificadorRep_(identificador);
+  if (!chave) return null;
+  return obterListaServidores().find(item => {
+    const pisItem = normalizarIdentificadorRep_(item && item.pis);
+    const matricula = String(item && item.matricula || '').trim();
+    const idMatricula = matricula ? normalizarIdentificadorRep_('MAT:' + matricula) : '';
+    return pisItem === chave || (idMatricula && idMatricula === chave);
+  }) || null;
+}
+
 function salvarVinculosRep(dados) {
   dados = dados || {};
   const pisOficial = normalizarIdentificadorRep_(dados.pisOficial);
   const identificadores = Array.from(new Set((dados.identificadores || []).map(normalizarIdentificadorRep_).filter(Boolean)));
   if (!pisOficial || !identificadores.length) throw new Error('Informe o servidor e ao menos um identificador do REP.');
 
-  const servidor = obterListaServidores().find(item => normalizarIdentificadorRep_(item.pis) === pisOficial);
-  if (!servidor) throw new Error('O PIS oficial não foi encontrado no cadastro de servidores.');
+  const servidor = encontrarServidorPorIdentificadorVinculoRep_(pisOficial);
+  if (!servidor) throw new Error('O identificador oficial (PIS ou matrícula) não foi encontrado no cadastro de servidores.');
 
   const lock = obterLockMutacaoBeta_();
   if (!lock.tryLock(15000)) throw new Error('Sistema ocupado. Tente salvar o vínculo novamente.');
@@ -61,14 +72,23 @@ function salvarVinculosRep(dados) {
     const usuario = obterDadosUsuarioLogado();
     const agora = new Date();
     const novas = [];
+    const matriculaTexto = String(servidor.matricula || '').trim();
     identificadores.forEach(identificador => {
-      const valores = [[identificador, pisOficial, servidor.matricula || '', servidor.nome || '', servidor.lotacao || 'Não informada', agora, usuario.email || '', 'Sim']];
+      const valores = [[identificador, pisOficial, matriculaTexto, servidor.nome || '', servidor.lotacao || 'Não informada', agora, usuario.email || '', 'Sim']];
       const linhaExistente = linhasPorIdentificador.get(identificador);
-      if (linhaExistente) aba.getRange(linhaExistente, 1, 1, REP_VINCULOS_CABECALHO_.length).setValues(valores);
-      else novas.push(valores[0]);
+      if (linhaExistente) {
+        aba.getRange(linhaExistente, 1, 1, 3).setNumberFormat('@');
+        aba.getRange(linhaExistente, 1, 1, REP_VINCULOS_CABECALHO_.length).setValues(valores);
+      } else {
+        novas.push(valores[0]);
+      }
     });
-    if (novas.length) aba.getRange(aba.getLastRow() + 1, 1, novas.length, REP_VINCULOS_CABECALHO_.length).setValues(novas);
-    return { sucesso: true, identificadores, pisOficial, nome: servidor.nome, matricula: servidor.matricula, lotacao: servidor.lotacao || 'Não informada' };
+    if (novas.length) {
+      const linhaInicio = aba.getLastRow() + 1;
+      aba.getRange(linhaInicio, 1, novas.length, 3).setNumberFormat('@');
+      aba.getRange(linhaInicio, 1, novas.length, REP_VINCULOS_CABECALHO_.length).setValues(novas);
+    }
+    return { sucesso: true, identificadores, pisOficial, nome: servidor.nome, matricula: matriculaTexto || servidor.matricula, lotacao: servidor.lotacao || 'Não informada' };
   } finally {
     lock.releaseLock();
   }
