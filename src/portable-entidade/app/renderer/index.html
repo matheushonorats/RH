@@ -11155,7 +11155,9 @@ function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo, 
   document.getElementById('info-serv-saldo').innerText = saldo + ' dias';
   
   const servidorSelecionado = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula));
-  const abonos = parseInt(servidorSelecionado?.abonosUsados ?? abonosUsados, 10) || 0;
+  const abonos = typeof calcularAbonadasUsadasServidor_ === 'function'
+    ? calcularAbonadasUsadasServidor_(matricula)
+    : (parseInt(servidorSelecionado?.abonosUsados ?? abonosUsados, 10) || 0);
   const limite = Number.isFinite(Number(servidorSelecionado?.limiteAbonadas))
     ? Number(servidorSelecionado.limiteAbonadas)
     : Math.max(0, 5 - Number(servidorSelecionado?.penalidadeAbono || 0));
@@ -11666,12 +11668,75 @@ async function salvarDadosLancamento(event) {
   }
 
   mostrarToast("Documento protegido e salvo nesta tela. O envio continuará em segundo plano.", 'info');
+  atualizarEstadoLocalAposLancamento_(dados, servidor);
   SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
   exibirLoader(false);
   fecharModal('modal-lancamento');
   agendarSincronizacaoSegura_('lancamentos');
   } finally {
     finalizarOperacaoInterface('salvar-lancamento', botaoSalvarLancamento);
+  }
+}
+
+/**
+ * Atualiza o estado local imediatamente (AppState.servidores e AppState.lancamentos)
+ * para que novos lançamentos na mesma sessão não utilizem contadores defasados.
+ */
+function atualizarEstadoLocalAposLancamento_(dados, servidorObj) {
+  if (!dados) return;
+  const mat = String(dados.matricula || '').trim();
+  const tipo = String(dados.tipo || '').toLowerCase();
+  const serv = servidorObj || (AppState.servidores || []).find(s => String(s.matricula).trim() === mat);
+  const linhaNum = Number(dados.linhaPlanilha) || 0;
+  
+  if (serv) {
+    if ((tipo.includes('abonada') || tipo.includes('abono')) && !tipo.includes('natal') && !tipo.includes('eleitor')) {
+      if (!linhaNum) {
+        serv.abonosUsados = (parseInt(serv.abonosUsados, 10) || 0) + 1;
+        const lim = Number.isFinite(Number(serv.limiteAbonadas))
+          ? Number(serv.limiteAbonadas)
+          : Math.max(0, 5 - Number(serv.penalidadeAbono || 0));
+        serv.abonosRestantes = Math.max(0, lim - serv.abonosUsados);
+      }
+    } else if (tipo.includes('férias') || tipo.includes('ferias')) {
+      if (!linhaNum) {
+        const diasUso = (parseInt(dados.dias, 10) || 0) + (parseInt(dados.diasPecunia, 10) || 0);
+        serv.saldoHoje = Math.max(0, (parseInt(serv.saldoHoje, 10) || 0) - diasUso);
+      }
+    }
+  }
+
+  // Atualiza AppState.lancamentos
+  if (Array.isArray(AppState.lancamentos)) {
+    const itemExistente = linhaNum > 0 ? AppState.lancamentos.find(l => Number(l.linhaPlanilha) === linhaNum) : null;
+    if (itemExistente) {
+      itemExistente.tipo = dados.tipo;
+      itemExistente.idoc = dados.idoc;
+      itemExistente.dataSolicitacao = dados.dataSolicitacao;
+      itemExistente.dataInicio = dados.dataInicio;
+      itemExistente.dias = dados.dias;
+      itemExistente.diasPecunia = dados.diasPecunia;
+      itemExistente.qtdHoras = dados.qtdHoras;
+      itemExistente.despacho = dados.despacho;
+      itemExistente.observacao = dados.observacao;
+    } else {
+      AppState.lancamentos.unshift({
+        id: dados.idLancamento || ('temp_' + (dados.operacaoId || Date.now())),
+        idoc: dados.idoc || '',
+        tipo: dados.tipo,
+        nome: serv ? serv.nome : '',
+        matricula: mat,
+        dataSolicitacao: dados.dataSolicitacao || '',
+        dataInicio: dados.dataInicio || '',
+        dias: dados.dias || 0,
+        diasPecunia: dados.diasPecunia || 0,
+        qtdHoras: dados.qtdHoras || '',
+        despacho: dados.despacho || '',
+        observacao: dados.observacao || '',
+        status: 'Ativo',
+        linhaPlanilha: linhaNum
+      });
+    }
   }
 }
 
@@ -19630,6 +19695,7 @@ window.HE_MODELO_ASSETS = Object.freeze({
 
 
 
+
     <script>
 /** Melhorias isoladas da conferência REP para evitar ampliar ainda mais o arquivo principal. */
 async function baixarArquivosEntradaEmParaleloRep_(registros) {
@@ -21851,8 +21917,10 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.ge
 
 
 
+
   <script src="desktop-update.js"></script>
   
+
 
 
 

@@ -386,3 +386,143 @@ test('Folha de Protocolo usa layout compacto e exibe alertas de ausência simult
   assert.match(scriptsWeb, /Folha de protocolo<\/title><style>@page\{size:A4;margin:10mm\}/);
   assert.match(htmlPortatil, /Folha de protocolo<\/title><style>@page\{size:A4;margin:10mm\}/);
 });
+
+test('ProtocolosService: criadoPor resolve para o nome real do emitente e ajusta despachos duplicados de abonadas', () => {
+  const protCode = fs.readFileSync(path.join(__dirname, '..', 'output', 'RH-Modo-Seguro-Beta', 'ProtocolosService.gs'), 'utf8');
+  const lancCode = fs.readFileSync(path.join(__dirname, '..', 'output', 'RH-Modo-Seguro-Beta', 'LancamentosService.gs'), 'utf8');
+
+  const linhasProtocolos = [
+    ['ID', 'DATA GERACAO', 'STATUS', 'LINK', 'CRIADO POR'],
+    ['SETUR-2026-000113', '06/11/2026 15:10:06', 'Aguardando Assinatura', '', 'matheus@setur.gov.br'],
+    ['SETUR-2026-000114', '07/11/2026 10:00:00', 'Aguardando Assinatura', '', 'Sistema']
+  ];
+  const linhasUsuarios = [
+    ['EMAIL', 'NOME', 'PAPEL', 'ATIVO'],
+    ['matheus@setur.gov.br', 'Matheus RH', 'Administrador', 'Sim']
+  ];
+  const linhasLancamentos = [
+    ['ID_PROTOCOLO', 'DATA_SOLICITACAO', 'TIPO', 'NOME', 'MATRICULA', 'DATA_INICIO', 'DATA_RETORNO', 'DIAS', 'PECUNIA', 'DESPACHO', 'OBS', 'STATUS'],
+    ['SETUR-2026-000113', '06/11/2026', 'Falta Abonada', 'JÚLIA FRANCISCA DA SILVA', '52779', '09/11/2026', '', '1', '0', 'Possuía direito a 5 abonadas. Solicitou a 3ª abonada. Restam 2.', '', 'Ativo'],
+    ['SETUR-2026-000113', '06/11/2026', 'Falta Abonada', 'JÚLIA FRANCISCA DA SILVA', '52779', '07/12/2026', '', '1', '0', 'Possuía direito a 5 abonadas. Solicitou a 3ª abonada. Restam 2.', '', 'Ativo'],
+    ['SETUR-2026-000113', '06/11/2026', 'Falta Abonada', 'VAGDA DE JESUS', '50598', '07/12/2026', '', '1', '0', 'Possuía direito a 5 abonadas. Solicitou a 3ª abonada. Restam 2.', '', 'Ativo'],
+    ['SETUR-2026-000113', '06/11/2026', 'Falta Abonada', 'VAGDA DE JESUS', '50598', '19/11/2026', '', '1', '0', 'Possuía direito a 5 abonadas. Solicitou a 4ª abonada. Restam 1.', '', 'Ativo']
+  ];
+
+  const sheets = {
+    Protocolos: {
+      getDataRange: () => ({ getValues: () => linhasProtocolos.map(r => r.slice()) }),
+      getLastRow: () => linhasProtocolos.length
+    },
+    Usuarios: {
+      getDataRange: () => ({ getValues: () => linhasUsuarios.map(r => r.slice()) }),
+      getLastRow: () => linhasUsuarios.length
+    },
+    'Lançamentos': {
+      getDataRange: () => ({ getValues: () => linhasLancamentos.map(r => r.slice()) }),
+      getLastRow: () => linhasLancamentos.length
+    },
+    Servidores: {
+      getDataRange: () => ({ getValues: () => [['MATRICULA', 'NOME', 'CARGO', 'LOTACAO', 'STATUS', 'PIS'], ['52779', 'JÚLIA FRANCISCA DA SILVA', 'ASSESSOR', 'SEC', 'ATIVO', '123']] }),
+      getLastRow: () => 2
+    }
+  };
+  const ss = { getSheetByName: nome => sheets[nome] || null };
+
+  const ctx = {
+    Date, Math, Set, Map, JSON, RegExp, Error, parseInt, Array, Object,
+    Session: { getScriptTimeZone: () => 'America/Sao_Paulo', getActiveUser: () => ({ getEmail: () => '' }) },
+    Utilities: {
+      formatDate: (d) => {
+        const dt = new Date(d);
+        return String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
+      }
+    },
+    obterPlanilha_: () => ss,
+    obterValoresAba_: aba => aba.getDataRange().getValues(),
+    indiceCabecalho_: (cab, nomes) => {
+      const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+      const mapa = cab.map(norm);
+      for (const n of nomes || []) {
+        const idx = mapa.indexOf(norm(n));
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    },
+    obterDadosUsuarioLogado: () => ({ nome: 'Matheus RH', email: 'matheus@setur.gov.br', papel: 'Administrador' }),
+    verificarSeEhOperador: () => true,
+    normalizarCabecalho_: s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase(),
+    normalizarChaveMatricula_: s => String(s || '').trim().toUpperCase(),
+    ehLancamentoAnulado_: () => false,
+    obterListaServidoresInterno_: () => [],
+    formatarDataProtocolo_: d => String(d),
+    escapeHtmlProtocolo_: s => String(s || ''),
+    obterAlertasAusenciaLotacaoProtocolo_: () => []
+  };
+
+  vm.createContext(ctx);
+  vm.runInContext(lancCode, ctx);
+  vm.runInContext(protCode, ctx);
+
+  const lista = ctx.obterListaProtocolos();
+  assert.equal(lista.length, 2);
+  // O protocolo 113 tinha email matheus@setur.gov.br que deve ser mapeado para 'Matheus RH'
+  const p113 = lista.find(p => p.id === 'SETUR-2026-000113');
+  assert.equal(p113.criadoPor, 'Matheus RH');
+  // O protocolo 114 tinha 'Sistema' e deve cair no fallback do usuário logado 'Matheus RH'
+  const p114 = lista.find(p => p.id === 'SETUR-2026-000114');
+  assert.equal(p114.criadoPor, 'Matheus RH');
+
+  // Verifica renderização da folha com ajuste automático de abonadas duplicadas
+  const html = ctx.obterHtmlFolhaProtocolo('SETUR-2026-000113');
+  // A Júlia deve ter 3ª abonada no primeiro registro e 4ª abonada no segundo!
+  assert.ok(html.includes('Solicitou a 3ª abonada. Restam 2.'));
+  assert.ok(html.includes('Solicitou a 4ª abonada. Restam 1.'));
+});
+
+test('Scripts.html: calcularAbonadasUsadasServidor_ conta base e lancamentos locais na sessao', () => {
+  const scriptsContent = fs.readFileSync(path.join(__dirname, '..', 'output', 'RH-Modo-Seguro-Beta', 'Scripts.html'), 'utf8');
+
+  // Extrai as funções extrairAnoDataLancamento_ e calcularAbonadasUsadasServidor_
+  assert.match(scriptsContent, /function extrairAnoDataLancamento_/);
+  assert.match(scriptsContent, /function calcularAbonadasUsadasServidor_/);
+  assert.match(scriptsContent, /function atualizarEstadoLocalAposLancamento_/);
+
+  const ctx = {
+    Date, Math, Set, Map, JSON, RegExp, Error, parseInt, Number, String, Array,
+    AppState: {
+      servidores: [
+        { matricula: '52779', nome: 'JÚLIA', abonosUsados: 2, limiteAbonadas: 5 }
+      ],
+      lancamentos: [
+        { matricula: '52779', tipo: 'Falta Abonada', dataInicio: '10/05/2026', status: 'Ativo', linhaPlanilha: 10 }
+      ]
+    }
+  };
+
+  const codeExtrair = scriptsContent.match(/function extrairAnoDataLancamento_[\s\S]*?\n\}/)[0];
+  const codeCalcular = scriptsContent.match(/function calcularAbonadasUsadasServidor_[\s\S]*?\n\}/)[0];
+  const codeAtualizar = scriptsContent.match(/function atualizarEstadoLocalAposLancamento_[\s\S]*?\n\}/)[0];
+
+  vm.createContext(ctx);
+  vm.runInContext(codeExtrair, ctx);
+  vm.runInContext(codeCalcular, ctx);
+  vm.runInContext(codeAtualizar, ctx);
+
+  // Inicialmente o servidor tem abonosUsados: 2, e lista local tem 1 lançamento no ano 2026 -> max(2, 1) = 2
+  assert.equal(ctx.calcularAbonadasUsadasServidor_('52779', 2026), 2);
+
+  // Simula salvar a 3ª abonada no frontend
+  ctx.atualizarEstadoLocalAposLancamento_({
+    matricula: '52779',
+    tipo: 'Falta Abonada',
+    dataInicio: '09/11/2026',
+    linhaPlanilha: 0,
+    despacho: 'Solicitou a 3ª abonada.'
+  });
+
+  // Agora abonosUsados no servidor virou 3, e lista tem 2 itens -> max(3, 2) = 3
+  assert.equal(ctx.AppState.servidores[0].abonosUsados, 3);
+  assert.equal(ctx.calcularAbonadasUsadasServidor_('52779', 2026), 3);
+
+  // E a próxima abonada sugerirá 3 + 1 = 4ª abonada!
+});

@@ -8,7 +8,9 @@
  * Otimização O(L+P): lê Lançamentos uma única vez e agrupa por ID_Protocolo.
  */
 function obterListaProtocolos() {
-  obterDadosUsuarioLogado();
+  const usuarioAtual = (function() {
+    try { return obterDadosUsuarioLogado(); } catch(e) { return null; }
+  })();
 
   const ss = obterPlanilha_();
   const aba = ss.getSheetByName("Protocolos");
@@ -16,6 +18,22 @@ function obterListaProtocolos() {
 
   const dados = obterValoresAba_(aba);
   if (dados.length <= 1) return [];
+
+  // Mapeia e-mails para nomes cadastrados a partir da aba Usuarios
+  const mapaUsuarios = (function() {
+    try {
+      const abaU = ss.getSheetByName("Usuarios");
+      if (!abaU) return {};
+      const dU = obterValoresAba_(abaU);
+      const m = {};
+      for (let u = 1; u < dU.length; u++) {
+        const em = String(dU[u][0] || "").toLowerCase().trim();
+        const nm = String(dU[u][1] || "").trim();
+        if (em && nm) m[em] = nm;
+      }
+      return m;
+    } catch(e) { return {}; }
+  })();
 
   // Constrói mapa de contagem em única leitura da aba Lançamentos
   const mapaContagem = contarLancamentosPorProtocolo_(ss);
@@ -33,13 +51,28 @@ function obterListaProtocolos() {
     let id = String(linha[idxId !== -1 ? idxId : 0]).trim();
     if (!id) continue;
 
+    let criadorBruto = idxCriadoPor !== -1 && linha[idxCriadoPor] ? String(linha[idxCriadoPor]).trim() : "";
+    let criadorFinal = "Sistema";
+    if (criadorBruto) {
+      const criadorLower = criadorBruto.toLowerCase();
+      if (mapaUsuarios[criadorLower]) {
+        criadorFinal = mapaUsuarios[criadorLower];
+      } else if (criadorBruto !== "Sistema") {
+        criadorFinal = criadorBruto;
+      }
+    }
+    // Fallback: se o criador gravado na planilha for vazio ou "Sistema", resolve para o nome do usuário ativo
+    if ((!criadorFinal || criadorFinal === "Sistema") && usuarioAtual && usuarioAtual.nome) {
+      criadorFinal = usuarioAtual.nome;
+    }
+
     protocolos.push({
       id: id,
       dataGeracao: idxData !== -1 ? formatarDataProtocolo_(linha[idxData]) : "",
       status: idxStatus !== -1 ? String(linha[idxStatus]).trim() : "",
       linkDireto: idxLink !== -1 ? String(linha[idxLink]).trim() : "",
       qtdDocumentos: mapaContagem[id] || 0,
-      criadoPor: idxCriadoPor !== -1 && linha[idxCriadoPor] ? String(linha[idxCriadoPor]).trim() : "Sistema",
+      criadoPor: criadorFinal,
       linhaPlanilha: i + 1
     });
   }
@@ -96,7 +129,17 @@ function criarProtocolo(linhasLancamentos) {
 
     const dataGeracao = new Date();
     const statusInicial = "Aguardando Assinatura";
-    const emailUsuario = Session.getActiveUser().getEmail().toLowerCase().trim();
+    let emitenteNome = "";
+    try {
+      const usuarioLogado = (typeof obterDadosUsuarioLogado === "function") ? obterDadosUsuarioLogado() : null;
+      if (usuarioLogado) {
+        emitenteNome = String(usuarioLogado.nome || usuarioLogado.email || "").trim();
+      }
+    } catch (eAuth) {}
+    if (!emitenteNome) {
+      const emailSessao = Session.getActiveUser().getEmail().toLowerCase().trim();
+      emitenteNome = emailSessao || "Sistema";
+    }
 
     // 2. Mapeamento de colunas da aba Lançamentos
     const dadosLanc = abaLanc.getDataRange().getValues();
@@ -133,7 +176,7 @@ function criarProtocolo(linhasLancamentos) {
       dataGeracao,
       statusInicial,
       "",
-      emailUsuario
+      emitenteNome
     ]);
 
     // 5. Log sem lock (lock já está ativo)
@@ -439,11 +482,18 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
   const dadosProt = abaProt.getDataRange().getValues();
   for (let i = 1; i < dadosProt.length; i++) {
     if (String(dadosProt[i][0]).trim() === idProtocolo) {
+      let emitenteFolha = dadosProt[i][4] ? String(dadosProt[i][4]).trim() : "";
+      if (!emitenteFolha || emitenteFolha === "Sistema") {
+        try {
+          const uLog = (typeof obterDadosUsuarioLogado === "function") ? obterDadosUsuarioLogado() : null;
+          if (uLog && uLog.nome) emitenteFolha = uLog.nome;
+        } catch(e) {}
+      }
       protocoloInfo = {
         id: idProtocolo,
         data: formatarDataProtocolo_(dadosProt[i][1]),
         status: String(dadosProt[i][2]).trim(),
-        criadoPor: dadosProt[i][4] ? String(dadosProt[i][4]).trim() : "Sistema"
+        criadoPor: emitenteFolha || "Sistema"
       };
       break;
     }
@@ -501,6 +551,10 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
           </thead>
           <tbody>
     `;
+
+    if (tipo.toUpperCase().includes("ABONO") || tipo.toUpperCase().includes("ABONADA")) {
+      ajustarDespachosAbonadasDuplicadasProtocolo_(porTipo[tipo]);
+    }
 
     porTipo[tipo].forEach(l => {
       let infoAdicional = "";
@@ -602,4 +656,47 @@ function formatarDataApenas_(data) {
   }
   
   return String(data);
+}
+
+/**
+ * Ajusta despachos de abonadas duplicadas para o mesmo servidor no mesmo protocolo,
+ * garantindo ordenação e sequência corretas (ex.: 3ª abonada -> 4ª abonada).
+ */
+function ajustarDespachosAbonadasDuplicadasProtocolo_(listaLancamentos) {
+  if (!Array.isArray(listaLancamentos) || listaLancamentos.length <= 1) return;
+  const mapaPorServidor = {};
+  listaLancamentos.forEach(function(l) {
+    const mat = String(l.matricula || '').trim();
+    if (!mapaPorServidor[mat]) mapaPorServidor[mat] = [];
+    mapaPorServidor[mat].push(l);
+  });
+
+  Object.keys(mapaPorServidor).forEach(function(mat) {
+    const itens = mapaPorServidor[mat];
+    if (itens.length <= 1) return;
+    
+    const numerosVistos = {};
+    itens.forEach(function(l) {
+      if (!l.despacho) return;
+      const m = l.despacho.match(/Solicitou a (\d+)ª abonada\. Restam (\d+)\./i);
+      if (m) {
+        let numAbonada = parseInt(m[1], 10);
+        let restam = parseInt(m[2], 10);
+        if (numerosVistos[numAbonada]) {
+          let novoNum = numAbonada;
+          while (numerosVistos[novoNum]) {
+            novoNum++;
+            restam = Math.max(0, restam - 1);
+          }
+          l.despacho = l.despacho.replace(
+            /Solicitou a \d+ª abonada\. Restam \d+\./i,
+            'Solicitou a ' + novoNum + 'ª abonada. Restam ' + restam + '.'
+          );
+          numerosVistos[novoNum] = true;
+        } else {
+          numerosVistos[numAbonada] = true;
+        }
+      }
+    });
+  });
 }

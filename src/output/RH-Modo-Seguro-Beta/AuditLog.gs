@@ -46,8 +46,15 @@ function lancarLogInterno_(acao, modulo, descricao, campoAlterado, valorAntes, v
 
     let usuarioEmail = "Sistema";
     try {
-      const email = Session.getActiveUser().getEmail();
-      if (email) usuarioEmail = email.toLowerCase().trim();
+      const uLogado = (typeof _usuarioSessaoAtual !== "undefined" && _usuarioSessaoAtual) ? _usuarioSessaoAtual : null;
+      if (uLogado && uLogado.nome) {
+        usuarioEmail = String(uLogado.nome).trim();
+      } else if (uLogado && uLogado.email) {
+        usuarioEmail = String(uLogado.email).toLowerCase().trim();
+      } else {
+        const email = Session.getActiveUser().getEmail();
+        if (email) usuarioEmail = email.toLowerCase().trim();
+      }
     } catch (e) {
       usuarioEmail = "Gatilho Automático";
     }

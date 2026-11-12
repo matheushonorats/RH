@@ -3954,6 +3954,54 @@ function carregarResumoAbonosEleitorais_() {
 }
 
 /**
+ * Extrai o ano de uma string de data (YYYY-MM-DD ou DD/MM/YYYY)
+ */
+function extrairAnoDataLancamento_(dataStr) {
+  if (!dataStr) return new Date().getFullYear();
+  const str = String(dataStr).trim();
+  if (str.includes("-")) {
+    const p = str.split("-");
+    if (p[0].length === 4) return parseInt(p[0], 10);
+  }
+  if (str.includes("/")) {
+    const p = str.split("/");
+    if (p[2] && p[2].length === 4) return parseInt(p[2], 10);
+  }
+  return new Date().getFullYear();
+}
+
+/**
+ * Calcula dinamicamente quantas abonadas o servidor já utilizou em um determinado ano,
+ * considerando a contagem na base + lançamentos locais na sessão atual.
+ */
+function calcularAbonadasUsadasServidor_(matricula, anoRef, linhaIgnorada) {
+  if (!matricula) return 0;
+  const servidor = (AppState.servidores || []).find(s => String(s.matricula).trim() === String(matricula).trim());
+  const anoAtual = new Date().getFullYear();
+  const anoAlvo = Number(anoRef) || anoAtual;
+  
+  let baseUsados = (servidor && anoAlvo === anoAtual) ? (parseInt(servidor.abonosUsados, 10) || 0) : 0;
+  
+  let contagemLista = 0;
+  (AppState.lancamentos || []).forEach(l => {
+    if (String(l.matricula).trim() !== String(matricula).trim()) return;
+    if (linhaIgnorada && Number(l.linhaPlanilha) === Number(linhaIgnorada)) return;
+    const st = String(l.status || '').toLowerCase();
+    if (st === 'cancelado' || st === 'anulado') return;
+    
+    const tp = String(l.tipo || '').toLowerCase();
+    if ((tp.includes('abonada') || tp.includes('abono')) && !tp.includes('natal') && !tp.includes('eleitor')) {
+      const dt = l.dataInicio || l.dataSolicitacao || '';
+      if (extrairAnoDataLancamento_(dt) === anoAlvo) {
+        contagemLista++;
+      }
+    }
+  });
+
+  return Math.max(baseUsados, contagemLista);
+}
+
+/**
  * Sugere um texto para o campo Despacho baseado no servidor e tipo selecionados
  */
 function sugerirDespacho() {
@@ -3986,7 +4034,12 @@ function sugerirDespacho() {
       : `Possuía ${saldo} dias disponíveis. Solicitou ${diasInput} dias. Restam ${restante} dias.`;
     
   } else if ((tipo.toLowerCase().includes("abonada") || tipo.toLowerCase().includes("abono")) && !tipo.toLowerCase().includes("natal") && !tipo.toLowerCase().includes("eleitor")) {
-    const usados = parseInt(servidor.abonosUsados) || 0;
+    const dataFalta = document.getElementById('lanc-data-falta')?.value;
+    const dataInicio = document.getElementById('lanc-data-inicio')?.value;
+    const dataSol = document.getElementById('lanc-data-solicitacao')?.value;
+    const anoRef = extrairAnoDataLancamento_(dataFalta || dataInicio || dataSol);
+    const linhaEdit = Number(document.getElementById('lanc-linha')?.value) || 0;
+    const usados = calcularAbonadasUsadasServidor_(matricula, anoRef, linhaEdit);
     const novoUsado = usados + 1;
     const limite = Number.isFinite(Number(servidor.limiteAbonadas))
       ? Number(servidor.limiteAbonadas)
@@ -4073,7 +4126,9 @@ function selecionarServidorAutocomplete(matricula, nome, cargo, lotacao, saldo, 
   document.getElementById('info-serv-saldo').innerText = saldo + ' dias';
   
   const servidorSelecionado = (AppState.servidores || []).find(s => String(s.matricula) === String(matricula));
-  const abonos = parseInt(servidorSelecionado?.abonosUsados ?? abonosUsados, 10) || 0;
+  const abonos = typeof calcularAbonadasUsadasServidor_ === 'function'
+    ? calcularAbonadasUsadasServidor_(matricula)
+    : (parseInt(servidorSelecionado?.abonosUsados ?? abonosUsados, 10) || 0);
   const limite = Number.isFinite(Number(servidorSelecionado?.limiteAbonadas))
     ? Number(servidorSelecionado.limiteAbonadas)
     : Math.max(0, 5 - Number(servidorSelecionado?.penalidadeAbono || 0));
@@ -4584,12 +4639,75 @@ async function salvarDadosLancamento(event) {
   }
 
   mostrarToast("Documento protegido e salvo nesta tela. O envio continuará em segundo plano.", 'info');
+  atualizarEstadoLocalAposLancamento_(dados, servidor);
   SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
   exibirLoader(false);
   fecharModal('modal-lancamento');
   agendarSincronizacaoSegura_('lancamentos');
   } finally {
     finalizarOperacaoInterface('salvar-lancamento', botaoSalvarLancamento);
+  }
+}
+
+/**
+ * Atualiza o estado local imediatamente (AppState.servidores e AppState.lancamentos)
+ * para que novos lançamentos na mesma sessão não utilizem contadores defasados.
+ */
+function atualizarEstadoLocalAposLancamento_(dados, servidorObj) {
+  if (!dados) return;
+  const mat = String(dados.matricula || '').trim();
+  const tipo = String(dados.tipo || '').toLowerCase();
+  const serv = servidorObj || (AppState.servidores || []).find(s => String(s.matricula).trim() === mat);
+  const linhaNum = Number(dados.linhaPlanilha) || 0;
+  
+  if (serv) {
+    if ((tipo.includes('abonada') || tipo.includes('abono')) && !tipo.includes('natal') && !tipo.includes('eleitor')) {
+      if (!linhaNum) {
+        serv.abonosUsados = (parseInt(serv.abonosUsados, 10) || 0) + 1;
+        const lim = Number.isFinite(Number(serv.limiteAbonadas))
+          ? Number(serv.limiteAbonadas)
+          : Math.max(0, 5 - Number(serv.penalidadeAbono || 0));
+        serv.abonosRestantes = Math.max(0, lim - serv.abonosUsados);
+      }
+    } else if (tipo.includes('férias') || tipo.includes('ferias')) {
+      if (!linhaNum) {
+        const diasUso = (parseInt(dados.dias, 10) || 0) + (parseInt(dados.diasPecunia, 10) || 0);
+        serv.saldoHoje = Math.max(0, (parseInt(serv.saldoHoje, 10) || 0) - diasUso);
+      }
+    }
+  }
+
+  // Atualiza AppState.lancamentos
+  if (Array.isArray(AppState.lancamentos)) {
+    const itemExistente = linhaNum > 0 ? AppState.lancamentos.find(l => Number(l.linhaPlanilha) === linhaNum) : null;
+    if (itemExistente) {
+      itemExistente.tipo = dados.tipo;
+      itemExistente.idoc = dados.idoc;
+      itemExistente.dataSolicitacao = dados.dataSolicitacao;
+      itemExistente.dataInicio = dados.dataInicio;
+      itemExistente.dias = dados.dias;
+      itemExistente.diasPecunia = dados.diasPecunia;
+      itemExistente.qtdHoras = dados.qtdHoras;
+      itemExistente.despacho = dados.despacho;
+      itemExistente.observacao = dados.observacao;
+    } else {
+      AppState.lancamentos.unshift({
+        id: dados.idLancamento || ('temp_' + (dados.operacaoId || Date.now())),
+        idoc: dados.idoc || '',
+        tipo: dados.tipo,
+        nome: serv ? serv.nome : '',
+        matricula: mat,
+        dataSolicitacao: dados.dataSolicitacao || '',
+        dataInicio: dados.dataInicio || '',
+        dias: dados.dias || 0,
+        diasPecunia: dados.diasPecunia || 0,
+        qtdHoras: dados.qtdHoras || '',
+        despacho: dados.despacho || '',
+        observacao: dados.observacao || '',
+        status: 'Ativo',
+        linhaPlanilha: linhaNum
+      });
+    }
   }
 }
 
