@@ -2201,20 +2201,115 @@ function iniciarProgressoAfdsLoader_(arquivos) {
   if (!container) return;
   const lista = Array.isArray(arquivos) ? arquivos : [];
   container.hidden = !lista.length;
+  if (lista.length && (typeof currentView === 'undefined' || currentView === 'pre-leitura-rep')) {
+    document.getElementById('global-loader')?.classList.add('rep-loader-previa');
+  }
   container.innerHTML = lista.map(function(arquivo, indice) {
-    return `<span class="loader-afd-dot" data-indice="${indice}" title="Aguardando: ${escapeHtml(arquivo.nome || `AFD ${indice + 1}`)}"><i></i><b>${indice + 1}</b><small>${escapeHtml(arquivo.nome || `AFD ${indice + 1}`)}</small><em>Aguardando</em></span>`;
+    const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
+    const nomeOriginal = arquivo?.nome || arquivo?.name || `AFD ${indice + 1}`;
+    return `<span class="loader-afd-dot" data-indice="${indice}" style="--afd-fill:0%" title="Aguardando: ${escapeHtml(localRotulo)} (${escapeHtml(nomeOriginal)})"><span class="loader-afd-bolha"><i></i><b>${indice + 1}</b></span><small class="loader-afd-local">${escapeHtml(localRotulo)}</small><em class="loader-afd-estado">Aguardando</em></span>`;
   }).join('');
 }
 
-function atualizarProgressoAfdLoader_(indice, estado, nome) {
+function extrairLocalInicialTextoAfdRep_(textoInicio) {
+  const linhas = String(textoInicio || '').split(/\r?\n/).slice(0, 40);
+  let numeroRep = '';
+  let localOriginal = '';
+  let layoutModerno = false;
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = String(linhas[i] || '');
+    if (linha.length < 10) continue;
+    const tipo = linha[9];
+    if (tipo === '1') {
+      layoutModerno = layoutModerno || linha.length >= 298;
+      if (!numeroRep) {
+        numeroRep = (layoutModerno ? linha.slice(189, 206) : linha.slice(187, 204)).trim();
+      }
+    } else if (tipo === '2') {
+      const moderno = /^\d{4}-\d{2}-\d{2}T/.test(linha.slice(10, 35));
+      const candidato = (moderno ? linha.slice(227, 327) : linha.slice(213, 313)).trim();
+      if (candidato) {
+        localOriginal = candidato;
+        break;
+      }
+    }
+  }
+  return { numeroRep, localOriginal };
+}
+
+function abreviarNomeArquivoAfdLoader_(nome, indice) {
+  const base = String(nome || '')
+    .replace(/\.(txt|afd)$/i, '')
+    .replace(/^(?:AFD|REP)[_\-\s]+/i, '')
+    .replace(/[_\-]+/g, ' ')
+    .trim();
+  if (!base) return 'AFD ' + (Number(indice || 0) + 1);
+  return base.length > 28 ? base.slice(0, 25).trim() + '…' : base;
+}
+
+function resolverLocalAfdLoader_(arquivo, localOriginal, numeroRep, indice) {
+  const nomeArquivo = arquivo?.nome || arquivo?.name || '';
+  const arquivoId = arquivo?.id || arquivo?.arquivoDriveId || arquivo?.repIntegridade?.arquivoId || '';
+  const repLimpo = numeroRep || arquivo?.numeroRep || '';
+  const chave = typeof chaveArquivoLocalRep_ === 'function'
+    ? chaveArquivoLocalRep_(repLimpo, nomeArquivo, arquivoId)
+    : '';
+  const listaEditados = Array.isArray(typeof locaisEditadosRep !== 'undefined' ? locaisEditadosRep : null) ? locaisEditadosRep : [];
+  if (localOriginal) {
+    const exibido = typeof localExibidoRep_ === 'function' ? localExibidoRep_(chave, localOriginal) : localOriginal;
+    if (exibido) return exibido;
+  }
+  if (chave) {
+    const editadoDireto = listaEditados.find(item => item.arquivoChave === chave && item.localExibido);
+    if (editadoDireto) return editadoDireto.localExibido;
+  }
+  if (nomeArquivo) {
+    const sufixo = '|ARQUIVO:' + String(nomeArquivo).trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120);
+    const editadoPorNome = listaEditados.find(item => String(item.arquivoChave || '').endsWith(sufixo) && item.localExibido);
+    if (editadoPorNome) return editadoPorNome.localExibido;
+  }
+  if (Array.isArray(arquivo?.locais) && arquivo.locais[0]) return arquivo.locais[0];
+  if (arquivo?.local) return arquivo.local;
+  return abreviarNomeArquivoAfdLoader_(nomeArquivo, indice);
+}
+
+function atualizarLocaisConhecidosAfdsLoader_(arquivos) {
+  const lista = Array.isArray(arquivos) ? arquivos : [];
+  lista.forEach(function(arquivo, indice) {
+    const item = document.querySelector(`#loader-afd-progress .loader-afd-dot[data-indice="${indice}"]`);
+    if (!item) return;
+    const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
+    const legendaLocal = item.querySelector('.loader-afd-local');
+    if (legendaLocal && localRotulo) legendaLocal.textContent = localRotulo;
+  });
+}
+
+function atualizarProgressoAfdLoader_(indice, estado, nome, opcoes) {
   const item = document.querySelector(`#loader-afd-progress .loader-afd-dot[data-indice="${Number(indice)}"]`);
   if (!item) return;
+  const opts = opcoes || {};
   item.classList.remove('carregando', 'concluido', 'falhou');
   if (estado) item.classList.add(estado);
-  const prefixos = { carregando: 'Carregando', concluido: 'Concluído', falhou: 'Falha' };
-  const legenda = item.querySelector('em');
+  const bolha = item.querySelector('.loader-afd-bolha');
+  let preenchimento = Number(opts.progresso);
+  if (estado === 'concluido') preenchimento = 100;
+  else if (!Number.isFinite(preenchimento)) {
+    const atualStr = item.style.getPropertyValue('--afd-fill') || '0';
+    const atualNum = Number(String(atualStr).replace('%', '')) || 0;
+    preenchimento = estado === 'carregando' ? Math.max(atualNum, 15) : atualNum;
+  }
+  preenchimento = Math.max(0, Math.min(100, Math.round(preenchimento)));
+  item.style.setProperty('--afd-fill', preenchimento + '%');
+  if (bolha) bolha.style.setProperty('--afd-fill', preenchimento + '%');
+  if (opts.local) {
+    const legendaLocal = item.querySelector('.loader-afd-local');
+    if (legendaLocal) legendaLocal.textContent = opts.local;
+  }
+  const localExibido = item.querySelector('.loader-afd-local')?.textContent || nome || `AFD ${Number(indice) + 1}`;
+  const prefixos = { carregando: preenchimento > 0 ? `${preenchimento}%` : 'Carregando', concluido: 'Concluído', falhou: 'Falha' };
+  const legenda = item.querySelector('.loader-afd-estado') || item.querySelector('em');
   if (legenda) legenda.textContent = prefixos[estado] || 'Aguardando';
-  item.title = `${prefixos[estado] || 'Aguardando'}: ${nome || `AFD ${Number(indice) + 1}`}`;
+  item.title = `${estado === 'concluido' ? 'Concluído' : (estado === 'falhou' ? 'Falha' : 'Carregando')}: ${localExibido}${nome ? ' (' + nome + ')' : ''}`;
 }
 
 function limparProgressoAfdsLoader_() {
@@ -4809,7 +4904,7 @@ function imprimirFolhaProtocoloLocal() {
     return;
   }
   janela.document.open();
-  janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Folha de protocolo</title><style>@page{size:A4;margin:12mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000;font-family:Arial,sans-serif}body{padding:0}table{width:100%;border-collapse:collapse}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.entidade-assinatura-impressao{display:flex!important}@media print{body{padding:0}}</style></head><body>${conteudo.innerHTML}</body></html>`);
+  janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Folha de protocolo</title><style>@page{size:A4;margin:10mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000;font-family:Arial,sans-serif}body{padding:0}table{width:100%;border-collapse:collapse}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.entidade-assinatura-impressao{display:flex!important}@media print{body{padding:0}}</style></head><body>${conteudo.innerHTML}</body></html>`);
   let iniciouImpressao = false;
   const imprimir = function() {
     if (iniciouImpressao) return;
@@ -7281,19 +7376,44 @@ async function sha256BytesRep_(bytes) {
   return Array.from(digest).map(valor => valor.toString(16).padStart(2, '0')).join('');
 }
 
-async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total) {
+async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoProgresso) {
   const partes = [];
   let esperado = null;
   let indice = 0;
+  let localDetectado = typeof resolverLocalAfdLoader_ === 'function'
+    ? resolverLocalAfdLoader_(registro, '', '', Math.max(0, Number(ordem || 1) - 1))
+    : '';
+  if (typeof aoProgresso === 'function') aoProgresso({ fracao: 0.05, local: localDetectado });
   do {
-    exibirLoader(true, `Verificando AFD ${ordem}/${total}: ${registro.nome} · parte ${indice + 1}${esperado ? '/' + esperado.totalPartes : ''}...`);
+    exibirLoader(true, `Verificando AFD ${ordem}/${total}: ${localDetectado || registro.nome} · parte ${indice + 1}${esperado ? '/' + esperado.totalPartes : ''}...`);
     const resposta = await chamarBackendPromessa_('obterParteArquivoPastaEntradaRep', [{ arquivoId: registro.id, indice }]);
     if (!esperado) esperado = resposta;
     if (String(resposta.arquivoId) !== String(registro.id) || resposta.sha256 !== esperado.sha256 || Number(resposta.tamanho) !== Number(esperado.tamanho)) {
       throw new Error('O arquivo mudou durante a leitura. Sincronize novamente.');
     }
-    partes.push(base64ParaBytesRep_(resposta.base64));
+    const bytesParte = base64ParaBytesRep_(resposta.base64);
+    partes.push(bytesParte);
+    if (indice === 0 && typeof extrairLocalInicialTextoAfdRep_ === 'function') {
+      const prefixo = bytesParte.subarray(0, Math.min(bytesParte.length, 16384));
+      let textoPrefixo = '';
+      try {
+        textoPrefixo = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('utf-8', { fatal: true }).decode(prefixo)
+          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+      } catch (erroUtf8) {
+        textoPrefixo = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('latin1').decode(prefixo)
+          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+      }
+      const infoInicial = extrairLocalInicialTextoAfdRep_(textoPrefixo);
+      if (infoInicial.localOriginal || infoInicial.numeroRep) {
+        localDetectado = resolverLocalAfdLoader_(registro, infoInicial.localOriginal, infoInicial.numeroRep, Math.max(0, Number(ordem || 1) - 1));
+      }
+    }
     indice++;
+    if (typeof aoProgresso === 'function') {
+      aoProgresso({ fracao: indice / Math.max(1, Number(esperado.totalPartes || 1)), local: localDetectado });
+    }
   } while (indice < Number(esperado.totalPartes));
   const bytes = concatenarPartesRep_(partes);
   if (bytes.length !== Number(esperado.tamanho)) throw new Error(`Tamanho divergente: Drive ${esperado.tamanho}, recebido ${bytes.length}.`);
@@ -7301,13 +7421,14 @@ async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total) {
   if (hashRecebido !== esperado.sha256) throw new Error(`SHA-256 divergente. Esperado ${esperado.sha256.slice(0, 12)}..., recebido ${hashRecebido.slice(0, 12)}...`);
   const arquivo = new File([bytes], registro.nome, { type: registro.mimeType || 'text/plain', lastModified: Date.parse(registro.atualizadoEm) || Date.now() });
   arquivo.repIntegridade = { confirmada: true, sha256Drive: esperado.sha256, sha256Recebido: hashRecebido, tamanhoDrive: Number(esperado.tamanho), tamanhoRecebido: bytes.length, arquivoId: registro.id };
+  if (localDetectado) arquivo.repLocalDetectado = localDetectado;
   return arquivo;
 }
 
-async function baixarArquivoPastaEntradaRep_(registro, ordem, total) {
+async function baixarArquivoPastaEntradaRep_(registro, ordem, total, aoProgresso) {
   let ultimoErro = null;
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
-    try { return await baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total); }
+    try { return await baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoProgresso); }
     catch (erro) {
       ultimoErro = erro;
       if (tentativa < 3) exibirLoader(true, `Falha ao conferir ${registro.nome}. Nova tentativa ${tentativa + 1}/3...`);
@@ -7387,6 +7508,7 @@ async function carregarModuloRepOnline(forcar) {
       return;
     }
     exibirLoader(true, 'Preparando a leitura compartilhada dos AFDs...');
+    document.getElementById('global-loader')?.classList.add('rep-loader-previa');
     atualizarProgressoLoader_(3, 'Consultando arquivos e ajustes compartilhados...');
     // A lista de AFDs é aguardada separadamente para que os indicadores
     // individuais apareçam enquanto as demais consultas terminam.
@@ -7427,6 +7549,7 @@ async function carregarModuloRepOnline(forcar) {
     ]);
     aplicarConfiguracaoCalculoRep_(resultados[9] || { arredondamentoAtivo: true });
     locaisEditadosRep = Array.isArray(resultados[10]) ? resultados[10] : [];
+    if (typeof atualizarLocaisConhecidosAfdsLoader_ === 'function') atualizarLocaisConhecidosAfdsLoader_(arquivosEntrada);
     atualizarCampoFeriadosCompartilhadosRep_();
     repOnlineCarregado = true;
     falhasIntegridadeRep = [];
@@ -9104,6 +9227,66 @@ function deduplicarBatidasRep(punches) {
   return deduplicados;
 }
 
+function atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos) {
+  const filtros = filtrosAnteriores || { ano: 'all', mes: 'all', local: 'all', lotacao: 'all' };
+  const punches = Array.isArray(dadosRepCache?.punches) ? dadosRepCache.punches : [];
+  const anosSet = new Set();
+  let anoMaisRecente = '';
+  let mesMaisRecente = '';
+
+  punches.forEach(p => {
+    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
+    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
+    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
+    anosSet.add(y);
+    if (!anoMaisRecente || p.datetime > new Date(`${anoMaisRecente}-${mesMaisRecente}-01`)) {
+      anoMaisRecente = y;
+      mesMaisRecente = m;
+    }
+  });
+
+  const selectAno = document.getElementById('rep-filter-ano');
+  const selectMes = document.getElementById('rep-filter-mes');
+  const selectLocal = document.getElementById('rep-filter-local');
+  const selectLotacao = document.getElementById('rep-filter-lotacao');
+  const referenciaAnterior = new Date();
+  referenciaAnterior.setDate(1);
+  referenciaAnterior.setMonth(referenciaAnterior.getMonth() - 1);
+  const anoAnterior = String(referenciaAnterior.getFullYear());
+  const mesAnterior = String(referenciaAnterior.getMonth() + 1).padStart(2, '0');
+  const possuiCompetenciaAnterior = punches.some(p =>
+    String(p.datetime.getFullYear()) === anoAnterior && String(p.datetime.getMonth() + 1).padStart(2, '0') === mesAnterior
+  );
+
+  if (selectAno) {
+    selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
+    const anosSorted = Array.from(anosSet).sort().reverse();
+    anosSorted.forEach(a => {
+      selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
+    });
+    if (jaHaviaArquivos && Array.from(anosSet).includes(filtros.ano)) selectAno.value = filtros.ano;
+    else if (possuiCompetenciaAnterior && Array.from(anosSet).includes(anoAnterior)) selectAno.value = anoAnterior;
+    else if (anoMaisRecente) selectAno.value = anoMaisRecente;
+  }
+
+  // Na primeira abertura, usa o mês anterior ao mês corrente. Ao adicionar
+  // arquivos na mesma sessão, preserva a escolha feita pelo usuário.
+  if (selectMes) selectMes.value = jaHaviaArquivos ? filtros.mes : (possuiCompetenciaAnterior ? mesAnterior : (mesMaisRecente || 'all'));
+
+  if (selectLocal) {
+    const locais = Array.from(new Set(punches.map(p => p.clock).filter(Boolean))).sort();
+    selectLocal.innerHTML = '<option value="all">Todos os locais/relógios</option>';
+    locais.forEach(local => selectLocal.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(local)}">${escapeHtml(local)}</option>`));
+    selectLocal.value = jaHaviaArquivos && locais.includes(filtros.local) ? filtros.local : 'all';
+  }
+  if (selectLotacao) {
+    const lotacoes = Array.from(new Set(Array.from(dadosRepCache.lotacoes.values()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    selectLotacao.innerHTML = '<option value="all">Todas as lotações</option>';
+    lotacoes.forEach(lotacao => selectLotacao.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(lotacao)}">${escapeHtml(lotacao)}</option>`));
+    selectLotacao.value = jaHaviaArquivos && lotacoes.includes(filtros.lotacao) ? filtros.lotacao : 'all';
+  }
+}
+
 async function processarArquivosRep(files, opcoes) {
   if (!files || files.length === 0) return;
   opcoes = opcoes || {};
@@ -9163,16 +9346,21 @@ async function processarArquivosRep(files, opcoes) {
     });
   });
 
+  if (!document.querySelector('#loader-afd-progress .loader-afd-dot')) {
+    iniciarProgressoAfdsLoader_(novosArquivos);
+  }
   let indiceArquivo = 0;
   registrarAtividadeSegundoPlano_('ATUALIZANDO', 'Leitura do REP', `Interpretando ${novosArquivos.length} arquivo(s) para montar a conferência.`);
   for (const file of novosArquivos) {
     indiceArquivo++;
+    const indiceLoader = Number.isInteger(file.repIndiceLoader) ? file.repIndiceLoader : (indiceArquivo - 1);
     const progressoBase = Number(opcoes.progressoBase || 10);
     const progressoFaixa = Number(opcoes.progressoFaixa || 80);
     const progressoArquivo = progressoBase + (((indiceArquivo - 1) / Math.max(1, novosArquivos.length)) * progressoFaixa);
-    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
-    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
-    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${file.name}`, true, 'spinner');
+    atualizarProgressoAfdLoader_(indiceLoader, 'carregando', file.name, { progresso: 82 });
+    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
+    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
+    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`, true, 'spinner');
     const inicioLeitura = performance.now();
     const text = await file.text();
     const leitura = await parseAFDRep(text, file.name);
@@ -9181,6 +9369,8 @@ async function processarArquivosRep(files, opcoes) {
     const arquivoDriveId = String(file.repIntegridade?.arquivoId || '');
     const arquivoChaveLocal = chaveArquivoLocalRep_(metadata.deviceSerial, file.name, arquivoDriveId);
     const locaisOriginais = Array.from(new Set([...clocks, ...punches.map(item => item.clock).filter(Boolean)]));
+    const locaisExibidos = (locaisOriginais.length ? locaisOriginais : ['Relógio não identificado']).map(local => localExibidoRep_(arquivoChaveLocal, local));
+    const localPrincipal = locaisExibidos[0] || file.repLocalDetectado || file.name;
     punches.forEach(item => {
       item.sourceFileId = arquivoDriveId;
       item.arquivoChaveLocal = arquivoChaveLocal;
@@ -9202,6 +9392,7 @@ async function processarArquivosRep(files, opcoes) {
         const resultadoOnline = await salvarAfdRepOnline_(file, text, leitura, dataInicial ? toDateStringRep(dataInicial) : '', dataFinal ? toDateStringRep(dataFinal) : '');
         if (resultadoOnline && resultadoOnline.ignoradoMaisAntigo) {
           ignoradosMaisAntigos++;
+          atualizarProgressoAfdLoader_(indiceLoader, 'concluido', file.name, { local: localPrincipal });
           continue;
         }
         salvoOnline = true;
@@ -9249,7 +9440,7 @@ async function processarArquivosRep(files, opcoes) {
       tamanhoDrive: Number(file.repIntegridade?.tamanhoDrive || file.size || 0),
       tamanhoRecebido: Number(file.repIntegridade?.tamanhoRecebido || file.size || 0),
       locaisOriginais: locaisOriginais.length ? locaisOriginais : ['Relógio não identificado'],
-      locais: (locaisOriginais.length ? locaisOriginais : ['Relógio não identificado']).map(local => localExibidoRep_(arquivoChaveLocal, local)),
+      locais: locaisExibidos,
       linhasLidas: audit.linhasLidas,
       linhasArquivo: audit.linhasArquivo,
       linhasVazias: audit.linhasVazias,
@@ -9274,10 +9465,13 @@ async function processarArquivosRep(files, opcoes) {
       dadosRepCache.punchesBrutos.push(...parte);
       dadosRepCache.punches.push(...parte);
     }
-    atualizarPreviaLeituraRep_(indiceArquivo, novosArquivos.length, file.name);
+    aplicarVinculosRepPersistidos_();
+    atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos);
+    atualizarPreviaLeituraRep_(indiceArquivo, novosArquivos.length, localPrincipal);
+    atualizarProgressoAfdLoader_(indiceLoader, 'concluido', file.name, { local: localPrincipal });
     // Libera a interface entre arquivos grandes.
     await new Promise(resolve => setTimeout(resolve, 0));
-    atualizarProgressoLoader_(progressoBase + ((indiceArquivo / Math.max(1, novosArquivos.length)) * progressoFaixa), `Interpretado ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
+    atualizarProgressoLoader_(progressoBase + ((indiceArquivo / Math.max(1, novosArquivos.length)) * progressoFaixa), `Interpretado ${indiceArquivo}/${novosArquivos.length}: ${localPrincipal}`);
   }
 
   atualizarProgressoLoader_(96, 'Consolidando marcações dos arquivos...');
@@ -9289,62 +9483,7 @@ async function processarArquivosRep(files, opcoes) {
   dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punches);
   aplicarAjustesCompartilhadosRep_();
 
-  // Popula seletor de Anos dinamicamente
-  const anosSet = new Set();
-  let anoMaisRecente = "";
-  let mesMaisRecente = "";
-
-  dadosRepCache.punches.forEach(p => {
-    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
-    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
-    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
-    anosSet.add(y);
-    if (!anoMaisRecente || p.datetime > new Date(`${anoMaisRecente}-${mesMaisRecente}-01`)) {
-      anoMaisRecente = y;
-      mesMaisRecente = m;
-    }
-  });
-
-  const selectAno = document.getElementById('rep-filter-ano');
-  const selectMes = document.getElementById('rep-filter-mes');
-  const selectLocal = document.getElementById('rep-filter-local');
-  const selectLotacao = document.getElementById('rep-filter-lotacao');
-  const referenciaAnterior = new Date();
-  referenciaAnterior.setDate(1);
-  referenciaAnterior.setMonth(referenciaAnterior.getMonth() - 1);
-  const anoAnterior = String(referenciaAnterior.getFullYear());
-  const mesAnterior = String(referenciaAnterior.getMonth() + 1).padStart(2, '0');
-  const possuiCompetenciaAnterior = dadosRepCache.punches.some(p =>
-    String(p.datetime.getFullYear()) === anoAnterior && String(p.datetime.getMonth() + 1).padStart(2, '0') === mesAnterior
-  );
-
-  if (selectAno) {
-    selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
-    const anosSorted = Array.from(anosSet).sort().reverse();
-    anosSorted.forEach(a => {
-      selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
-    });
-    if (jaHaviaArquivos && Array.from(anosSet).includes(filtrosAnteriores.ano)) selectAno.value = filtrosAnteriores.ano;
-    else if (possuiCompetenciaAnterior && Array.from(anosSet).includes(anoAnterior)) selectAno.value = anoAnterior;
-    else if (anoMaisRecente) selectAno.value = anoMaisRecente;
-  }
-
-  // Na primeira abertura, usa o mês anterior ao mês corrente. Ao adicionar
-  // arquivos na mesma sessão, preserva a escolha feita pelo usuário.
-  if (selectMes) selectMes.value = jaHaviaArquivos ? filtrosAnteriores.mes : (possuiCompetenciaAnterior ? mesAnterior : (mesMaisRecente || 'all'));
-
-  if (selectLocal) {
-    const locais = Array.from(new Set(dadosRepCache.punches.map(p => p.clock).filter(Boolean))).sort();
-    selectLocal.innerHTML = '<option value="all">Todos os locais/relógios</option>';
-    locais.forEach(local => selectLocal.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(local)}">${escapeHtml(local)}</option>`));
-    selectLocal.value = jaHaviaArquivos && locais.includes(filtrosAnteriores.local) ? filtrosAnteriores.local : 'all';
-  }
-  if (selectLotacao) {
-    const lotacoes = Array.from(new Set(Array.from(dadosRepCache.lotacoes.values()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-    selectLotacao.innerHTML = '<option value="all">Todas as lotações</option>';
-    lotacoes.forEach(lotacao => selectLotacao.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(lotacao)}">${escapeHtml(lotacao)}</option>`));
-    selectLotacao.value = jaHaviaArquivos && lotacoes.includes(filtrosAnteriores.lotacao) ? filtrosAnteriores.lotacao : 'all';
-  }
+  atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos);
 
   atualizarProgressoLoader_(97, 'Montando a conferência e os indicadores...');
   atualizarTextoSync('Calculando horários e montando a conferência...', true, 'spinner');

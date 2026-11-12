@@ -1,6 +1,79 @@
 <script>
 let referenciasRelatorioMensalHeRep_ = null;
 let relatorioMensalHeCarregando_ = false;
+let dadosRelatorioMensalHeAtual_ = null;
+let desmarcadosRelatorioMensalHeRep_ = new Set();
+let competenciaSelecaoRelatorioHeRep_ = '';
+
+function obterChaveLinhaRelatorioHe_(item) {
+  return String(normalizarPisRep(item && item.pis) || (item && item.matricula) || '').trim();
+}
+
+function obterCheckboxesSelecaoRelatorioHe_() {
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return [];
+  return Array.from(document.querySelectorAll('#rep-he-previa input[data-rep-he-check]'));
+}
+
+function atualizarSelecaoRelatorioHe_() {
+  const checks = obterCheckboxesSelecaoRelatorioHe_();
+  const dados = dadosRelatorioMensalHeAtual_;
+  if (!dados) return;
+  const marcados = new Set();
+  checks.forEach(function(input) {
+    const chave = String(input.value || '').trim();
+    if (!chave) return;
+    if (input.checked) {
+      desmarcadosRelatorioMensalHeRep_.delete(chave);
+      marcados.add(chave);
+    } else {
+      desmarcadosRelatorioMensalHeRep_.add(chave);
+    }
+  });
+  const linhasSelecionadas = checks.length
+    ? (dados.linhas || []).filter(item => marcados.has(obterChaveLinhaRelatorioHe_(item)))
+    : (dados.linhas || []).filter(item => !desmarcadosRelatorioMensalHeRep_.has(obterChaveLinhaRelatorioHe_(item)));
+  const totalMinutos = linhasSelecionadas.reduce((soma, item) => soma + Number(item.minutos || 0), 0);
+
+  const checkAll = typeof document !== 'undefined' && typeof document.getElementById === 'function'
+    ? document.getElementById('rep-he-check-all')
+    : null;
+  if (checkAll && checks.length) {
+    checkAll.checked = marcados.size === checks.length;
+    checkAll.indeterminate = marcados.size > 0 && marcados.size < checks.length;
+  }
+
+  const resumo = typeof document !== 'undefined' && typeof document.getElementById === 'function'
+    ? document.getElementById('rep-he-resumo-selecao')
+    : null;
+  if (resumo) {
+    resumo.textContent = `${dados.rotulo} · ${linhasSelecionadas.length} de ${(dados.linhas || []).length} servidor(es) selecionado(s) · ${minutosParaHoraRep_(totalMinutos)} horas`;
+  }
+  definirBotoesRelatorioHe_(linhasSelecionadas.length > 0);
+}
+
+function marcarTodosRelatorioHe_(master) {
+  const marcar = Boolean(master && master.checked);
+  const checks = obterCheckboxesSelecaoRelatorioHe_();
+  checks.forEach(function(input) {
+    input.checked = marcar;
+  });
+  atualizarSelecaoRelatorioHe_();
+}
+
+function filtrarSelecionadosRelatorioMensalHeRep_(dados) {
+  if (!dados || !Array.isArray(dados.linhas)) return dados;
+  const checks = obterCheckboxesSelecaoRelatorioHe_();
+  if (!checks.length && !desmarcadosRelatorioMensalHeRep_.size) return dados;
+  const marcados = checks.length
+    ? new Set(checks.filter(input => input.checked).map(input => String(input.value || '').trim()))
+    : null;
+  const linhas = dados.linhas.filter(item => {
+    const chave = obterChaveLinhaRelatorioHe_(item);
+    return marcados ? marcados.has(chave) : !desmarcadosRelatorioMensalHeRep_.has(chave);
+  });
+  const totalMinutos = linhas.reduce((total, item) => total + Number(item.minutos || 0), 0);
+  return { ...dados, linhas, totalMinutos };
+}
 
 function normalizarVinculoRelatorioHe_(valor) {
   return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
@@ -69,6 +142,7 @@ async function conferirReferenciasRelatorioMensalHeRep_() {
 }
 
 function definirBotoesRelatorioHe_(habilitar) {
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return;
   document.querySelectorAll('[data-exportar-relatorio-he]').forEach(botao => { botao.disabled = !habilitar; });
 }
 
@@ -80,20 +154,32 @@ async function atualizarPreviaRelatorioMensalHeRep_() {
   alvo.textContent = 'Confirmando o vínculo funcional e a conferência do mês na base…';
   try {
     const dados = await conferirReferenciasRelatorioMensalHeRep_();
-    const linhas = dados.linhas.map(item => `<tr><td>${escapeHtml(item.matricula)}</td><td>${escapeHtml(item.cargo)}</td><td>${escapeHtml(item.nome)}</td><td style="white-space:nowrap;text-align:right">${minutosParaHoraRep_(item.minutos)}</td></tr>`).join('');
+    if (competenciaSelecaoRelatorioHeRep_ !== dados.competencia) {
+      desmarcadosRelatorioMensalHeRep_.clear();
+      competenciaSelecaoRelatorioHeRep_ = dados.competencia;
+    }
+    dadosRelatorioMensalHeAtual_ = dados;
+    const todosMarcados = dados.linhas.length > 0 && dados.linhas.every(item => !desmarcadosRelatorioMensalHeRep_.has(obterChaveLinhaRelatorioHe_(item)));
+    const linhas = dados.linhas.map(item => {
+      const chave = obterChaveLinhaRelatorioHe_(item);
+      const marcado = !desmarcadosRelatorioMensalHeRep_.has(chave);
+      return `<tr><td style="text-align:center;width:36px"><input type="checkbox" data-rep-he-check value="${escapeHtml(chave)}" aria-label="Incluir ${escapeHtml(item.nome)}" ${marcado ? 'checked' : ''} onchange="atualizarSelecaoRelatorioHe_()"></td><td>${escapeHtml(item.matricula)}</td><td>${escapeHtml(item.cargo)}</td><td>${escapeHtml(item.nome)}</td><td style="white-space:nowrap;text-align:right">${minutosParaHoraRep_(item.minutos)}</td></tr>`;
+    }).join('');
     const excluidos = dados.excluidos.map(item => `<tr><td>${escapeHtml(item.nome)}</td><td>${escapeHtml(item.motivos.join('; '))}</td></tr>`).join('');
-    alvo.innerHTML = `<p><strong>${escapeHtml(dados.rotulo)} · ${dados.linhas.length} servidor(es) · ${minutosParaHoraRep_(dados.totalMinutos)} horas</strong></p>
-      <p style="color:var(--text-secondary)">Entram somente servidores com horas extras, ponto marcado como conferido neste mês e vínculo não comissionado. O relatório abrange todos os locais carregados do mês.</p>
+    alvo.innerHTML = `<p><strong id="rep-he-resumo-selecao">${escapeHtml(dados.rotulo)} · ${dados.linhas.length} servidor(es) · ${minutosParaHoraRep_(dados.totalMinutos)} horas</strong></p>
+      <p style="color:var(--text-secondary)">Entram somente servidores com horas extras, ponto marcado como conferido neste mês e vínculo não comissionado (todos elegíveis já vêm pré-selecionados para emissão). O relatório abrange todos os locais carregados do mês.</p>
       ${dados.diasPendentes ? `<p role="status">${dados.diasPendentes} dia(s) com marcações pendentes não entram no total de HE.</p>` : ''}
-      <div style="max-height:40vh;overflow:auto"><table class="data-table" style="width:100%"><thead><tr><th>Matrícula</th><th>Função</th><th>Nome</th><th>HE (h:mm)</th></tr></thead><tbody>${linhas || '<tr><td colspan="4">Nenhum servidor atende aos critérios para este mês.</td></tr>'}</tbody></table></div>
+      <div style="max-height:40vh;overflow:auto"><table class="data-table" style="width:100%"><thead><tr><th style="width:36px;text-align:center"><input type="checkbox" id="rep-he-check-all" aria-label="Selecionar todos elegíveis" ${todosMarcados ? 'checked' : ''} onchange="marcarTodosRelatorioHe_(this)"></th><th>Matrícula</th><th>Função</th><th>Nome</th><th>HE (h:mm)</th></tr></thead><tbody>${linhas || '<tr><td colspan="5">Nenhum servidor atende aos critérios para este mês.</td></tr>'}</tbody></table></div>
       ${excluidos ? `<details style="margin-top:16px"><summary>Não entram no relatório (${dados.excluidos.length})</summary><table class="data-table" style="width:100%"><thead><tr><th>Servidor</th><th>Motivo</th></tr></thead><tbody>${excluidos}</tbody></table></details>` : ''}`;
-    definirBotoesRelatorioHe_(dados.linhas.length > 0);
+    atualizarSelecaoRelatorioHe_();
   } catch (erro) { alvo.textContent = mensagemErro(erro); }
   finally { relatorioMensalHeCarregando_ = false; }
 }
 
 async function abrirRelatorioMensalHeRep_() {
   try { prepararDadosRelatorioMensalHeRep_(); } catch (erro) { return mostrarToast(mensagemErro(erro),'warning'); }
+  desmarcadosRelatorioMensalHeRep_.clear();
+  competenciaSelecaoRelatorioHeRep_ = obterCompetenciaAtualRep_();
   let modal = document.getElementById('modal-relatorio-mensal-he');
   if (!modal) {
     modal = document.createElement('div'); modal.id = 'modal-relatorio-mensal-he'; modal.className = 'modal-overlay';
@@ -150,6 +236,10 @@ async function exportarRelatorioMensalHeRep_(formato,botao) {
   try {
     if (relatorioMensalHeCarregando_) throw new Error('Aguarde a conferência dos critérios do relatório.');
     prepararDadosRelatorioMensalHeRep_();
+    const checks = obterCheckboxesSelecaoRelatorioHe_();
+    if (checks.length && !checks.some(c => c.checked)) {
+      throw new Error('Selecione ao menos um servidor elegível para emitir o relatório.');
+    }
     if (formato === 'pdf') {
       janela = window.open('','_blank');
       if (!janela) throw new Error('Permita a abertura da janela para imprimir o relatório.');
@@ -157,9 +247,10 @@ async function exportarRelatorioMensalHeRep_(formato,botao) {
     } else if (typeof XLSX === 'undefined') throw new Error('A biblioteca de Excel ainda não está disponível.');
     if (botao) botao.disabled = true;
     const dados = await conferirReferenciasRelatorioMensalHeRep_();
-    if (!dados.linhas.length) throw new Error('Nenhum servidor atende aos critérios: HE positiva, ponto conferido e vínculo não comissionado.');
-    if (formato === 'pdf') { janela.document.open(); janela.document.write(criarHtmlRelatorioMensalHeRep_(dados)); janela.document.close(); janela.focus(); }
-    else XLSX.writeFile(criarPlanilhaRelatorioMensalHeRep_(dados),'Relatorio_Horas_Extras_'+dados.competencia+'.xlsx');
+    const dadosSelecionados = filtrarSelecionadosRelatorioMensalHeRep_(dados);
+    if (!dadosSelecionados.linhas.length) throw new Error('Nenhum servidor selecionado atende aos critérios: HE positiva, ponto conferido e vínculo não comissionado.');
+    if (formato === 'pdf') { janela.document.open(); janela.document.write(criarHtmlRelatorioMensalHeRep_(dadosSelecionados)); janela.document.close(); janela.focus(); }
+    else XLSX.writeFile(criarPlanilhaRelatorioMensalHeRep_(dadosSelecionados),'Relatorio_Horas_Extras_'+dadosSelecionados.competencia+'.xlsx');
   } catch (erro) { if (janela) janela.close(); mostrarToast('Não foi possível emitir o relatório: '+mensagemErro(erro),'error'); }
   finally { if (botao) botao.disabled = false; }
 }

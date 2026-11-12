@@ -365,6 +365,66 @@ function obterLancamentosPendentesProtocolo() {
   return pendentes;
 }
 
+/** Escapa caracteres especiais HTML para impressão segura da folha de protocolo. */
+function escapeHtmlProtocolo_(valor) {
+  return String(valor == null ? '' : valor)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Identifica ausências simultâneas na mesma lotação envolvendo itens do protocolo.
+ */
+function obterAlertasAusenciaLotacaoProtocolo_(ss, lancamentosProtocolo) {
+  const lista = Array.isArray(lancamentosProtocolo) ? lancamentosProtocolo : [];
+  if (!lista.length || typeof coletarContextoAusenciasLotacao_ !== 'function') return [];
+
+  const contexto = coletarContextoAusenciasLotacao_(ss);
+  const vistos = new Set();
+  const alertas = [];
+
+  lista.forEach(function(item) {
+    if (Number(item.diasPecunia || 0) > 0 && Number(item.dias || 0) <= 0) return;
+    const candidato = criarIntervaloAusenciaLancamento_({
+      matricula: item.matricula,
+      nome: item.nome,
+      tipo: item.tipo,
+      dataInicio: item.dataInicio,
+      dias: item.dias,
+      status: 'Ativo',
+      linhaPlanilha: item.linhaPlanilha
+    });
+    if (!candidato) return;
+    const resultado = encontrarAusenciasLotacaoParaIntervalo_(candidato, contexto);
+    if (!resultado.temAlerta) return;
+
+    const linhaItem = Number(item.linhaPlanilha || 0);
+    resultado.ausentes.forEach(function(colega) {
+      const linhaColega = Number(colega.linhaPlanilha || 0);
+      const idA = linhaItem ? 'L' + linhaItem : candidato.matricula + '|' + resultado.periodoNovo;
+      const idB = linhaColega ? 'L' + linhaColega : normalizarChaveMatricula_(colega.matricula) + '|' + colega.periodo;
+      const chave = [idA, idB].sort().join('<>') + '|' + colega.sobreposicao;
+      if (vistos.has(chave)) return;
+      vistos.add(chave);
+      alertas.push({
+        lotacao: resultado.lotacao,
+        servidorNome: String(item.nome || candidato.nome || '').trim(),
+        servidorTipo: String(item.tipo || '').trim(),
+        servidorPeriodo: resultado.periodoNovo,
+        colegaNome: colega.nome,
+        colegaTipo: colega.tipo,
+        colegaPeriodo: colega.periodo,
+        sobreposicao: colega.sobreposicao
+      });
+    });
+  });
+
+  return alertas;
+}
+
 /**
  * Gera o conteúdo HTML formatado para impressão da Folha de Protocolo
  */
@@ -392,21 +452,22 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
   if (!protocoloInfo) throw new Error("Protocolo não encontrado.");
 
   const lancamentos = obterLancamentosVinculados(idProtocolo);
+  const alertasLotacao = obterAlertasAusenciaLotacaoProtocolo_(ss, lancamentos);
 
   let html = `
-    <div style="font-family: Arial, sans-serif; color: #000; padding: 20px 40px; line-height: 1.5; background-color: #fff; width: 100%;">
+    <div style="font-family: Arial, sans-serif; color: #000; padding: 10px 22px; line-height: 1.35; background-color: #fff; width: 100%; box-sizing: border-box;">
       
       <!-- Detalhes do Protocolo -->
-      <div style="margin-bottom: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #000; padding-bottom: 10px; margin-bottom: 15px;">
+      <div style="margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 1px solid #000; padding-bottom: 6px; margin-bottom: 8px; gap: 12px;">
           <div>
-            <span style="font-size: 16px; text-transform: uppercase; color: #111; font-weight: 700;">Folha de Protocolo Local - No ${protocoloInfo.id}</span>
+            <span style="font-size: 14px; text-transform: uppercase; color: #111; font-weight: 700;">Folha de Protocolo Local - No ${escapeHtmlProtocolo_(protocoloInfo.id)}</span>
           </div>
           <div style="text-align: right;">
-            <p style="margin: 0; font-size: 13px;"><strong>Data de Entrega dos documentos:</strong> ${protocoloInfo.data}</p>
+            <p style="margin: 0; font-size: 11.5px;"><strong>Data de Entrega dos documentos:</strong> ${escapeHtmlProtocolo_(protocoloInfo.data)}</p>
           </div>
         </div>
-        <p style="font-size: 13px; color: #333; margin: 0;">Declaramos que as solicitações físicas entregues ao recursos humanos listadas abaixo foram repassadas anexa a este docuemento para ciência da respectiva chefia.</p>
+        <p style="font-size: 11.5px; line-height: 1.35; color: #222; margin: 0;">Declaramos que as solicitações físicas entregues ao recursos humanos listadas abaixo foram repassadas anexa a este docuemento para ciência da respectiva chefia.</p>
       </div>
   `;
 
@@ -427,15 +488,15 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
     }
 
     html += `
-      <div style="margin-bottom: 30px;">
-        <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; text-transform: uppercase; color: #000; border-bottom: 1px dashed #ccc; padding-bottom: 4px;">${tipo}</h3>
-        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <div style="margin-bottom: 14px;">
+        <h3 style="margin: 0 0 5px 0; font-size: 12px; font-weight: 700; text-transform: uppercase; color: #000; border-bottom: 1px dashed #bbb; padding-bottom: 2px; page-break-after: avoid; break-after: avoid;">${escapeHtmlProtocolo_(tipo)}</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px; line-height: 1.3;">
           <thead>
-            <tr style="background-color: #f9f9f9;">
-              <th style="border: 1px solid #222; padding: 8px; text-align: left; font-weight: 700; width: 30%;">Servidor (Matrícula)</th>
-              <th style="border: 1px solid #222; padding: 8px; text-align: center; font-weight: 700; width: 15%;">${headerPeriodo}</th>
-              <th style="border: 1px solid #222; padding: 8px; text-align: center; font-weight: 700; width: 15%;">Qtd / Dias</th>
-              <th style="border: 1px solid #222; padding: 8px; text-align: left; font-weight: 700; width: 40%;">Info Adicional (Despacho / Obs)</th>
+            <tr style="background-color: #f4f4f4;">
+              <th style="border: 1px solid #222; padding: 4px 6px; text-align: left; font-weight: 700; width: 30%;">Servidor (Matrícula)</th>
+              <th style="border: 1px solid #222; padding: 4px 6px; text-align: center; font-weight: 700; width: 16%;">${headerPeriodo}</th>
+              <th style="border: 1px solid #222; padding: 4px 6px; text-align: center; font-weight: 700; width: 13%;">Qtd / Dias</th>
+              <th style="border: 1px solid #222; padding: 4px 6px; text-align: left; font-weight: 700; width: 41%;">Info Adicional (Despacho / Obs)</th>
             </tr>
           </thead>
           <tbody>
@@ -443,18 +504,18 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
 
     porTipo[tipo].forEach(l => {
       let infoAdicional = "";
-      if (l.despacho) infoAdicional += `<strong>Despacho:</strong> ${l.despacho}<br>`;
-      if (l.observacao) infoAdicional += `<strong>Obs:</strong> ${l.observacao}`;
+      if (l.despacho) infoAdicional += `<strong>Despacho:</strong> ${escapeHtmlProtocolo_(l.despacho)}<br>`;
+      if (l.observacao) infoAdicional += `<strong>Obs:</strong> ${escapeHtmlProtocolo_(l.observacao)}`;
       
       let retornoHtml = "";
-      if (l.retorno) retornoHtml = ` - ${l.retorno}`;
+      if (l.retorno) retornoHtml = ` - ${escapeHtmlProtocolo_(l.retorno)}`;
       
       html += `
         <tr>
-          <td style="border: 1px solid #222; padding: 8px;"><strong>${l.nome}</strong><br><span style="color:#555; font-size:11px;">${l.matricula}</span></td>
-          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.dataInicio}${retornoHtml}</td>
-          <td style="border: 1px solid #222; padding: 8px; text-align: center;">${l.diasPecunia > 0 ? l.dias + ' gozo + ' + l.diasPecunia + ' pecúnia' : (l.dias > 0 ? l.dias + ' d' : (l.qtdHoras || '-'))}</td>
-          <td style="border: 1px solid #222; padding: 8px;">${infoAdicional || '-'}</td>
+          <td style="border: 1px solid #222; padding: 4px 6px;"><strong>${escapeHtmlProtocolo_(l.nome)}</strong><br><span style="color:#444; font-size:9.5px;">${escapeHtmlProtocolo_(l.matricula)}</span></td>
+          <td style="border: 1px solid #222; padding: 4px 6px; text-align: center;">${escapeHtmlProtocolo_(l.dataInicio)}${retornoHtml}</td>
+          <td style="border: 1px solid #222; padding: 4px 6px; text-align: center;">${l.diasPecunia > 0 ? l.dias + ' gozo + ' + l.diasPecunia + ' pecúnia' : (l.dias > 0 ? l.dias + ' d' : (escapeHtmlProtocolo_(l.qtdHoras) || '-'))}</td>
+          <td style="border: 1px solid #222; padding: 4px 6px;">${infoAdicional || '-'}</td>
         </tr>
       `;
     });
@@ -462,6 +523,19 @@ function obterHtmlFolhaProtocolo(idProtocolo) {
     html += `
           </tbody>
         </table>
+      </div>
+    `;
+  }
+
+  if (alertasLotacao.length) {
+    html += `
+      <div style="margin-top: 10px; padding: 7px 10px; border: 1px solid #888; border-left: 3px solid #111; background-color: #f7f7f7; font-size: 9.5px; line-height: 1.35; color: #111; break-inside: avoid; page-break-inside: avoid;">
+        <div style="font-weight: 700; text-transform: uppercase; letter-spacing: 0.2px; margin-bottom: 3px;">Alertas de ausência simultânea na mesma lotação (${alertasLotacao.length})</div>
+        <ul style="margin: 0; padding-left: 14px;">
+          ${alertasLotacao.map(function(alerta) {
+            return `<li style="margin-bottom: 2px;"><strong>${escapeHtmlProtocolo_(alerta.lotacao)}:</strong> ${escapeHtmlProtocolo_(alerta.servidorNome)} (${escapeHtmlProtocolo_(alerta.servidorTipo)} · ${escapeHtmlProtocolo_(alerta.servidorPeriodo)}) coincide com ${escapeHtmlProtocolo_(alerta.colegaNome)} (${escapeHtmlProtocolo_(alerta.colegaTipo)} · ${escapeHtmlProtocolo_(alerta.colegaPeriodo)}) — período em comum: <strong>${escapeHtmlProtocolo_(alerta.sobreposicao)}</strong>.</li>`;
+          }).join('')}
+        </ul>
       </div>
     `;
   }

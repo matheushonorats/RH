@@ -22,8 +22,10 @@ const trechos = [
   ['function iniciarProgressoAfdsLoader_(', 'function carregarDadosDaView('],
   ['function iniciarPolling(', 'function escapeHtml('],
   ['function inicializarUsuario(', 'function inicializarInterface('],
+  ['async function baixarArquivoPastaEntradaRepUmaVez_(', 'async function abrirPastaEntradaRep('],
   ['async function abrirPastaEntradaRep(', 'function prepararCartoesManuaisSemAfdRep_('],
   ['function processDataRep(', 'function completarDiasSemRegistroRep_('],
+  ['function atualizarFiltrosPeriodoRep_(', "  const zone = document.getElementById('rep-upload-zone');"],
   ['function preencherCompensacaoMaximaRep_(', 'async function restaurarAjustesDiaRep('],
   ['function definirFiltroDiasRep(', 'function obterCompetenciaAtualRep_('],
   ['function renderizarAuditoriaArquivosRep(', 'let repContextoProcessamento_'],
@@ -90,10 +92,8 @@ html = html.replace('<div class="rep-ajuste-ausencia">', '<div class="rep-ajuste
  .replace(/<div class="form-group" style="margin-top:16px;">(\s*<label class="form-label" for="rep-ajuste-justificativa">)/, '<div class="form-group" hidden>$1')
  .replace(/<button type="button" class="btn btn-primary" onclick="abrirPastaEntradaRep\(\)"><span data-lucide="folder-open"><\/span> Abrir pasta<\/button>/, '');
 
-html = html.replace(/^    atualizarPreviaLeituraRep_\(indiceArquivo, novosArquivos.length, file.name\);\n/gm, '');
-html = html.replace('    // Libera a interface entre arquivos grandes.', '    atualizarPreviaLeituraRep_(indiceArquivo, novosArquivos.length, file.name);\n    // Libera a interface entre arquivos grandes.');
 const versao = fs.readFileSync(path.join(web, 'Version.gs'), 'utf8').match(/const APP_VERSION = "([^"]+)"/)[1];
-html = html.replace(/(id="rep-file-input" multiple accept=")\.txt("?)/, '$1.txt,.afd$2');
+html = html.replace(/(id="rep-file-input" multiple accept=")\.txt(?:,\.afd)*("?)/, '$1.txt,.afd$2');
 html = html.replace(/data-app-version="[^"]+"/, 'data-app-version="' + versao + '"')
   .replace(/Versão \d+\.\d+/g, 'Versão ' + versao);
 fs.writeFileSync(path.join(desktop, 'renderer/index.html'), html);

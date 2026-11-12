@@ -4788,16 +4788,29 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 .rep-lote-autorizacao,.rep-compensacao-campos,.rep-lote-meta-dia{gap:8px;border-radius:8px}
 .rep-ajuste-modal .modal-footer,.rep-lote-modal .modal-footer{position:sticky;bottom:0;background:var(--bg-secondary);z-index:5;box-shadow:0 -6px 16px #0001}
 .rep-aviso-calendario{padding:12px;border-radius:8px;background:rgba(245,158,11,.12);color:var(--status-warning-text)}
-#loader-afd-progress{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:180px;overflow:auto;gap:6px}
-#loader-afd-progress .loader-afd-dot{display:grid;grid-template-columns:20px minmax(0,1fr);gap:3px 7px;width:auto;height:auto;min-height:42px;flex:none;padding:7px 9px;border-radius:7px;background:var(--bg-tertiary);box-shadow:none;border:1px solid var(--border-color);text-align:left}
-#loader-afd-progress .loader-afd-dot i{display:none}#loader-afd-progress .loader-afd-dot b{grid-row:1/3;align-self:center;font-size:11px}#loader-afd-progress .loader-afd-dot small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}#loader-afd-progress .loader-afd-dot em{font-style:normal;font-size:9px;opacity:.7}
-#loader-afd-progress .loader-afd-dot.concluido{color:var(--status-active-text);background:rgba(16,185,129,.1)}#loader-afd-progress .loader-afd-dot.carregando{border-color:var(--brand-primary);animation:rep-arquivo-pulso 1.6s ease-in-out infinite}
-#global-loader.rep-loader-previa{background:rgba(0,0,0,.25);backdrop-filter:none;align-items:flex-end;justify-content:flex-end;padding:24px}
+#loader-afd-progress{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));max-height:204px;overflow-y:auto;gap:10px 8px;padding:4px 2px}
+#loader-afd-progress .loader-afd-dot{display:flex;flex-direction:column;align-items:center;gap:4px;width:auto;height:auto;flex:none;padding:6px 4px;border-radius:10px;background:rgba(15,23,42,.35);border:1px solid rgba(148,163,184,.16);box-shadow:none;text-align:center;transition:border-color .25s ease,background .25s ease}
+#loader-afd-progress .loader-afd-bolha{position:relative;width:44px;height:44px;border-radius:50%;overflow:hidden;border:2px solid rgba(56,189,248,.45);background:rgba(15,23,42,.85);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 2px 6px rgba(0,0,0,.45);transition:border-color .35s ease,box-shadow .35s ease}
+#loader-afd-progress .loader-afd-bolha i{position:absolute;left:-10%;right:-10%;bottom:0;height:var(--afd-fill,0%);display:block;border-radius:38% 42% 0 0;background:linear-gradient(180deg,rgba(56,189,248,.92) 0%,rgba(2,132,199,.96) 100%);transition:height .4s ease,background .35s ease;pointer-events:none}
+#loader-afd-progress .loader-afd-dot.carregando .loader-afd-bolha{border-color:#38bdf8;box-shadow:0 0 12px rgba(56,189,248,.28),inset 0 2px 6px rgba(0,0,0,.45)}
+#loader-afd-progress .loader-afd-dot.carregando .loader-afd-bolha i{animation:afd-onda 2.4s ease-in-out infinite}
+#loader-afd-progress .loader-afd-dot.concluido{border-color:rgba(16,185,129,.45);background:rgba(16,185,129,.08)}
+#loader-afd-progress .loader-afd-dot.concluido .loader-afd-bolha{border-color:#10b981;box-shadow:0 0 14px rgba(16,185,129,.4)}
+#loader-afd-progress .loader-afd-dot.concluido .loader-afd-bolha i{height:100% !important;border-radius:0;background:linear-gradient(180deg,#34d399 0%,#059669 100%);animation:none}
+#loader-afd-progress .loader-afd-dot.falhou{border-color:rgba(248,113,113,.45);background:rgba(239,68,68,.08)}
+#loader-afd-progress .loader-afd-dot.falhou .loader-afd-bolha{border-color:#ef4444}
+#loader-afd-progress .loader-afd-dot.falhou .loader-afd-bolha i{background:linear-gradient(180deg,#f87171 0%,#dc2626 100%);animation:none}
+#loader-afd-progress .loader-afd-bolha b{position:relative;z-index:2;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.65)}
+#loader-afd-progress .loader-afd-local{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:10px;line-height:1.25;color:var(--text-primary);font-weight:600;max-width:100%;word-break:break-word}
+#loader-afd-progress .loader-afd-estado{font-style:normal;font-size:9px;color:var(--text-secondary)}
+#loader-afd-progress .loader-afd-dot.concluido .loader-afd-estado{color:#34d399;font-weight:600}
+#global-loader.rep-loader-previa{background:rgba(0,0,0,.18);backdrop-filter:none;align-items:flex-end;justify-content:flex-end;padding:20px;pointer-events:none}
+#global-loader.rep-loader-previa .loader-card{width:min(440px,calc(100vw - 24px));max-width:440px;padding:18px 20px;pointer-events:auto;box-shadow:0 18px 44px rgba(0,0,0,.55)}
 .rep-previa-arquivos{padding:20px;min-height:300px;background:var(--bg-secondary);border-radius:10px}.rep-previa-arquivos p{padding:7px 0;color:var(--status-active-text);font-size:12px}.rep-previa-nomes{display:block;line-height:2;color:var(--text-secondary);margin-top:16px}
 .loader-entidade{position:relative}.loader-entidade::after{content:'';position:absolute;bottom:2px;left:14px;width:30px;height:25px;opacity:0;background:linear-gradient(65deg,#26344c 43%,transparent 44%),linear-gradient(-65deg,#26344c 43%,transparent 44%),linear-gradient(90deg,transparent 44%,#ac3347 45% 55%,transparent 56%),#f1f5f9;clip-path:polygon(0 0,32% 10%,50% 0,68% 10%,100% 0,90% 100%,10% 100%);transition:opacity .7s ease,transform .7s ease;transform:translateY(4px)}.loader-entidade.entidade-de-terno::after{opacity:1;transform:translateY(0)}
-@keyframes rep-arquivo-pulso{50%{background:rgba(16,185,129,.13)}}
-@media(max-width:700px){.rep-identidade-fixa{top:0}.rep-identidade-fixa span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#global-loader.rep-loader-previa{padding:8px}}
-@media(prefers-reduced-motion:reduce){#loader-afd-progress .loader-afd-dot.carregando{animation:none}.loader-entidade::after{transition:none}}
+@keyframes afd-onda{0%,100%{transform:translateX(-4%) translateY(1px) scaleY(1)}50%{transform:translateX(4%) translateY(-2px) scaleY(1.04)}}
+@media(max-width:700px){.rep-identidade-fixa{top:0}.rep-identidade-fixa span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#global-loader.rep-loader-previa{padding:8px}#global-loader.rep-loader-previa .loader-card{width:calc(100vw - 16px);padding:14px}}
+@media(prefers-reduced-motion:reduce){#loader-afd-progress .loader-afd-dot.carregando .loader-afd-bolha i{animation:none}.loader-entidade::after{transition:none}}
 
 
 /* Controles de agrupamento da barra lateral do REP */
@@ -5344,7 +5357,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
 <script src="diagnostics-ui.js"></script>
 <script src="desktop-storage.js"></script>
   </head>
-  <body class="dark-mode" data-app-version="1.46" data-app-url="">
+  <body class="dark-mode" data-app-version="1.47" data-app-url="">
     
     <!-- TELA DE LOGIN CUSTOMIZADO -->
     <div id="login-container" class="login-overlay" style="display: none;">
@@ -5389,7 +5402,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
             <strong>Gestão de Pessoas</strong>
             <span>Central de Documentos</span>
           </div>
-          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.46</a>
+          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.47</a>
         </div>
 
         <nav class="desktop-navigation" aria-label="Navegação principal">
@@ -5863,7 +5876,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
             </div>
 
             <div class="upload-zone rep-upload-emergencia" id="rep-upload-zone" onclick="document.getElementById('rep-file-input').click()" style="display:none;">
-              <input type="file" id="rep-file-input" multiple accept=".txt,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd,.afd" hidden onchange="processarArquivosRep(this.files)">
+              <input type="file" id="rep-file-input" multiple accept=".txt,.afd" hidden onchange="processarArquivosRep(this.files)">
               <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
                 <span data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--brand-primary);"></span>
                 <h3 style="font-size: 18px; font-weight: 600;">Arraste os arquivos de ponto (.txt / AFD) aqui</h3>
@@ -9275,20 +9288,115 @@ function iniciarProgressoAfdsLoader_(arquivos) {
   if (!container) return;
   const lista = Array.isArray(arquivos) ? arquivos : [];
   container.hidden = !lista.length;
+  if (lista.length && (typeof currentView === 'undefined' || currentView === 'pre-leitura-rep')) {
+    document.getElementById('global-loader')?.classList.add('rep-loader-previa');
+  }
   container.innerHTML = lista.map(function(arquivo, indice) {
-    return `<span class="loader-afd-dot" data-indice="${indice}" title="Aguardando: ${escapeHtml(arquivo.nome || `AFD ${indice + 1}`)}"><i></i><b>${indice + 1}</b><small>${escapeHtml(arquivo.nome || `AFD ${indice + 1}`)}</small><em>Aguardando</em></span>`;
+    const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
+    const nomeOriginal = arquivo?.nome || arquivo?.name || `AFD ${indice + 1}`;
+    return `<span class="loader-afd-dot" data-indice="${indice}" style="--afd-fill:0%" title="Aguardando: ${escapeHtml(localRotulo)} (${escapeHtml(nomeOriginal)})"><span class="loader-afd-bolha"><i></i><b>${indice + 1}</b></span><small class="loader-afd-local">${escapeHtml(localRotulo)}</small><em class="loader-afd-estado">Aguardando</em></span>`;
   }).join('');
 }
 
-function atualizarProgressoAfdLoader_(indice, estado, nome) {
+function extrairLocalInicialTextoAfdRep_(textoInicio) {
+  const linhas = String(textoInicio || '').split(/\r?\n/).slice(0, 40);
+  let numeroRep = '';
+  let localOriginal = '';
+  let layoutModerno = false;
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = String(linhas[i] || '');
+    if (linha.length < 10) continue;
+    const tipo = linha[9];
+    if (tipo === '1') {
+      layoutModerno = layoutModerno || linha.length >= 298;
+      if (!numeroRep) {
+        numeroRep = (layoutModerno ? linha.slice(189, 206) : linha.slice(187, 204)).trim();
+      }
+    } else if (tipo === '2') {
+      const moderno = /^\d{4}-\d{2}-\d{2}T/.test(linha.slice(10, 35));
+      const candidato = (moderno ? linha.slice(227, 327) : linha.slice(213, 313)).trim();
+      if (candidato) {
+        localOriginal = candidato;
+        break;
+      }
+    }
+  }
+  return { numeroRep, localOriginal };
+}
+
+function abreviarNomeArquivoAfdLoader_(nome, indice) {
+  const base = String(nome || '')
+    .replace(/\.(txt|afd)$/i, '')
+    .replace(/^(?:AFD|REP)[_\-\s]+/i, '')
+    .replace(/[_\-]+/g, ' ')
+    .trim();
+  if (!base) return 'AFD ' + (Number(indice || 0) + 1);
+  return base.length > 28 ? base.slice(0, 25).trim() + '…' : base;
+}
+
+function resolverLocalAfdLoader_(arquivo, localOriginal, numeroRep, indice) {
+  const nomeArquivo = arquivo?.nome || arquivo?.name || '';
+  const arquivoId = arquivo?.id || arquivo?.arquivoDriveId || arquivo?.repIntegridade?.arquivoId || '';
+  const repLimpo = numeroRep || arquivo?.numeroRep || '';
+  const chave = typeof chaveArquivoLocalRep_ === 'function'
+    ? chaveArquivoLocalRep_(repLimpo, nomeArquivo, arquivoId)
+    : '';
+  const listaEditados = Array.isArray(typeof locaisEditadosRep !== 'undefined' ? locaisEditadosRep : null) ? locaisEditadosRep : [];
+  if (localOriginal) {
+    const exibido = typeof localExibidoRep_ === 'function' ? localExibidoRep_(chave, localOriginal) : localOriginal;
+    if (exibido) return exibido;
+  }
+  if (chave) {
+    const editadoDireto = listaEditados.find(item => item.arquivoChave === chave && item.localExibido);
+    if (editadoDireto) return editadoDireto.localExibido;
+  }
+  if (nomeArquivo) {
+    const sufixo = '|ARQUIVO:' + String(nomeArquivo).trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120);
+    const editadoPorNome = listaEditados.find(item => String(item.arquivoChave || '').endsWith(sufixo) && item.localExibido);
+    if (editadoPorNome) return editadoPorNome.localExibido;
+  }
+  if (Array.isArray(arquivo?.locais) && arquivo.locais[0]) return arquivo.locais[0];
+  if (arquivo?.local) return arquivo.local;
+  return abreviarNomeArquivoAfdLoader_(nomeArquivo, indice);
+}
+
+function atualizarLocaisConhecidosAfdsLoader_(arquivos) {
+  const lista = Array.isArray(arquivos) ? arquivos : [];
+  lista.forEach(function(arquivo, indice) {
+    const item = document.querySelector(`#loader-afd-progress .loader-afd-dot[data-indice="${indice}"]`);
+    if (!item) return;
+    const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
+    const legendaLocal = item.querySelector('.loader-afd-local');
+    if (legendaLocal && localRotulo) legendaLocal.textContent = localRotulo;
+  });
+}
+
+function atualizarProgressoAfdLoader_(indice, estado, nome, opcoes) {
   const item = document.querySelector(`#loader-afd-progress .loader-afd-dot[data-indice="${Number(indice)}"]`);
   if (!item) return;
+  const opts = opcoes || {};
   item.classList.remove('carregando', 'concluido', 'falhou');
   if (estado) item.classList.add(estado);
-  const prefixos = { carregando: 'Carregando', concluido: 'Concluído', falhou: 'Falha' };
-  const legenda = item.querySelector('em');
+  const bolha = item.querySelector('.loader-afd-bolha');
+  let preenchimento = Number(opts.progresso);
+  if (estado === 'concluido') preenchimento = 100;
+  else if (!Number.isFinite(preenchimento)) {
+    const atualStr = item.style.getPropertyValue('--afd-fill') || '0';
+    const atualNum = Number(String(atualStr).replace('%', '')) || 0;
+    preenchimento = estado === 'carregando' ? Math.max(atualNum, 15) : atualNum;
+  }
+  preenchimento = Math.max(0, Math.min(100, Math.round(preenchimento)));
+  item.style.setProperty('--afd-fill', preenchimento + '%');
+  if (bolha) bolha.style.setProperty('--afd-fill', preenchimento + '%');
+  if (opts.local) {
+    const legendaLocal = item.querySelector('.loader-afd-local');
+    if (legendaLocal) legendaLocal.textContent = opts.local;
+  }
+  const localExibido = item.querySelector('.loader-afd-local')?.textContent || nome || `AFD ${Number(indice) + 1}`;
+  const prefixos = { carregando: preenchimento > 0 ? `${preenchimento}%` : 'Carregando', concluido: 'Concluído', falhou: 'Falha' };
+  const legenda = item.querySelector('.loader-afd-estado') || item.querySelector('em');
   if (legenda) legenda.textContent = prefixos[estado] || 'Aguardando';
-  item.title = `${prefixos[estado] || 'Aguardando'}: ${nome || `AFD ${Number(indice) + 1}`}`;
+  item.title = `${estado === 'concluido' ? 'Concluído' : (estado === 'falhou' ? 'Falha' : 'Carregando')}: ${localExibido}${nome ? ' (' + nome + ')' : ''}`;
 }
 
 function limparProgressoAfdsLoader_() {
@@ -11883,7 +11991,7 @@ function imprimirFolhaProtocoloLocal() {
     return;
   }
   janela.document.open();
-  janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Folha de protocolo</title><style>@page{size:A4;margin:12mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000;font-family:Arial,sans-serif}body{padding:0}table{width:100%;border-collapse:collapse}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.entidade-assinatura-impressao{display:flex!important}@media print{body{padding:0}}</style></head><body>${conteudo.innerHTML}
+  janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Folha de protocolo</title><style>@page{size:A4;margin:10mm}*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000;font-family:Arial,sans-serif}body{padding:0}table{width:100%;border-collapse:collapse}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}.entidade-assinatura-impressao{display:flex!important}@media print{body{padding:0}}</style></head><body>${conteudo.innerHTML}
 </body></html>`);
   let iniciouImpressao = false;
   const imprimir = function() {
@@ -14356,19 +14464,44 @@ async function sha256BytesRep_(bytes) {
   return Array.from(digest).map(valor => valor.toString(16).padStart(2, '0')).join('');
 }
 
-async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total) {
+async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoProgresso) {
   const partes = [];
   let esperado = null;
   let indice = 0;
+  let localDetectado = typeof resolverLocalAfdLoader_ === 'function'
+    ? resolverLocalAfdLoader_(registro, '', '', Math.max(0, Number(ordem || 1) - 1))
+    : '';
+  if (typeof aoProgresso === 'function') aoProgresso({ fracao: 0.05, local: localDetectado });
   do {
-    exibirLoader(true, `Verificando AFD ${ordem}/${total}: ${registro.nome} · parte ${indice + 1}${esperado ? '/' + esperado.totalPartes : ''}...`);
+    exibirLoader(true, `Verificando AFD ${ordem}/${total}: ${localDetectado || registro.nome} · parte ${indice + 1}${esperado ? '/' + esperado.totalPartes : ''}...`);
     const resposta = await chamarBackendPromessa_('obterParteArquivoPastaEntradaRep', [{ arquivoId: registro.id, indice }]);
     if (!esperado) esperado = resposta;
     if (String(resposta.arquivoId) !== String(registro.id) || resposta.sha256 !== esperado.sha256 || Number(resposta.tamanho) !== Number(esperado.tamanho)) {
       throw new Error('O arquivo mudou durante a leitura. Sincronize novamente.');
     }
-    partes.push(base64ParaBytesRep_(resposta.base64));
+    const bytesParte = base64ParaBytesRep_(resposta.base64);
+    partes.push(bytesParte);
+    if (indice === 0 && typeof extrairLocalInicialTextoAfdRep_ === 'function') {
+      const prefixo = bytesParte.subarray(0, Math.min(bytesParte.length, 16384));
+      let textoPrefixo = '';
+      try {
+        textoPrefixo = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('utf-8', { fatal: true }).decode(prefixo)
+          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+      } catch (erroUtf8) {
+        textoPrefixo = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('latin1').decode(prefixo)
+          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+      }
+      const infoInicial = extrairLocalInicialTextoAfdRep_(textoPrefixo);
+      if (infoInicial.localOriginal || infoInicial.numeroRep) {
+        localDetectado = resolverLocalAfdLoader_(registro, infoInicial.localOriginal, infoInicial.numeroRep, Math.max(0, Number(ordem || 1) - 1));
+      }
+    }
     indice++;
+    if (typeof aoProgresso === 'function') {
+      aoProgresso({ fracao: indice / Math.max(1, Number(esperado.totalPartes || 1)), local: localDetectado });
+    }
   } while (indice < Number(esperado.totalPartes));
   const bytes = concatenarPartesRep_(partes);
   if (bytes.length !== Number(esperado.tamanho)) throw new Error(`Tamanho divergente: Drive ${esperado.tamanho}, recebido ${bytes.length}.`);
@@ -14376,13 +14509,14 @@ async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total) {
   if (hashRecebido !== esperado.sha256) throw new Error(`SHA-256 divergente. Esperado ${esperado.sha256.slice(0, 12)}..., recebido ${hashRecebido.slice(0, 12)}...`);
   const arquivo = new File([bytes], registro.nome, { type: registro.mimeType || 'text/plain', lastModified: Date.parse(registro.atualizadoEm) || Date.now() });
   arquivo.repIntegridade = { confirmada: true, sha256Drive: esperado.sha256, sha256Recebido: hashRecebido, tamanhoDrive: Number(esperado.tamanho), tamanhoRecebido: bytes.length, arquivoId: registro.id };
+  if (localDetectado) arquivo.repLocalDetectado = localDetectado;
   return arquivo;
 }
 
-async function baixarArquivoPastaEntradaRep_(registro, ordem, total) {
+async function baixarArquivoPastaEntradaRep_(registro, ordem, total, aoProgresso) {
   let ultimoErro = null;
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
-    try { return await baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total); }
+    try { return await baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoProgresso); }
     catch (erro) {
       ultimoErro = erro;
       if (tentativa < 3) exibirLoader(true, `Falha ao conferir ${registro.nome}. Nova tentativa ${tentativa + 1}/3...`);
@@ -16179,6 +16313,66 @@ function deduplicarBatidasRep(punches) {
   return deduplicados;
 }
 
+function atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos) {
+  const filtros = filtrosAnteriores || { ano: 'all', mes: 'all', local: 'all', lotacao: 'all' };
+  const punches = Array.isArray(dadosRepCache?.punches) ? dadosRepCache.punches : [];
+  const anosSet = new Set();
+  let anoMaisRecente = '';
+  let mesMaisRecente = '';
+
+  punches.forEach(p => {
+    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
+    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
+    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
+    anosSet.add(y);
+    if (!anoMaisRecente || p.datetime > new Date(`${anoMaisRecente}-${mesMaisRecente}-01`)) {
+      anoMaisRecente = y;
+      mesMaisRecente = m;
+    }
+  });
+
+  const selectAno = document.getElementById('rep-filter-ano');
+  const selectMes = document.getElementById('rep-filter-mes');
+  const selectLocal = document.getElementById('rep-filter-local');
+  const selectLotacao = document.getElementById('rep-filter-lotacao');
+  const referenciaAnterior = new Date();
+  referenciaAnterior.setDate(1);
+  referenciaAnterior.setMonth(referenciaAnterior.getMonth() - 1);
+  const anoAnterior = String(referenciaAnterior.getFullYear());
+  const mesAnterior = String(referenciaAnterior.getMonth() + 1).padStart(2, '0');
+  const possuiCompetenciaAnterior = punches.some(p =>
+    String(p.datetime.getFullYear()) === anoAnterior && String(p.datetime.getMonth() + 1).padStart(2, '0') === mesAnterior
+  );
+
+  if (selectAno) {
+    selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
+    const anosSorted = Array.from(anosSet).sort().reverse();
+    anosSorted.forEach(a => {
+      selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
+    });
+    if (jaHaviaArquivos && Array.from(anosSet).includes(filtros.ano)) selectAno.value = filtros.ano;
+    else if (possuiCompetenciaAnterior && Array.from(anosSet).includes(anoAnterior)) selectAno.value = anoAnterior;
+    else if (anoMaisRecente) selectAno.value = anoMaisRecente;
+  }
+
+  // Na primeira abertura, usa o mês anterior ao mês corrente. Ao adicionar
+  // arquivos na mesma sessão, preserva a escolha feita pelo usuário.
+  if (selectMes) selectMes.value = jaHaviaArquivos ? filtros.mes : (possuiCompetenciaAnterior ? mesAnterior : (mesMaisRecente || 'all'));
+
+  if (selectLocal) {
+    const locais = Array.from(new Set(punches.map(p => p.clock).filter(Boolean))).sort();
+    selectLocal.innerHTML = '<option value="all">Todos os locais/relógios</option>';
+    locais.forEach(local => selectLocal.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(local)}">${escapeHtml(local)}</option>`));
+    selectLocal.value = jaHaviaArquivos && locais.includes(filtros.local) ? filtros.local : 'all';
+  }
+  if (selectLotacao) {
+    const lotacoes = Array.from(new Set(Array.from(dadosRepCache.lotacoes.values()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    selectLotacao.innerHTML = '<option value="all">Todas as lotações</option>';
+    lotacoes.forEach(lotacao => selectLotacao.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(lotacao)}">${escapeHtml(lotacao)}</option>`));
+    selectLotacao.value = jaHaviaArquivos && lotacoes.includes(filtros.lotacao) ? filtros.lotacao : 'all';
+  }
+}
+
 async function processarArquivosRep(files, opcoes) {
   if (!files || files.length === 0) return;
   opcoes = opcoes || {};
@@ -16238,16 +16432,21 @@ async function processarArquivosRep(files, opcoes) {
     });
   });
 
+  if (!document.querySelector('#loader-afd-progress .loader-afd-dot')) {
+    iniciarProgressoAfdsLoader_(novosArquivos);
+  }
   let indiceArquivo = 0;
   registrarAtividadeSegundoPlano_('ATUALIZANDO', 'Leitura do REP', `Interpretando ${novosArquivos.length} arquivo(s) para montar a conferência.`);
   for (const file of novosArquivos) {
     indiceArquivo++;
+    const indiceLoader = Number.isInteger(file.repIndiceLoader) ? file.repIndiceLoader : (indiceArquivo - 1);
     const progressoBase = Number(opcoes.progressoBase || 10);
     const progressoFaixa = Number(opcoes.progressoFaixa || 80);
     const progressoArquivo = progressoBase + (((indiceArquivo - 1) / Math.max(1, novosArquivos.length)) * progressoFaixa);
-    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
-    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
-    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${file.name}`, true, 'spinner');
+    atualizarProgressoAfdLoader_(indiceLoader, 'carregando', file.name, { progresso: 82 });
+    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
+    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
+    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`, true, 'spinner');
     const inicioLeitura = performance.now();
     const text = await file.text();
     const leitura = await parseAFDRep(text, file.name);
@@ -16256,6 +16455,8 @@ async function processarArquivosRep(files, opcoes) {
     const arquivoDriveId = String(file.repIntegridade?.arquivoId || '');
     const arquivoChaveLocal = chaveArquivoLocalRep_(metadata.deviceSerial, file.name, arquivoDriveId);
     const locaisOriginais = Array.from(new Set([...clocks, ...punches.map(item => item.clock).filter(Boolean)]));
+    const locaisExibidos = (locaisOriginais.length ? locaisOriginais : ['Relógio não identificado']).map(local => localExibidoRep_(arquivoChaveLocal, local));
+    const localPrincipal = locaisExibidos[0] || file.repLocalDetectado || file.name;
     punches.forEach(item => {
       item.sourceFileId = arquivoDriveId;
       item.arquivoChaveLocal = arquivoChaveLocal;
@@ -16277,6 +16478,7 @@ async function processarArquivosRep(files, opcoes) {
         const resultadoOnline = await salvarAfdRepOnline_(file, text, leitura, dataInicial ? toDateStringRep(dataInicial) : '', dataFinal ? toDateStringRep(dataFinal) : '');
         if (resultadoOnline && resultadoOnline.ignoradoMaisAntigo) {
           ignoradosMaisAntigos++;
+          atualizarProgressoAfdLoader_(indiceLoader, 'concluido', file.name, { local: localPrincipal });
           continue;
         }
         salvoOnline = true;
@@ -16324,7 +16526,7 @@ async function processarArquivosRep(files, opcoes) {
       tamanhoDrive: Number(file.repIntegridade?.tamanhoDrive || file.size || 0),
       tamanhoRecebido: Number(file.repIntegridade?.tamanhoRecebido || file.size || 0),
       locaisOriginais: locaisOriginais.length ? locaisOriginais : ['Relógio não identificado'],
-      locais: (locaisOriginais.length ? locaisOriginais : ['Relógio não identificado']).map(local => localExibidoRep_(arquivoChaveLocal, local)),
+      locais: locaisExibidos,
       linhasLidas: audit.linhasLidas,
       linhasArquivo: audit.linhasArquivo,
       linhasVazias: audit.linhasVazias,
@@ -16349,10 +16551,13 @@ async function processarArquivosRep(files, opcoes) {
       dadosRepCache.punchesBrutos.push(...parte);
       dadosRepCache.punches.push(...parte);
     }
-    atualizarPreviaLeituraRep_(indiceArquivo, novosArquivos.length, file.name);
+    aplicarVinculosRepPersistidos_();
+    atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos);
+    atualizarPreviaLeituraRep_(indiceArquivo, novosArquivos.length, localPrincipal);
+    atualizarProgressoAfdLoader_(indiceLoader, 'concluido', file.name, { local: localPrincipal });
     // Libera a interface entre arquivos grandes.
     await new Promise(resolve => setTimeout(resolve, 0));
-    atualizarProgressoLoader_(progressoBase + ((indiceArquivo / Math.max(1, novosArquivos.length)) * progressoFaixa), `Interpretado ${indiceArquivo}/${novosArquivos.length}: ${file.name}`);
+    atualizarProgressoLoader_(progressoBase + ((indiceArquivo / Math.max(1, novosArquivos.length)) * progressoFaixa), `Interpretado ${indiceArquivo}/${novosArquivos.length}: ${localPrincipal}`);
   }
 
   atualizarProgressoLoader_(96, 'Consolidando marcações dos arquivos...');
@@ -16364,62 +16569,7 @@ async function processarArquivosRep(files, opcoes) {
   dadosRepCache.punches = deduplicarBatidasRep(dadosRepCache.punches);
   aplicarAjustesCompartilhadosRep_();
 
-  // Popula seletor de Anos dinamicamente
-  const anosSet = new Set();
-  let anoMaisRecente = "";
-  let mesMaisRecente = "";
-
-  dadosRepCache.punches.forEach(p => {
-    const referencia = /^\d{4}-\d{2}-\d{2}$/.test(String(p.dataReferencia || '')) ? String(p.dataReferencia).split('-').map(Number) : null;
-    const y = referencia ? String(referencia[0]) : String(p.datetime.getFullYear());
-    const m = referencia ? String(referencia[1]).padStart(2, '0') : String(p.datetime.getMonth() + 1).padStart(2, '0');
-    anosSet.add(y);
-    if (!anoMaisRecente || p.datetime > new Date(`${anoMaisRecente}-${mesMaisRecente}-01`)) {
-      anoMaisRecente = y;
-      mesMaisRecente = m;
-    }
-  });
-
-  const selectAno = document.getElementById('rep-filter-ano');
-  const selectMes = document.getElementById('rep-filter-mes');
-  const selectLocal = document.getElementById('rep-filter-local');
-  const selectLotacao = document.getElementById('rep-filter-lotacao');
-  const referenciaAnterior = new Date();
-  referenciaAnterior.setDate(1);
-  referenciaAnterior.setMonth(referenciaAnterior.getMonth() - 1);
-  const anoAnterior = String(referenciaAnterior.getFullYear());
-  const mesAnterior = String(referenciaAnterior.getMonth() + 1).padStart(2, '0');
-  const possuiCompetenciaAnterior = dadosRepCache.punches.some(p =>
-    String(p.datetime.getFullYear()) === anoAnterior && String(p.datetime.getMonth() + 1).padStart(2, '0') === mesAnterior
-  );
-
-  if (selectAno) {
-    selectAno.innerHTML = '<option value="all">Todos os Anos</option>';
-    const anosSorted = Array.from(anosSet).sort().reverse();
-    anosSorted.forEach(a => {
-      selectAno.insertAdjacentHTML('beforeend', `<option value="${a}">${a}</option>`);
-    });
-    if (jaHaviaArquivos && Array.from(anosSet).includes(filtrosAnteriores.ano)) selectAno.value = filtrosAnteriores.ano;
-    else if (possuiCompetenciaAnterior && Array.from(anosSet).includes(anoAnterior)) selectAno.value = anoAnterior;
-    else if (anoMaisRecente) selectAno.value = anoMaisRecente;
-  }
-
-  // Na primeira abertura, usa o mês anterior ao mês corrente. Ao adicionar
-  // arquivos na mesma sessão, preserva a escolha feita pelo usuário.
-  if (selectMes) selectMes.value = jaHaviaArquivos ? filtrosAnteriores.mes : (possuiCompetenciaAnterior ? mesAnterior : (mesMaisRecente || 'all'));
-
-  if (selectLocal) {
-    const locais = Array.from(new Set(dadosRepCache.punches.map(p => p.clock).filter(Boolean))).sort();
-    selectLocal.innerHTML = '<option value="all">Todos os locais/relógios</option>';
-    locais.forEach(local => selectLocal.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(local)}">${escapeHtml(local)}</option>`));
-    selectLocal.value = jaHaviaArquivos && locais.includes(filtrosAnteriores.local) ? filtrosAnteriores.local : 'all';
-  }
-  if (selectLotacao) {
-    const lotacoes = Array.from(new Set(Array.from(dadosRepCache.lotacoes.values()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-    selectLotacao.innerHTML = '<option value="all">Todas as lotações</option>';
-    lotacoes.forEach(lotacao => selectLotacao.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(lotacao)}">${escapeHtml(lotacao)}</option>`));
-    selectLotacao.value = jaHaviaArquivos && lotacoes.includes(filtrosAnteriores.lotacao) ? filtrosAnteriores.lotacao : 'all';
-  }
+  atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos);
 
   atualizarProgressoLoader_(97, 'Montando a conferência e os indicadores...');
   atualizarTextoSync('Calculando horários e montando a conferência...', true, 'spinner');
@@ -19481,6 +19631,8 @@ window.HE_MODELO_ASSETS = Object.freeze({
 
 
 
+
+
     <script>
 /** Melhorias isoladas da conferência REP para evitar ampliar ainda mais o arquivo principal. */
 async function baixarArquivosEntradaEmParaleloRep_(registros) {
@@ -19491,12 +19643,26 @@ async function baixarArquivosEntradaEmParaleloRep_(registros) {
     while (proximo < registros.length) {
       const i = proximo++;
       const registro = registros[i];
-      atualizarProgressoAfdLoader_(i, 'carregando', registro.nome);
+      atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
+        progresso: 5,
+        local: typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(registro, '', '', i) : ''
+      });
       try {
-        arquivos[i] = await baixarArquivoPastaEntradaRep_(registro, i + 1, registros.length);
-        atualizarProgressoAfdLoader_(i, 'concluido', registro.nome);
+        const arquivo = await baixarArquivoPastaEntradaRep_(registro, i + 1, registros.length, function(info) {
+          const fracao = Math.max(0, Math.min(1, Number(info?.fracao || 0)));
+          atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
+            progresso: Math.max(6, Math.round(6 + fracao * 68)),
+            local: info?.local || ''
+          });
+        });
+        if (arquivo) arquivo.repIndiceLoader = i;
+        arquivos[i] = arquivo;
+        atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
+          progresso: 78,
+          local: arquivo?.repLocalDetectado || ''
+        });
       } catch (erro) {
-        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome);
+        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome, { progresso: 100 });
         falhasIntegridadeRep.push({ nome: registro.nome, arquivoId: registro.id, motivo: mensagemErro(erro), tamanho: registro.tamanho });
       } finally {
         concluidos++;
@@ -21505,8 +21671,15 @@ async function resetarServidorMesRep_(pis) {
 function atualizarPreviaLeituraRep_(atual,total,nome) {
   const container=document.getElementById('rep-servidores-list');if(!container)return;
   document.getElementById('global-loader')?.classList.add('rep-loader-previa');
-  // Resumo leve por arquivo: evita reprocessar o mês inteiro em cada AFD.
   container.setAttribute('aria-busy','true'); container.inert=true;
+  const zona=document.getElementById('rep-upload-zone');
+  const resultado=document.getElementById('rep-results-container');
+  if (zona) zona.style.display='none';
+  if (resultado) resultado.style.display='block';
+  if (Array.isArray(dadosRepCache?.punches) && dadosRepCache.punches.length && typeof atualizarProcessamentoRep === 'function') {
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    return;
+  }
   let previa=container.querySelector('.rep-previa-arquivos');
   if(!previa){container.innerHTML='<div class="rep-previa-arquivos"><strong>Leitura em andamento — edição liberada ao concluir</strong><div></div></div>';previa=container.firstElementChild;}
   const linha=document.createElement('p');linha.textContent=atual+'/'+total+' · '+nome+' · '+dadosRepCache.punches.length.toLocaleString('pt-BR')+' marcações recebidas';previa.lastElementChild.append(linha);
@@ -21672,8 +21845,12 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.ge
 
 
 
+
+
   <script src="desktop-update.js"></script>
   
+
+
 
 
 
@@ -21726,6 +21903,79 @@ window.RELATORIO_HE_MODELO = {"prefeitura":"Prefeitura Municipal de São Sebasti
 <script>
 let referenciasRelatorioMensalHeRep_ = null;
 let relatorioMensalHeCarregando_ = false;
+let dadosRelatorioMensalHeAtual_ = null;
+let desmarcadosRelatorioMensalHeRep_ = new Set();
+let competenciaSelecaoRelatorioHeRep_ = '';
+
+function obterChaveLinhaRelatorioHe_(item) {
+  return String(normalizarPisRep(item && item.pis) || (item && item.matricula) || '').trim();
+}
+
+function obterCheckboxesSelecaoRelatorioHe_() {
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return [];
+  return Array.from(document.querySelectorAll('#rep-he-previa input[data-rep-he-check]'));
+}
+
+function atualizarSelecaoRelatorioHe_() {
+  const checks = obterCheckboxesSelecaoRelatorioHe_();
+  const dados = dadosRelatorioMensalHeAtual_;
+  if (!dados) return;
+  const marcados = new Set();
+  checks.forEach(function(input) {
+    const chave = String(input.value || '').trim();
+    if (!chave) return;
+    if (input.checked) {
+      desmarcadosRelatorioMensalHeRep_.delete(chave);
+      marcados.add(chave);
+    } else {
+      desmarcadosRelatorioMensalHeRep_.add(chave);
+    }
+  });
+  const linhasSelecionadas = checks.length
+    ? (dados.linhas || []).filter(item => marcados.has(obterChaveLinhaRelatorioHe_(item)))
+    : (dados.linhas || []).filter(item => !desmarcadosRelatorioMensalHeRep_.has(obterChaveLinhaRelatorioHe_(item)));
+  const totalMinutos = linhasSelecionadas.reduce((soma, item) => soma + Number(item.minutos || 0), 0);
+
+  const checkAll = typeof document !== 'undefined' && typeof document.getElementById === 'function'
+    ? document.getElementById('rep-he-check-all')
+    : null;
+  if (checkAll && checks.length) {
+    checkAll.checked = marcados.size === checks.length;
+    checkAll.indeterminate = marcados.size > 0 && marcados.size < checks.length;
+  }
+
+  const resumo = typeof document !== 'undefined' && typeof document.getElementById === 'function'
+    ? document.getElementById('rep-he-resumo-selecao')
+    : null;
+  if (resumo) {
+    resumo.textContent = `${dados.rotulo} · ${linhasSelecionadas.length} de ${(dados.linhas || []).length} servidor(es) selecionado(s) · ${minutosParaHoraRep_(totalMinutos)} horas`;
+  }
+  definirBotoesRelatorioHe_(linhasSelecionadas.length > 0);
+}
+
+function marcarTodosRelatorioHe_(master) {
+  const marcar = Boolean(master && master.checked);
+  const checks = obterCheckboxesSelecaoRelatorioHe_();
+  checks.forEach(function(input) {
+    input.checked = marcar;
+  });
+  atualizarSelecaoRelatorioHe_();
+}
+
+function filtrarSelecionadosRelatorioMensalHeRep_(dados) {
+  if (!dados || !Array.isArray(dados.linhas)) return dados;
+  const checks = obterCheckboxesSelecaoRelatorioHe_();
+  if (!checks.length && !desmarcadosRelatorioMensalHeRep_.size) return dados;
+  const marcados = checks.length
+    ? new Set(checks.filter(input => input.checked).map(input => String(input.value || '').trim()))
+    : null;
+  const linhas = dados.linhas.filter(item => {
+    const chave = obterChaveLinhaRelatorioHe_(item);
+    return marcados ? marcados.has(chave) : !desmarcadosRelatorioMensalHeRep_.has(chave);
+  });
+  const totalMinutos = linhas.reduce((total, item) => total + Number(item.minutos || 0), 0);
+  return { ...dados, linhas, totalMinutos };
+}
 
 function normalizarVinculoRelatorioHe_(valor) {
   return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
@@ -21794,6 +22044,7 @@ async function conferirReferenciasRelatorioMensalHeRep_() {
 }
 
 function definirBotoesRelatorioHe_(habilitar) {
+  if (typeof document === 'undefined' || typeof document.querySelectorAll !== 'function') return;
   document.querySelectorAll('[data-exportar-relatorio-he]').forEach(botao => { botao.disabled = !habilitar; });
 }
 
@@ -21805,20 +22056,32 @@ async function atualizarPreviaRelatorioMensalHeRep_() {
   alvo.textContent = 'Confirmando o vínculo funcional e a conferência do mês na base…';
   try {
     const dados = await conferirReferenciasRelatorioMensalHeRep_();
-    const linhas = dados.linhas.map(item => `<tr><td>${escapeHtml(item.matricula)}</td><td>${escapeHtml(item.cargo)}</td><td>${escapeHtml(item.nome)}</td><td style="white-space:nowrap;text-align:right">${minutosParaHoraRep_(item.minutos)}</td></tr>`).join('');
+    if (competenciaSelecaoRelatorioHeRep_ !== dados.competencia) {
+      desmarcadosRelatorioMensalHeRep_.clear();
+      competenciaSelecaoRelatorioHeRep_ = dados.competencia;
+    }
+    dadosRelatorioMensalHeAtual_ = dados;
+    const todosMarcados = dados.linhas.length > 0 && dados.linhas.every(item => !desmarcadosRelatorioMensalHeRep_.has(obterChaveLinhaRelatorioHe_(item)));
+    const linhas = dados.linhas.map(item => {
+      const chave = obterChaveLinhaRelatorioHe_(item);
+      const marcado = !desmarcadosRelatorioMensalHeRep_.has(chave);
+      return `<tr><td style="text-align:center;width:36px"><input type="checkbox" data-rep-he-check value="${escapeHtml(chave)}" aria-label="Incluir ${escapeHtml(item.nome)}" ${marcado ? 'checked' : ''} onchange="atualizarSelecaoRelatorioHe_()"></td><td>${escapeHtml(item.matricula)}</td><td>${escapeHtml(item.cargo)}</td><td>${escapeHtml(item.nome)}</td><td style="white-space:nowrap;text-align:right">${minutosParaHoraRep_(item.minutos)}</td></tr>`;
+    }).join('');
     const excluidos = dados.excluidos.map(item => `<tr><td>${escapeHtml(item.nome)}</td><td>${escapeHtml(item.motivos.join('; '))}</td></tr>`).join('');
-    alvo.innerHTML = `<p><strong>${escapeHtml(dados.rotulo)} · ${dados.linhas.length} servidor(es) · ${minutosParaHoraRep_(dados.totalMinutos)} horas</strong></p>
-      <p style="color:var(--text-secondary)">Entram somente servidores com horas extras, ponto marcado como conferido neste mês e vínculo não comissionado. O relatório abrange todos os locais carregados do mês.</p>
+    alvo.innerHTML = `<p><strong id="rep-he-resumo-selecao">${escapeHtml(dados.rotulo)} · ${dados.linhas.length} servidor(es) · ${minutosParaHoraRep_(dados.totalMinutos)} horas</strong></p>
+      <p style="color:var(--text-secondary)">Entram somente servidores com horas extras, ponto marcado como conferido neste mês e vínculo não comissionado (todos elegíveis já vêm pré-selecionados para emissão). O relatório abrange todos os locais carregados do mês.</p>
       ${dados.diasPendentes ? `<p role="status">${dados.diasPendentes} dia(s) com marcações pendentes não entram no total de HE.</p>` : ''}
-      <div style="max-height:40vh;overflow:auto"><table class="data-table" style="width:100%"><thead><tr><th>Matrícula</th><th>Função</th><th>Nome</th><th>HE (h:mm)</th></tr></thead><tbody>${linhas || '<tr><td colspan="4">Nenhum servidor atende aos critérios para este mês.</td></tr>'}</tbody></table></div>
+      <div style="max-height:40vh;overflow:auto"><table class="data-table" style="width:100%"><thead><tr><th style="width:36px;text-align:center"><input type="checkbox" id="rep-he-check-all" aria-label="Selecionar todos elegíveis" ${todosMarcados ? 'checked' : ''} onchange="marcarTodosRelatorioHe_(this)"></th><th>Matrícula</th><th>Função</th><th>Nome</th><th>HE (h:mm)</th></tr></thead><tbody>${linhas || '<tr><td colspan="5">Nenhum servidor atende aos critérios para este mês.</td></tr>'}</tbody></table></div>
       ${excluidos ? `<details style="margin-top:16px"><summary>Não entram no relatório (${dados.excluidos.length})</summary><table class="data-table" style="width:100%"><thead><tr><th>Servidor</th><th>Motivo</th></tr></thead><tbody>${excluidos}</tbody></table></details>` : ''}`;
-    definirBotoesRelatorioHe_(dados.linhas.length > 0);
+    atualizarSelecaoRelatorioHe_();
   } catch (erro) { alvo.textContent = mensagemErro(erro); }
   finally { relatorioMensalHeCarregando_ = false; }
 }
 
 async function abrirRelatorioMensalHeRep_() {
   try { prepararDadosRelatorioMensalHeRep_(); } catch (erro) { return mostrarToast(mensagemErro(erro),'warning'); }
+  desmarcadosRelatorioMensalHeRep_.clear();
+  competenciaSelecaoRelatorioHeRep_ = obterCompetenciaAtualRep_();
   let modal = document.getElementById('modal-relatorio-mensal-he');
   if (!modal) {
     modal = document.createElement('div'); modal.id = 'modal-relatorio-mensal-he'; modal.className = 'modal-overlay';
@@ -21875,6 +22138,10 @@ async function exportarRelatorioMensalHeRep_(formato,botao) {
   try {
     if (relatorioMensalHeCarregando_) throw new Error('Aguarde a conferência dos critérios do relatório.');
     prepararDadosRelatorioMensalHeRep_();
+    const checks = obterCheckboxesSelecaoRelatorioHe_();
+    if (checks.length && !checks.some(c => c.checked)) {
+      throw new Error('Selecione ao menos um servidor elegível para emitir o relatório.');
+    }
     if (formato === 'pdf') {
       janela = window.open('','_blank');
       if (!janela) throw new Error('Permita a abertura da janela para imprimir o relatório.');
@@ -21882,9 +22149,10 @@ async function exportarRelatorioMensalHeRep_(formato,botao) {
     } else if (typeof XLSX === 'undefined') throw new Error('A biblioteca de Excel ainda não está disponível.');
     if (botao) botao.disabled = true;
     const dados = await conferirReferenciasRelatorioMensalHeRep_();
-    if (!dados.linhas.length) throw new Error('Nenhum servidor atende aos critérios: HE positiva, ponto conferido e vínculo não comissionado.');
-    if (formato === 'pdf') { janela.document.open(); janela.document.write(criarHtmlRelatorioMensalHeRep_(dados)); janela.document.close(); janela.focus(); }
-    else XLSX.writeFile(criarPlanilhaRelatorioMensalHeRep_(dados),'Relatorio_Horas_Extras_'+dados.competencia+'.xlsx');
+    const dadosSelecionados = filtrarSelecionadosRelatorioMensalHeRep_(dados);
+    if (!dadosSelecionados.linhas.length) throw new Error('Nenhum servidor selecionado atende aos critérios: HE positiva, ponto conferido e vínculo não comissionado.');
+    if (formato === 'pdf') { janela.document.open(); janela.document.write(criarHtmlRelatorioMensalHeRep_(dadosSelecionados)); janela.document.close(); janela.focus(); }
+    else XLSX.writeFile(criarPlanilhaRelatorioMensalHeRep_(dadosSelecionados),'Relatorio_Horas_Extras_'+dadosSelecionados.competencia+'.xlsx');
   } catch (erro) { if (janela) janela.close(); mostrarToast('Não foi possível emitir o relatório: '+mensagemErro(erro),'error'); }
   finally { if (botao) botao.disabled = false; }
 }

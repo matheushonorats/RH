@@ -401,6 +401,67 @@ function validarConflitosLancamento(dadosLanc) {
  * Consulta preventiva: informa ausencias simultaneas na mesma lotacao antes
  * de salvar o lancamento. E um alerta de escala; a decisao final continua com o RH.
  */
+function coletarContextoAusenciasLotacao_(ss) {
+  const planilha = ss || obterPlanilha_();
+  const servidores = obterListaServidoresInterno_();
+  const servidoresPorMatricula = {};
+  servidores.forEach(function(servidor) {
+    const matricula = normalizarChaveMatricula_(servidor.matricula);
+    if (matricula) servidoresPorMatricula[matricula] = servidor;
+  });
+
+  const aba = planilha.getSheetByName('Lan\u00e7amentos');
+  let intervalosAtivos = [];
+  if (aba && aba.getLastRow() > 1) {
+    const dados = aba.getDataRange().getValues();
+    const idx = obterIndicesColunasLancamentos_(dados[0]);
+    intervalosAtivos = mapearLinhasLancamentosParaConflitos_(dados, idx)
+      .map(function(lancamento) { return criarIntervaloAusenciaLancamento_(lancamento); })
+      .filter(Boolean);
+  }
+  return { servidoresPorMatricula: servidoresPorMatricula, intervalosAtivos: intervalosAtivos };
+}
+
+function encontrarAusenciasLotacaoParaIntervalo_(candidato, contexto) {
+  if (!candidato || !contexto) return { temAlerta: false, lotacao: '', ausentes: [] };
+  const servidoresPorMatricula = contexto.servidoresPorMatricula || {};
+  const servidorSelecionado = servidoresPorMatricula[candidato.matricula];
+  const lotacao = String(servidorSelecionado && servidorSelecionado.lotacao || '').trim();
+  if (!lotacao) return { temAlerta: false, lotacao: '', ausentes: [] };
+
+  const lotacaoNormalizada = normalizarCabecalho_(lotacao);
+  const linhaEditada = Number(candidato.linhaPlanilha || 0);
+  const ausentes = [];
+
+  (contexto.intervalosAtivos || []).forEach(function(existente) {
+    if (linhaEditada > 1 && Number(existente.linhaPlanilha || 0) === linhaEditada) return;
+    if (existente.matricula === candidato.matricula) return;
+    if (candidato.inicio > existente.fim || existente.inicio > candidato.fim) return;
+
+    const servidor = servidoresPorMatricula[existente.matricula];
+    if (!servidor || servidor.status === 'Inativo' || normalizarCabecalho_(servidor.lotacao) !== lotacaoNormalizada) return;
+    const inicioComum = new Date(Math.max(candidato.inicio.getTime(), existente.inicio.getTime()));
+    const fimComum = new Date(Math.min(candidato.fim.getTime(), existente.fim.getTime()));
+    ausentes.push({
+      nome: String(servidor.nome || existente.nome || 'Servidor').trim(),
+      matricula: String(servidor.matricula || existente.matricula).trim(),
+      tipo: existente.tipo,
+      periodo: descreverIntervaloConflitoLancamento_(existente),
+      sobreposicao: descreverIntervaloConflitoLancamento_({ inicio: inicioComum, fim: fimComum }),
+      linhaPlanilha: Number(existente.linhaPlanilha || 0),
+      idProtocolo: String(existente.idProtocolo || '').trim()
+    });
+  });
+
+  return {
+    temAlerta: ausentes.length > 0,
+    lotacao: lotacao,
+    periodoNovo: descreverIntervaloConflitoLancamento_(candidato),
+    ausentes: ausentes.slice(0, 30),
+    quantidade: ausentes.length
+  };
+}
+
 function verificarAusenciasLotacaoLancamento(dadosLanc) {
   if (!verificarSeEhOperador()) throw new Error('Voce nao possui permissao para validar lancamentos de RH.');
 
@@ -414,51 +475,8 @@ function verificarAusenciasLotacaoLancamento(dadosLanc) {
   });
   if (!candidato) return { temAlerta: false, lotacao: '', ausentes: [] };
 
-  const servidores = obterListaServidoresInterno_();
-  const servidorSelecionado = servidores.find(function(servidor) {
-    return normalizarChaveMatricula_(servidor.matricula) === candidato.matricula;
-  });
-  const lotacao = String(servidorSelecionado && servidorSelecionado.lotacao || '').trim();
-  if (!lotacao) return { temAlerta: false, lotacao: '', ausentes: [] };
-
-  const servidoresPorMatricula = {};
-  servidores.forEach(function(servidor) {
-    const matricula = normalizarChaveMatricula_(servidor.matricula);
-    if (matricula) servidoresPorMatricula[matricula] = servidor;
-  });
-
-  const aba = obterPlanilha_().getSheetByName('Lan\u00e7amentos');
-  if (!aba || aba.getLastRow() <= 1) return { temAlerta: false, lotacao: lotacao, ausentes: [] };
-
-  const dados = aba.getDataRange().getValues();
-  const idx = obterIndicesColunasLancamentos_(dados[0]);
-  const linhaEditada = Number(dadosLanc && dadosLanc.linhaPlanilha || 0);
-  const lotacaoNormalizada = normalizarCabecalho_(lotacao);
-  const ausentes = [];
-
-  mapearLinhasLancamentosParaConflitos_(dados, idx).forEach(function(lancamento) {
-    if (linhaEditada > 1 && Number(lancamento.linhaPlanilha || 0) === linhaEditada) return;
-    const existente = criarIntervaloAusenciaLancamento_(lancamento);
-    if (!existente || existente.matricula === candidato.matricula) return;
-    if (candidato.inicio > existente.fim || existente.inicio > candidato.fim) return;
-
-    const servidor = servidoresPorMatricula[existente.matricula];
-    if (!servidor || servidor.status === 'Inativo' || normalizarCabecalho_(servidor.lotacao) !== lotacaoNormalizada) return;
-    ausentes.push({
-      nome: String(servidor.nome || existente.nome || 'Servidor').trim(),
-      matricula: String(servidor.matricula || existente.matricula).trim(),
-      tipo: existente.tipo,
-      periodo: descreverIntervaloConflitoLancamento_(existente)
-    });
-  });
-
-  return {
-    temAlerta: ausentes.length > 0,
-    lotacao: lotacao,
-    periodoNovo: descreverIntervaloConflitoLancamento_(candidato),
-    ausentes: ausentes.slice(0, 30),
-    quantidade: ausentes.length
-  };
+  const contexto = coletarContextoAusenciasLotacao_(obterPlanilha_());
+  return encontrarAusenciasLotacaoParaIntervalo_(candidato, contexto);
 }
 
 /** Ensures persistence columns are available on legacy spreadsheets. */

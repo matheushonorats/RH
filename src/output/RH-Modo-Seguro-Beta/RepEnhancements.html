@@ -8,12 +8,26 @@ async function baixarArquivosEntradaEmParaleloRep_(registros) {
     while (proximo < registros.length) {
       const i = proximo++;
       const registro = registros[i];
-      atualizarProgressoAfdLoader_(i, 'carregando', registro.nome);
+      atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
+        progresso: 5,
+        local: typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(registro, '', '', i) : ''
+      });
       try {
-        arquivos[i] = await baixarArquivoPastaEntradaRep_(registro, i + 1, registros.length);
-        atualizarProgressoAfdLoader_(i, 'concluido', registro.nome);
+        const arquivo = await baixarArquivoPastaEntradaRep_(registro, i + 1, registros.length, function(info) {
+          const fracao = Math.max(0, Math.min(1, Number(info?.fracao || 0)));
+          atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
+            progresso: Math.max(6, Math.round(6 + fracao * 68)),
+            local: info?.local || ''
+          });
+        });
+        if (arquivo) arquivo.repIndiceLoader = i;
+        arquivos[i] = arquivo;
+        atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
+          progresso: 78,
+          local: arquivo?.repLocalDetectado || ''
+        });
       } catch (erro) {
-        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome);
+        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome, { progresso: 100 });
         falhasIntegridadeRep.push({ nome: registro.nome, arquivoId: registro.id, motivo: mensagemErro(erro), tamanho: registro.tamanho });
       } finally {
         concluidos++;
@@ -2022,8 +2036,15 @@ async function resetarServidorMesRep_(pis) {
 function atualizarPreviaLeituraRep_(atual,total,nome) {
   const container=document.getElementById('rep-servidores-list');if(!container)return;
   document.getElementById('global-loader')?.classList.add('rep-loader-previa');
-  // Resumo leve por arquivo: evita reprocessar o mês inteiro em cada AFD.
   container.setAttribute('aria-busy','true'); container.inert=true;
+  const zona=document.getElementById('rep-upload-zone');
+  const resultado=document.getElementById('rep-results-container');
+  if (zona) zona.style.display='none';
+  if (resultado) resultado.style.display='block';
+  if (Array.isArray(dadosRepCache?.punches) && dadosRepCache.punches.length && typeof atualizarProcessamentoRep === 'function') {
+    atualizarProcessamentoRep({ notificarEntidade: false });
+    return;
+  }
   let previa=container.querySelector('.rep-previa-arquivos');
   if(!previa){container.innerHTML='<div class="rep-previa-arquivos"><strong>Leitura em andamento — edição liberada ao concluir</strong><div></div></div>';previa=container.firstElementChild;}
   const linha=document.createElement('p');linha.textContent=atual+'/'+total+' · '+nome+' · '+dadosRepCache.punches.length.toLocaleString('pt-BR')+' marcações recebidas';previa.lastElementChild.append(linha);
