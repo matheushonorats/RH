@@ -4788,28 +4788,23 @@ body:not(.dark-mode) .rep-vinculo-funcional.pead { color: #126b99; }
 .rep-lote-autorizacao,.rep-compensacao-campos,.rep-lote-meta-dia{gap:8px;border-radius:8px}
 .rep-ajuste-modal .modal-footer,.rep-lote-modal .modal-footer{position:sticky;bottom:0;background:var(--bg-secondary);z-index:5;box-shadow:0 -6px 16px #0001}
 .rep-aviso-calendario{padding:12px;border-radius:8px;background:rgba(245,158,11,.12);color:var(--status-warning-text)}
-#loader-afd-progress{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));max-height:204px;overflow-y:auto;gap:10px 8px;padding:4px 2px}
-#loader-afd-progress .loader-afd-dot{display:flex;flex-direction:column;align-items:center;gap:4px;width:auto;height:auto;flex:none;padding:6px 4px;border-radius:10px;background:rgba(15,23,42,.35);border:1px solid rgba(148,163,184,.16);box-shadow:none;text-align:center;transition:border-color .25s ease,background .25s ease}
-#loader-afd-progress .loader-afd-bolha{position:relative;width:44px;height:44px;border-radius:50%;overflow:hidden;border:2px solid rgba(56,189,248,.45);background:rgba(15,23,42,.85);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 2px 6px rgba(0,0,0,.45);transition:border-color .35s ease,box-shadow .35s ease}
-#loader-afd-progress .loader-afd-bolha i{position:absolute;left:-10%;right:-10%;bottom:0;height:var(--afd-fill,0%);display:block;border-radius:38% 42% 0 0;background:linear-gradient(180deg,rgba(56,189,248,.92) 0%,rgba(2,132,199,.96) 100%);transition:height .4s ease,background .35s ease;pointer-events:none}
-#loader-afd-progress .loader-afd-dot.carregando .loader-afd-bolha{border-color:#38bdf8;box-shadow:0 0 12px rgba(56,189,248,.28),inset 0 2px 6px rgba(0,0,0,.45)}
+#loader-afd-progress{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px;width:100%;max-height:none;overflow:visible;padding:6px 2px}
+#loader-afd-progress .loader-afd-dot{display:inline-flex;align-items:center;justify-content:center;width:auto;height:auto;flex:none;padding:0;border:0;border-radius:50%;background:transparent;box-shadow:none}
+#loader-afd-progress .loader-afd-bolha{position:relative;width:28px;height:28px;border-radius:50%;overflow:hidden;border:2px solid rgba(148,163,184,.4);background:rgba(15,23,42,.82);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 2px 5px rgba(0,0,0,.45);transition:border-color .35s ease,box-shadow .35s ease,transform .25s ease}
+#loader-afd-progress .loader-afd-bolha i{position:absolute;left:-12%;right:-12%;bottom:0;height:var(--afd-fill,0%);display:block;border-radius:38% 42% 0 0;background:linear-gradient(180deg,rgba(56,189,248,.92) 0%,rgba(2,132,199,.96) 100%);transition:height .4s ease,background .35s ease;pointer-events:none}
+#loader-afd-progress .loader-afd-dot.carregando .loader-afd-bolha{border-color:#38bdf8;box-shadow:0 0 12px rgba(56,189,248,.38),inset 0 2px 5px rgba(0,0,0,.45);transform:translateY(-1px)}
 #loader-afd-progress .loader-afd-dot.carregando .loader-afd-bolha i{animation:afd-onda 2.4s ease-in-out infinite}
-#loader-afd-progress .loader-afd-dot.concluido{border-color:rgba(16,185,129,.45);background:rgba(16,185,129,.08)}
-#loader-afd-progress .loader-afd-dot.concluido .loader-afd-bolha{border-color:#10b981;box-shadow:0 0 14px rgba(16,185,129,.4)}
+#loader-afd-progress .loader-afd-dot.concluido .loader-afd-bolha{border-color:#10b981;box-shadow:0 0 12px rgba(16,185,129,.45)}
 #loader-afd-progress .loader-afd-dot.concluido .loader-afd-bolha i{height:100% !important;border-radius:0;background:linear-gradient(180deg,#34d399 0%,#059669 100%);animation:none}
-#loader-afd-progress .loader-afd-dot.falhou{border-color:rgba(248,113,113,.45);background:rgba(239,68,68,.08)}
-#loader-afd-progress .loader-afd-dot.falhou .loader-afd-bolha{border-color:#ef4444}
-#loader-afd-progress .loader-afd-dot.falhou .loader-afd-bolha i{background:linear-gradient(180deg,#f87171 0%,#dc2626 100%);animation:none}
-#loader-afd-progress .loader-afd-bolha b{position:relative;z-index:2;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.65)}
-#loader-afd-progress .loader-afd-local{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:10px;line-height:1.25;color:var(--text-primary);font-weight:600;max-width:100%;word-break:break-word}
-#loader-afd-progress .loader-afd-estado{font-style:normal;font-size:9px;color:var(--text-secondary)}
-#loader-afd-progress .loader-afd-dot.concluido .loader-afd-estado{color:#34d399;font-weight:600}
-#global-loader.rep-loader-previa{background:rgba(0,0,0,.18);backdrop-filter:none;align-items:flex-end;justify-content:flex-end;padding:20px;pointer-events:none}
-#global-loader.rep-loader-previa .loader-card{width:min(440px,calc(100vw - 24px));max-width:440px;padding:18px 20px;pointer-events:auto;box-shadow:0 18px 44px rgba(0,0,0,.55)}
+#loader-afd-progress .loader-afd-dot.falhou .loader-afd-bolha{border-color:#ef4444;box-shadow:0 0 10px rgba(239,68,68,.35)}
+#loader-afd-progress .loader-afd-dot.falhou .loader-afd-bolha i{height:100% !important;border-radius:0;background:linear-gradient(180deg,#f87171 0%,#dc2626 100%);animation:none}
+#loader-afd-progress .loader-afd-bolha b{position:relative;z-index:2;font-size:10px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.7)}
+#global-loader.rep-loader-previa{background:rgba(0,0,0,.42);backdrop-filter:none;align-items:center;justify-content:center;padding:20px;pointer-events:none}
+#global-loader.rep-loader-previa .loader-card{width:min(520px,calc(100vw - 32px));max-width:520px;pointer-events:auto;box-shadow:0 22px 60px rgba(0,0,0,.6)}
 .rep-previa-arquivos{padding:20px;min-height:300px;background:var(--bg-secondary);border-radius:10px}.rep-previa-arquivos p{padding:7px 0;color:var(--status-active-text);font-size:12px}.rep-previa-nomes{display:block;line-height:2;color:var(--text-secondary);margin-top:16px}
 .loader-entidade{position:relative}.loader-entidade::after{content:'';position:absolute;bottom:2px;left:14px;width:30px;height:25px;opacity:0;background:linear-gradient(65deg,#26344c 43%,transparent 44%),linear-gradient(-65deg,#26344c 43%,transparent 44%),linear-gradient(90deg,transparent 44%,#ac3347 45% 55%,transparent 56%),#f1f5f9;clip-path:polygon(0 0,32% 10%,50% 0,68% 10%,100% 0,90% 100%,10% 100%);transition:opacity .7s ease,transform .7s ease;transform:translateY(4px)}.loader-entidade.entidade-de-terno::after{opacity:1;transform:translateY(0)}
 @keyframes afd-onda{0%,100%{transform:translateX(-4%) translateY(1px) scaleY(1)}50%{transform:translateX(4%) translateY(-2px) scaleY(1.04)}}
-@media(max-width:700px){.rep-identidade-fixa{top:0}.rep-identidade-fixa span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#global-loader.rep-loader-previa{padding:8px}#global-loader.rep-loader-previa .loader-card{width:calc(100vw - 16px);padding:14px}}
+@media(max-width:700px){.rep-identidade-fixa{top:0}.rep-identidade-fixa span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#global-loader.rep-loader-previa{padding:10px}#global-loader.rep-loader-previa .loader-card{width:calc(100vw - 20px);padding:18px}}
 @media(prefers-reduced-motion:reduce){#loader-afd-progress .loader-afd-dot.carregando .loader-afd-bolha i{animation:none}.loader-entidade::after{transition:none}}
 
 
@@ -5357,7 +5352,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
 <script src="diagnostics-ui.js"></script>
 <script src="desktop-storage.js"></script>
   </head>
-  <body class="dark-mode" data-app-version="1.47" data-app-url="">
+  <body class="dark-mode" data-app-version="1.48" data-app-url="">
     
     <!-- TELA DE LOGIN CUSTOMIZADO -->
     <div id="login-container" class="login-overlay" style="display: none;">
@@ -5402,7 +5397,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
             <strong>Gestão de Pessoas</strong>
             <span>Central de Documentos</span>
           </div>
-          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.47</a>
+          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.48</a>
         </div>
 
         <nav class="desktop-navigation" aria-label="Navegação principal">
@@ -9293,13 +9288,12 @@ function iniciarProgressoAfdsLoader_(arquivos) {
   }
   container.innerHTML = lista.map(function(arquivo, indice) {
     const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
-    const nomeOriginal = arquivo?.nome || arquivo?.name || `AFD ${indice + 1}`;
-    return `<span class="loader-afd-dot" data-indice="${indice}" style="--afd-fill:0%" title="Aguardando: ${escapeHtml(localRotulo)} (${escapeHtml(nomeOriginal)})"><span class="loader-afd-bolha"><i></i><b>${indice + 1}</b></span><small class="loader-afd-local">${escapeHtml(localRotulo)}</small><em class="loader-afd-estado">Aguardando</em></span>`;
+    return `<span class="loader-afd-dot" data-indice="${indice}" data-local="${escapeHtml(localRotulo)}" style="--afd-fill:0%" title="Aguardando: ${escapeHtml(localRotulo)}"><span class="loader-afd-bolha"><i></i><b>${indice + 1}</b></span></span>`;
   }).join('');
 }
 
 function extrairLocalInicialTextoAfdRep_(textoInicio) {
-  const linhas = String(textoInicio || '').split(/\r?\n/).slice(0, 40);
+  const linhas = String(textoInicio || '').split(/\r?\n/);
   let numeroRep = '';
   let localOriginal = '';
   let layoutModerno = false;
@@ -9315,10 +9309,7 @@ function extrairLocalInicialTextoAfdRep_(textoInicio) {
     } else if (tipo === '2') {
       const moderno = /^\d{4}-\d{2}-\d{2}T/.test(linha.slice(10, 35));
       const candidato = (moderno ? linha.slice(227, 327) : linha.slice(213, 313)).trim();
-      if (candidato) {
-        localOriginal = candidato;
-        break;
-      }
+      if (candidato) localOriginal = candidato;
     }
   }
   return { numeroRep, localOriginal };
@@ -9331,7 +9322,7 @@ function abreviarNomeArquivoAfdLoader_(nome, indice) {
     .replace(/[_\-]+/g, ' ')
     .trim();
   if (!base) return 'AFD ' + (Number(indice || 0) + 1);
-  return base.length > 28 ? base.slice(0, 25).trim() + '…' : base;
+  return base.length > 32 ? base.slice(0, 29).trim() + '…' : base;
 }
 
 function resolverLocalAfdLoader_(arquivo, localOriginal, numeroRep, indice) {
@@ -9344,18 +9335,19 @@ function resolverLocalAfdLoader_(arquivo, localOriginal, numeroRep, indice) {
   const listaEditados = Array.isArray(typeof locaisEditadosRep !== 'undefined' ? locaisEditadosRep : null) ? locaisEditadosRep : [];
   if (localOriginal) {
     const exibido = typeof localExibidoRep_ === 'function' ? localExibidoRep_(chave, localOriginal) : localOriginal;
-    if (exibido) return exibido;
+    if (exibido && exibido !== localOriginal) return exibido;
   }
   if (chave) {
-    const editadoDireto = listaEditados.find(item => item.arquivoChave === chave && item.localExibido);
-    if (editadoDireto) return editadoDireto.localExibido;
+    const editadosChave = listaEditados.filter(item => item.arquivoChave === chave && item.localExibido);
+    if (editadosChave.length) return editadosChave[editadosChave.length - 1].localExibido;
   }
   if (nomeArquivo) {
     const sufixo = '|ARQUIVO:' + String(nomeArquivo).trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120);
-    const editadoPorNome = listaEditados.find(item => String(item.arquivoChave || '').endsWith(sufixo) && item.localExibido);
-    if (editadoPorNome) return editadoPorNome.localExibido;
+    const editadosNome = listaEditados.filter(item => String(item.arquivoChave || '').endsWith(sufixo) && item.localExibido);
+    if (editadosNome.length) return editadosNome[editadosNome.length - 1].localExibido;
   }
-  if (Array.isArray(arquivo?.locais) && arquivo.locais[0]) return arquivo.locais[0];
+  if (localOriginal) return localOriginal;
+  if (Array.isArray(arquivo?.locais) && arquivo.locais.length) return arquivo.locais[arquivo.locais.length - 1];
   if (arquivo?.local) return arquivo.local;
   return abreviarNomeArquivoAfdLoader_(nomeArquivo, indice);
 }
@@ -9366,8 +9358,10 @@ function atualizarLocaisConhecidosAfdsLoader_(arquivos) {
     const item = document.querySelector(`#loader-afd-progress .loader-afd-dot[data-indice="${indice}"]`);
     if (!item) return;
     const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
-    const legendaLocal = item.querySelector('.loader-afd-local');
-    if (legendaLocal && localRotulo) legendaLocal.textContent = localRotulo;
+    if (localRotulo) {
+      item.dataset.local = localRotulo;
+      item.title = `Aguardando: ${localRotulo}`;
+    }
   });
 }
 
@@ -9388,15 +9382,10 @@ function atualizarProgressoAfdLoader_(indice, estado, nome, opcoes) {
   preenchimento = Math.max(0, Math.min(100, Math.round(preenchimento)));
   item.style.setProperty('--afd-fill', preenchimento + '%');
   if (bolha) bolha.style.setProperty('--afd-fill', preenchimento + '%');
-  if (opts.local) {
-    const legendaLocal = item.querySelector('.loader-afd-local');
-    if (legendaLocal) legendaLocal.textContent = opts.local;
-  }
-  const localExibido = item.querySelector('.loader-afd-local')?.textContent || nome || `AFD ${Number(indice) + 1}`;
-  const prefixos = { carregando: preenchimento > 0 ? `${preenchimento}%` : 'Carregando', concluido: 'Concluído', falhou: 'Falha' };
-  const legenda = item.querySelector('.loader-afd-estado') || item.querySelector('em');
-  if (legenda) legenda.textContent = prefixos[estado] || 'Aguardando';
-  item.title = `${estado === 'concluido' ? 'Concluído' : (estado === 'falhou' ? 'Falha' : 'Carregando')}: ${localExibido}${nome ? ' (' + nome + ')' : ''}`;
+  if (opts.local) item.dataset.local = opts.local;
+  const localExibido = item.dataset?.local || nome || `AFD ${Number(indice) + 1}`;
+  const prefixoEstado = estado === 'concluido' ? 'Concluído' : (estado === 'falhou' ? 'Falha' : (preenchimento > 0 ? `${preenchimento}%` : 'Carregando'));
+  item.title = `${prefixoEstado}: ${localExibido}`;
 }
 
 function limparProgressoAfdsLoader_() {
@@ -14473,7 +14462,7 @@ async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoPro
     : '';
   if (typeof aoProgresso === 'function') aoProgresso({ fracao: 0.05, local: localDetectado });
   do {
-    exibirLoader(true, `Verificando AFD ${ordem}/${total}: ${localDetectado || registro.nome} · parte ${indice + 1}${esperado ? '/' + esperado.totalPartes : ''}...`);
+    exibirLoader(true, `Carregando ${ordem}/${total}: ${localDetectado || registro.nome}...`);
     const resposta = await chamarBackendPromessa_('obterParteArquivoPastaEntradaRep', [{ arquivoId: registro.id, indice }]);
     if (!esperado) esperado = resposta;
     if (String(resposta.arquivoId) !== String(registro.id) || resposta.sha256 !== esperado.sha256 || Number(resposta.tamanho) !== Number(esperado.tamanho)) {
@@ -14481,19 +14470,19 @@ async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoPro
     }
     const bytesParte = base64ParaBytesRep_(resposta.base64);
     partes.push(bytesParte);
-    if (indice === 0 && typeof extrairLocalInicialTextoAfdRep_ === 'function') {
-      const prefixo = bytesParte.subarray(0, Math.min(bytesParte.length, 16384));
-      let textoPrefixo = '';
+    if ((indice === 0 || indice === Number(esperado.totalPartes || 1) - 1) && typeof extrairLocalInicialTextoAfdRep_ === 'function') {
+      const trecho = bytesParte.subarray(0, Math.min(bytesParte.length, 65536));
+      let textoTrecho = '';
       try {
-        textoPrefixo = typeof TextDecoder !== 'undefined'
-          ? new TextDecoder('utf-8', { fatal: true }).decode(prefixo)
-          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+        textoTrecho = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('utf-8', { fatal: true }).decode(trecho)
+          : Array.from(trecho, b => String.fromCharCode(b)).join('');
       } catch (erroUtf8) {
-        textoPrefixo = typeof TextDecoder !== 'undefined'
-          ? new TextDecoder('latin1').decode(prefixo)
-          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+        textoTrecho = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('latin1').decode(trecho)
+          : Array.from(trecho, b => String.fromCharCode(b)).join('');
       }
-      const infoInicial = extrairLocalInicialTextoAfdRep_(textoPrefixo);
+      const infoInicial = extrairLocalInicialTextoAfdRep_(textoTrecho);
       if (infoInicial.localOriginal || infoInicial.numeroRep) {
         localDetectado = resolverLocalAfdLoader_(registro, infoInicial.localOriginal, infoInicial.numeroRep, Math.max(0, Number(ordem || 1) - 1));
       }
@@ -16440,13 +16429,14 @@ async function processarArquivosRep(files, opcoes) {
   for (const file of novosArquivos) {
     indiceArquivo++;
     const indiceLoader = Number.isInteger(file.repIndiceLoader) ? file.repIndiceLoader : (indiceArquivo - 1);
+    const localInicialLoop = (typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(file, '', '', indiceLoader) : '') || file.repLocalDetectado || file.name;
     const progressoBase = Number(opcoes.progressoBase || 10);
     const progressoFaixa = Number(opcoes.progressoFaixa || 80);
     const progressoArquivo = progressoBase + (((indiceArquivo - 1) / Math.max(1, novosArquivos.length)) * progressoFaixa);
-    atualizarProgressoAfdLoader_(indiceLoader, 'carregando', file.name, { progresso: 82 });
-    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
-    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
-    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`, true, 'spinner');
+    atualizarProgressoAfdLoader_(indiceLoader, 'carregando', file.name, { progresso: 82, local: localInicialLoop });
+    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${localInicialLoop}`);
+    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${localInicialLoop}`);
+    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${localInicialLoop}`, true, 'spinner');
     const inicioLeitura = performance.now();
     const text = await file.text();
     const leitura = await parseAFDRep(text, file.name);
@@ -16456,13 +16446,17 @@ async function processarArquivosRep(files, opcoes) {
     const arquivoChaveLocal = chaveArquivoLocalRep_(metadata.deviceSerial, file.name, arquivoDriveId);
     const locaisOriginais = Array.from(new Set([...clocks, ...punches.map(item => item.clock).filter(Boolean)]));
     const locaisExibidos = (locaisOriginais.length ? locaisOriginais : ['Relógio não identificado']).map(local => localExibidoRep_(arquivoChaveLocal, local));
-    const localPrincipal = locaisExibidos[0] || file.repLocalDetectado || file.name;
     punches.forEach(item => {
       item.sourceFileId = arquivoDriveId;
       item.arquivoChaveLocal = arquivoChaveLocal;
       item.clockOriginal = item.clock;
       item.clock = localExibidoRep_(arquivoChaveLocal, item.clockOriginal);
     });
+    const localUltimaMarcacao = punches.length ? punches[punches.length - 1].clock : '';
+    const localUltimoHistorico = Array.isArray(metadata.locationHistory) && metadata.locationHistory.length
+      ? localExibidoRep_(arquivoChaveLocal, metadata.locationHistory[metadata.locationHistory.length - 1].local)
+      : '';
+    const localPrincipal = localUltimaMarcacao || localUltimoHistorico || locaisExibidos[locaisExibidos.length - 1] || localInicialLoop || file.name;
     let salvoOnline = Boolean(opcoes.origemOnline);
     for (const [pis, nome] of employees.entries()) {
       if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
@@ -16553,6 +16547,7 @@ async function processarArquivosRep(files, opcoes) {
     }
     aplicarVinculosRepPersistidos_();
     atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos);
+    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${localPrincipal}`);
     atualizarPreviaLeituraRep_(indiceArquivo, novosArquivos.length, localPrincipal);
     atualizarProgressoAfdLoader_(indiceLoader, 'concluido', file.name, { local: localPrincipal });
     // Libera a interface entre arquivos grandes.
@@ -19633,6 +19628,8 @@ window.HE_MODELO_ASSETS = Object.freeze({
 
 
 
+
+
     <script>
 /** Melhorias isoladas da conferência REP para evitar ampliar ainda mais o arquivo principal. */
 async function baixarArquivosEntradaEmParaleloRep_(registros) {
@@ -19643,30 +19640,35 @@ async function baixarArquivosEntradaEmParaleloRep_(registros) {
     while (proximo < registros.length) {
       const i = proximo++;
       const registro = registros[i];
+      let localAtual = typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(registro, '', '', i) : registro.nome;
       atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
         progresso: 5,
-        local: typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(registro, '', '', i) : ''
+        local: localAtual
       });
       try {
         const arquivo = await baixarArquivoPastaEntradaRep_(registro, i + 1, registros.length, function(info) {
+          if (info?.local) localAtual = info.local;
           const fracao = Math.max(0, Math.min(1, Number(info?.fracao || 0)));
           atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
             progresso: Math.max(6, Math.round(6 + fracao * 68)),
-            local: info?.local || ''
+            local: localAtual
           });
         });
-        if (arquivo) arquivo.repIndiceLoader = i;
+        if (arquivo) {
+          arquivo.repIndiceLoader = i;
+          if (arquivo.repLocalDetectado) localAtual = arquivo.repLocalDetectado;
+        }
         arquivos[i] = arquivo;
         atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
           progresso: 78,
-          local: arquivo?.repLocalDetectado || ''
+          local: localAtual
         });
       } catch (erro) {
-        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome, { progresso: 100 });
+        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome, { progresso: 100, local: localAtual });
         falhasIntegridadeRep.push({ nome: registro.nome, arquivoId: registro.id, motivo: mensagemErro(erro), tamanho: registro.tamanho });
       } finally {
         concluidos++;
-        atualizarProgressoLoader_(8 + concluidos / Math.max(1, registros.length) * 52, concluidos + '/' + registros.length + ' arquivos verificados.');
+        atualizarProgressoLoader_(8 + concluidos / Math.max(1, registros.length) * 52, `Carregando ${concluidos}/${registros.length}: ${localAtual || registro.nome}`);
       }
     }
   }
@@ -21847,8 +21849,12 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.ge
 
 
 
+
+
   <script src="desktop-update.js"></script>
   
+
+
 
 
 

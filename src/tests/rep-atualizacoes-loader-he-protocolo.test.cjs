@@ -81,13 +81,15 @@ function criarElementoSimulado(tag, props) {
   return el;
 }
 
-test('CSS do loader REP usa bolinhas circulares com efeito de água verde ao concluir na Web e Portátil', () => {
+test('CSS do loader REP mantém modal centralizado com bolinhas lado a lado sem quadrados nem rolagem na Web e Portátil', () => {
   for (const fonte of [stylesWeb, htmlPortatil]) {
+    assert.match(fonte, /#loader-afd-progress\{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:10px/);
+    assert.match(fonte, /#loader-afd-progress \.loader-afd-dot\{display:inline-flex;[^}]*background:transparent/);
     assert.match(fonte, /\.loader-afd-bolha\{[^}]*border-radius:50%/);
     assert.match(fonte, /\.loader-afd-bolha i\{[^}]*height:var\(--afd-fill,0%\)/);
     assert.match(fonte, /@keyframes afd-onda/);
     assert.match(fonte, /\.loader-afd-dot\.concluido \.loader-afd-bolha i\{height:100% !important/);
-    assert.match(fonte, /#global-loader\.rep-loader-previa \.loader-card\{/);
+    assert.match(fonte, /#global-loader\.rep-loader-previa\{[^}]*align-items:center;justify-content:center/);
   }
 });
 
@@ -138,8 +140,9 @@ for (const [versao, fonte] of [['web', scriptsWeb], ['portatil', htmlPortatil]])
     vm.runInContext(blocoLocal + '\n' + blocoLoader + '\n' + blocoPrevia, ctx);
 
     const linhaTipo1 = '0000000001' + ' '.repeat(179) + '00001000020003456' + ' '.repeat(110);
-    const linhaTipo2 = '0000000012' + '2026-10-01T08:00:00-0300'.padEnd(217, ' ') + 'Teatro Municipal Mario Covas'.padEnd(100, ' ');
-    const info = ctx.extrairLocalInicialTextoAfdRep_(linhaTipo1 + '\n' + linhaTipo2);
+    const linhaTipo2Antiga = '0000000011' + '2024-01-01T08:00:00-0300'.padEnd(217, ' ') + 'R MINAS GERAIS 221'.padEnd(100, ' ');
+    const linhaTipo2Final = '0000000012' + '2026-10-01T08:00:00-0300'.padEnd(217, ' ') + 'Teatro Municipal Mario Covas'.padEnd(100, ' ');
+    const info = ctx.extrairLocalInicialTextoAfdRep_(linhaTipo1 + '\n' + linhaTipo2Antiga + '\n' + linhaTipo2Final);
     assert.equal(info.numeroRep, '00001000020003456');
     assert.equal(info.localOriginal, 'Teatro Municipal Mario Covas');
 
@@ -147,37 +150,31 @@ for (const [versao, fonte] of [['web', scriptsWeb], ['portatil', htmlPortatil]])
       { arquivoChave: 'ARQUIVO_ID:drv-1', localOriginal: 'Teatro Original', localExibido: 'Teatro Editado' },
       { arquivoChave: 'REP:999|ARQUIVO:AFD_GALPAO.TXT', localOriginal: 'Galpão Bruto', localExibido: 'Galpão SETUR' }
     ];
-    assert.equal(ctx.resolverLocalAfdLoader_({ id: 'drv-1', nome: 'AFD_MUITO_GRANDE_001.txt' }, 'Teatro Original', ''), 'Teatro Editado');
+    assert.equal(ctx.resolverLocalAfdLoader_({ id: 'drv-1', nome: 'AFD_MUITO_GRANDE_001.txt' }, 'R MINAS GERAIS 221', ''), 'Teatro Editado');
     assert.equal(ctx.resolverLocalAfdLoader_({ nome: 'afd_galpao.txt' }, '', ''), 'Galpão SETUR');
     assert.equal(ctx.resolverLocalAfdLoader_({ nome: 'afd_balneario_sul.txt' }, 'Balneário Sul', '12345'), 'Balneário Sul');
 
     ctx.iniciarProgressoAfdsLoader_([{ id: 'drv-1', nome: 'AFD_MUITO_GRANDE_001.txt' }, { nome: 'afd_galpao.txt' }]);
-    assert.ok(loaderEl.classList.contains('rep-loader-previa'), 'loader deve iniciar fixo no canto sem teleporte');
+    assert.ok(loaderEl.classList.contains('rep-loader-previa'));
     assert.ok(progressEl.innerHTML.includes('loader-afd-bolha'));
-    assert.ok(progressEl.innerHTML.includes('Teatro Editado'));
-    assert.ok(progressEl.innerHTML.includes('Galpão SETUR'));
+    assert.ok(!progressEl.innerHTML.includes('loader-afd-local'), 'nomes não devem ficar embaixo das bolinhas');
+    assert.ok(!progressEl.innerHTML.includes('loader-afd-estado'), 'status não deve criar caixas embaixo das bolinhas');
+    assert.ok(progressEl.innerHTML.includes('title="Aguardando: Teatro Editado"'));
 
-    const localSpan = criarElementoSimulado('SMALL');
-    const estadoSpan = criarElementoSimulado('EM');
     const bolhaSpan = criarElementoSimulado('SPAN');
     const dotMock = criarElementoSimulado('SPAN');
-    dotMock.querySelector = sel => {
-      if (sel === '.loader-afd-bolha') return bolhaSpan;
-      if (sel === '.loader-afd-local') return localSpan;
-      if (sel === '.loader-afd-estado' || sel === 'em') return estadoSpan;
-      return null;
-    };
+    dotMock.querySelector = sel => sel === '.loader-afd-bolha' ? bolhaSpan : null;
     dotsSimulados['0'] = dotMock;
 
     ctx.atualizarProgressoAfdLoader_(0, 'carregando', 'AFD_0.txt', { progresso: 42, local: 'Casa da Cultura' });
     assert.equal(dotMock.style.getPropertyValue('--afd-fill'), '42%');
-    assert.equal(localSpan.textContent, 'Casa da Cultura');
-    assert.equal(estadoSpan.textContent, '42%');
+    assert.equal(dotMock.dataset.local, 'Casa da Cultura');
+    assert.equal(dotMock.title, '42%: Casa da Cultura');
 
     ctx.atualizarProgressoAfdLoader_(0, 'concluido', 'AFD_0.txt');
     assert.ok(dotMock.classList.contains('concluido'));
     assert.equal(dotMock.style.getPropertyValue('--afd-fill'), '100%');
-    assert.equal(estadoSpan.textContent, 'Concluído');
+    assert.equal(dotMock.title, 'Concluído: Casa da Cultura');
 
     ctx.atualizarPreviaLeituraRep_(1, 2, 'Casa da Cultura');
     assert.equal(uploadZoneEl.style.display, 'none');

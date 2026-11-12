@@ -2206,13 +2206,12 @@ function iniciarProgressoAfdsLoader_(arquivos) {
   }
   container.innerHTML = lista.map(function(arquivo, indice) {
     const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
-    const nomeOriginal = arquivo?.nome || arquivo?.name || `AFD ${indice + 1}`;
-    return `<span class="loader-afd-dot" data-indice="${indice}" style="--afd-fill:0%" title="Aguardando: ${escapeHtml(localRotulo)} (${escapeHtml(nomeOriginal)})"><span class="loader-afd-bolha"><i></i><b>${indice + 1}</b></span><small class="loader-afd-local">${escapeHtml(localRotulo)}</small><em class="loader-afd-estado">Aguardando</em></span>`;
+    return `<span class="loader-afd-dot" data-indice="${indice}" data-local="${escapeHtml(localRotulo)}" style="--afd-fill:0%" title="Aguardando: ${escapeHtml(localRotulo)}"><span class="loader-afd-bolha"><i></i><b>${indice + 1}</b></span></span>`;
   }).join('');
 }
 
 function extrairLocalInicialTextoAfdRep_(textoInicio) {
-  const linhas = String(textoInicio || '').split(/\r?\n/).slice(0, 40);
+  const linhas = String(textoInicio || '').split(/\r?\n/);
   let numeroRep = '';
   let localOriginal = '';
   let layoutModerno = false;
@@ -2228,10 +2227,7 @@ function extrairLocalInicialTextoAfdRep_(textoInicio) {
     } else if (tipo === '2') {
       const moderno = /^\d{4}-\d{2}-\d{2}T/.test(linha.slice(10, 35));
       const candidato = (moderno ? linha.slice(227, 327) : linha.slice(213, 313)).trim();
-      if (candidato) {
-        localOriginal = candidato;
-        break;
-      }
+      if (candidato) localOriginal = candidato;
     }
   }
   return { numeroRep, localOriginal };
@@ -2244,7 +2240,7 @@ function abreviarNomeArquivoAfdLoader_(nome, indice) {
     .replace(/[_\-]+/g, ' ')
     .trim();
   if (!base) return 'AFD ' + (Number(indice || 0) + 1);
-  return base.length > 28 ? base.slice(0, 25).trim() + '…' : base;
+  return base.length > 32 ? base.slice(0, 29).trim() + '…' : base;
 }
 
 function resolverLocalAfdLoader_(arquivo, localOriginal, numeroRep, indice) {
@@ -2257,18 +2253,19 @@ function resolverLocalAfdLoader_(arquivo, localOriginal, numeroRep, indice) {
   const listaEditados = Array.isArray(typeof locaisEditadosRep !== 'undefined' ? locaisEditadosRep : null) ? locaisEditadosRep : [];
   if (localOriginal) {
     const exibido = typeof localExibidoRep_ === 'function' ? localExibidoRep_(chave, localOriginal) : localOriginal;
-    if (exibido) return exibido;
+    if (exibido && exibido !== localOriginal) return exibido;
   }
   if (chave) {
-    const editadoDireto = listaEditados.find(item => item.arquivoChave === chave && item.localExibido);
-    if (editadoDireto) return editadoDireto.localExibido;
+    const editadosChave = listaEditados.filter(item => item.arquivoChave === chave && item.localExibido);
+    if (editadosChave.length) return editadosChave[editadosChave.length - 1].localExibido;
   }
   if (nomeArquivo) {
     const sufixo = '|ARQUIVO:' + String(nomeArquivo).trim().toUpperCase().replace(/[^0-9A-Z_.-]+/g, '_').slice(0, 120);
-    const editadoPorNome = listaEditados.find(item => String(item.arquivoChave || '').endsWith(sufixo) && item.localExibido);
-    if (editadoPorNome) return editadoPorNome.localExibido;
+    const editadosNome = listaEditados.filter(item => String(item.arquivoChave || '').endsWith(sufixo) && item.localExibido);
+    if (editadosNome.length) return editadosNome[editadosNome.length - 1].localExibido;
   }
-  if (Array.isArray(arquivo?.locais) && arquivo.locais[0]) return arquivo.locais[0];
+  if (localOriginal) return localOriginal;
+  if (Array.isArray(arquivo?.locais) && arquivo.locais.length) return arquivo.locais[arquivo.locais.length - 1];
   if (arquivo?.local) return arquivo.local;
   return abreviarNomeArquivoAfdLoader_(nomeArquivo, indice);
 }
@@ -2279,8 +2276,10 @@ function atualizarLocaisConhecidosAfdsLoader_(arquivos) {
     const item = document.querySelector(`#loader-afd-progress .loader-afd-dot[data-indice="${indice}"]`);
     if (!item) return;
     const localRotulo = resolverLocalAfdLoader_(arquivo, arquivo?.localOriginal || '', arquivo?.numeroRep || '', indice);
-    const legendaLocal = item.querySelector('.loader-afd-local');
-    if (legendaLocal && localRotulo) legendaLocal.textContent = localRotulo;
+    if (localRotulo) {
+      item.dataset.local = localRotulo;
+      item.title = `Aguardando: ${localRotulo}`;
+    }
   });
 }
 
@@ -2301,15 +2300,10 @@ function atualizarProgressoAfdLoader_(indice, estado, nome, opcoes) {
   preenchimento = Math.max(0, Math.min(100, Math.round(preenchimento)));
   item.style.setProperty('--afd-fill', preenchimento + '%');
   if (bolha) bolha.style.setProperty('--afd-fill', preenchimento + '%');
-  if (opts.local) {
-    const legendaLocal = item.querySelector('.loader-afd-local');
-    if (legendaLocal) legendaLocal.textContent = opts.local;
-  }
-  const localExibido = item.querySelector('.loader-afd-local')?.textContent || nome || `AFD ${Number(indice) + 1}`;
-  const prefixos = { carregando: preenchimento > 0 ? `${preenchimento}%` : 'Carregando', concluido: 'Concluído', falhou: 'Falha' };
-  const legenda = item.querySelector('.loader-afd-estado') || item.querySelector('em');
-  if (legenda) legenda.textContent = prefixos[estado] || 'Aguardando';
-  item.title = `${estado === 'concluido' ? 'Concluído' : (estado === 'falhou' ? 'Falha' : 'Carregando')}: ${localExibido}${nome ? ' (' + nome + ')' : ''}`;
+  if (opts.local) item.dataset.local = opts.local;
+  const localExibido = item.dataset?.local || nome || `AFD ${Number(indice) + 1}`;
+  const prefixoEstado = estado === 'concluido' ? 'Concluído' : (estado === 'falhou' ? 'Falha' : (preenchimento > 0 ? `${preenchimento}%` : 'Carregando'));
+  item.title = `${prefixoEstado}: ${localExibido}`;
 }
 
 function limparProgressoAfdsLoader_() {
@@ -7385,7 +7379,7 @@ async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoPro
     : '';
   if (typeof aoProgresso === 'function') aoProgresso({ fracao: 0.05, local: localDetectado });
   do {
-    exibirLoader(true, `Verificando AFD ${ordem}/${total}: ${localDetectado || registro.nome} · parte ${indice + 1}${esperado ? '/' + esperado.totalPartes : ''}...`);
+    exibirLoader(true, `Carregando ${ordem}/${total}: ${localDetectado || registro.nome}...`);
     const resposta = await chamarBackendPromessa_('obterParteArquivoPastaEntradaRep', [{ arquivoId: registro.id, indice }]);
     if (!esperado) esperado = resposta;
     if (String(resposta.arquivoId) !== String(registro.id) || resposta.sha256 !== esperado.sha256 || Number(resposta.tamanho) !== Number(esperado.tamanho)) {
@@ -7393,19 +7387,19 @@ async function baixarArquivoPastaEntradaRepUmaVez_(registro, ordem, total, aoPro
     }
     const bytesParte = base64ParaBytesRep_(resposta.base64);
     partes.push(bytesParte);
-    if (indice === 0 && typeof extrairLocalInicialTextoAfdRep_ === 'function') {
-      const prefixo = bytesParte.subarray(0, Math.min(bytesParte.length, 16384));
-      let textoPrefixo = '';
+    if ((indice === 0 || indice === Number(esperado.totalPartes || 1) - 1) && typeof extrairLocalInicialTextoAfdRep_ === 'function') {
+      const trecho = bytesParte.subarray(0, Math.min(bytesParte.length, 65536));
+      let textoTrecho = '';
       try {
-        textoPrefixo = typeof TextDecoder !== 'undefined'
-          ? new TextDecoder('utf-8', { fatal: true }).decode(prefixo)
-          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+        textoTrecho = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('utf-8', { fatal: true }).decode(trecho)
+          : Array.from(trecho, b => String.fromCharCode(b)).join('');
       } catch (erroUtf8) {
-        textoPrefixo = typeof TextDecoder !== 'undefined'
-          ? new TextDecoder('latin1').decode(prefixo)
-          : Array.from(prefixo, b => String.fromCharCode(b)).join('');
+        textoTrecho = typeof TextDecoder !== 'undefined'
+          ? new TextDecoder('latin1').decode(trecho)
+          : Array.from(trecho, b => String.fromCharCode(b)).join('');
       }
-      const infoInicial = extrairLocalInicialTextoAfdRep_(textoPrefixo);
+      const infoInicial = extrairLocalInicialTextoAfdRep_(textoTrecho);
       if (infoInicial.localOriginal || infoInicial.numeroRep) {
         localDetectado = resolverLocalAfdLoader_(registro, infoInicial.localOriginal, infoInicial.numeroRep, Math.max(0, Number(ordem || 1) - 1));
       }
@@ -9354,13 +9348,14 @@ async function processarArquivosRep(files, opcoes) {
   for (const file of novosArquivos) {
     indiceArquivo++;
     const indiceLoader = Number.isInteger(file.repIndiceLoader) ? file.repIndiceLoader : (indiceArquivo - 1);
+    const localInicialLoop = (typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(file, '', '', indiceLoader) : '') || file.repLocalDetectado || file.name;
     const progressoBase = Number(opcoes.progressoBase || 10);
     const progressoFaixa = Number(opcoes.progressoFaixa || 80);
     const progressoArquivo = progressoBase + (((indiceArquivo - 1) / Math.max(1, novosArquivos.length)) * progressoFaixa);
-    atualizarProgressoAfdLoader_(indiceLoader, 'carregando', file.name, { progresso: 82 });
-    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
-    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`);
-    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${file.repLocalDetectado || file.name}`, true, 'spinner');
+    atualizarProgressoAfdLoader_(indiceLoader, 'carregando', file.name, { progresso: 82, local: localInicialLoop });
+    exibirLoader(true, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${localInicialLoop}`);
+    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${localInicialLoop}`);
+    atualizarTextoSync(`Lendo arquivo ${indiceArquivo}/${novosArquivos.length}: ${localInicialLoop}`, true, 'spinner');
     const inicioLeitura = performance.now();
     const text = await file.text();
     const leitura = await parseAFDRep(text, file.name);
@@ -9370,13 +9365,17 @@ async function processarArquivosRep(files, opcoes) {
     const arquivoChaveLocal = chaveArquivoLocalRep_(metadata.deviceSerial, file.name, arquivoDriveId);
     const locaisOriginais = Array.from(new Set([...clocks, ...punches.map(item => item.clock).filter(Boolean)]));
     const locaisExibidos = (locaisOriginais.length ? locaisOriginais : ['Relógio não identificado']).map(local => localExibidoRep_(arquivoChaveLocal, local));
-    const localPrincipal = locaisExibidos[0] || file.repLocalDetectado || file.name;
     punches.forEach(item => {
       item.sourceFileId = arquivoDriveId;
       item.arquivoChaveLocal = arquivoChaveLocal;
       item.clockOriginal = item.clock;
       item.clock = localExibidoRep_(arquivoChaveLocal, item.clockOriginal);
     });
+    const localUltimaMarcacao = punches.length ? punches[punches.length - 1].clock : '';
+    const localUltimoHistorico = Array.isArray(metadata.locationHistory) && metadata.locationHistory.length
+      ? localExibidoRep_(arquivoChaveLocal, metadata.locationHistory[metadata.locationHistory.length - 1].local)
+      : '';
+    const localPrincipal = localUltimaMarcacao || localUltimoHistorico || locaisExibidos[locaisExibidos.length - 1] || localInicialLoop || file.name;
     let salvoOnline = Boolean(opcoes.origemOnline);
     for (const [pis, nome] of employees.entries()) {
       if (!dadosRepCache.employees.has(pis)) dadosRepCache.employees.set(pis, nome);
@@ -9467,6 +9466,7 @@ async function processarArquivosRep(files, opcoes) {
     }
     aplicarVinculosRepPersistidos_();
     atualizarFiltrosPeriodoRep_(filtrosAnteriores, jaHaviaArquivos);
+    atualizarProgressoLoader_(progressoArquivo, `Interpretando ${indiceArquivo}/${novosArquivos.length}: ${localPrincipal}`);
     atualizarPreviaLeituraRep_(indiceArquivo, novosArquivos.length, localPrincipal);
     atualizarProgressoAfdLoader_(indiceLoader, 'concluido', file.name, { local: localPrincipal });
     // Libera a interface entre arquivos grandes.

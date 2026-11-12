@@ -8,30 +8,35 @@ async function baixarArquivosEntradaEmParaleloRep_(registros) {
     while (proximo < registros.length) {
       const i = proximo++;
       const registro = registros[i];
+      let localAtual = typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(registro, '', '', i) : registro.nome;
       atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
         progresso: 5,
-        local: typeof resolverLocalAfdLoader_ === 'function' ? resolverLocalAfdLoader_(registro, '', '', i) : ''
+        local: localAtual
       });
       try {
         const arquivo = await baixarArquivoPastaEntradaRep_(registro, i + 1, registros.length, function(info) {
+          if (info?.local) localAtual = info.local;
           const fracao = Math.max(0, Math.min(1, Number(info?.fracao || 0)));
           atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
             progresso: Math.max(6, Math.round(6 + fracao * 68)),
-            local: info?.local || ''
+            local: localAtual
           });
         });
-        if (arquivo) arquivo.repIndiceLoader = i;
+        if (arquivo) {
+          arquivo.repIndiceLoader = i;
+          if (arquivo.repLocalDetectado) localAtual = arquivo.repLocalDetectado;
+        }
         arquivos[i] = arquivo;
         atualizarProgressoAfdLoader_(i, 'carregando', registro.nome, {
           progresso: 78,
-          local: arquivo?.repLocalDetectado || ''
+          local: localAtual
         });
       } catch (erro) {
-        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome, { progresso: 100 });
+        atualizarProgressoAfdLoader_(i, 'falhou', registro.nome, { progresso: 100, local: localAtual });
         falhasIntegridadeRep.push({ nome: registro.nome, arquivoId: registro.id, motivo: mensagemErro(erro), tamanho: registro.tamanho });
       } finally {
         concluidos++;
-        atualizarProgressoLoader_(8 + concluidos / Math.max(1, registros.length) * 52, concluidos + '/' + registros.length + ' arquivos verificados.');
+        atualizarProgressoLoader_(8 + concluidos / Math.max(1, registros.length) * 52, `Carregando ${concluidos}/${registros.length}: ${localAtual || registro.nome}`);
       }
     }
   }
