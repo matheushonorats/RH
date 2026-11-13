@@ -2,8 +2,8 @@
  * Versão exibida pela interface.
  * Atualizada automaticamente pelo comando oficial de publicação.
  */
-const APP_VERSION = "1.49";
-const APP_VERSION_DISPLAY = "Entidade.V1 - 1.49";
+const APP_VERSION = "1.50";
+const APP_VERSION_DISPLAY = "Entidade.V1 - 1.50";
 
 function obterVersaoAplicacao() {
   return APP_VERSION;

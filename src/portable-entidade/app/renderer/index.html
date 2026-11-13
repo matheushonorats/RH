@@ -5352,7 +5352,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
 <script src="diagnostics-ui.js"></script>
 <script src="desktop-storage.js"></script>
   </head>
-  <body class="dark-mode" data-app-version="1.48" data-app-url="">
+  <body class="dark-mode" data-app-version="1.50" data-app-url="">
     
     <!-- TELA DE LOGIN CUSTOMIZADO -->
     <div id="login-container" class="login-overlay" style="display: none;">
@@ -5397,7 +5397,7 @@ button:not(:disabled):active,.btn:not(:disabled):active { transform:translateY(1
             <strong>Gestão de Pessoas</strong>
             <span>Central de Documentos</span>
           </div>
-          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.48</a>
+          <a id="botao-versao-app" class="safe-beta-badge" href="#" target="_top" role="button" onclick="solicitarAtualizacaoSegura_(event, this)" title="Sistema conectado aos dados oficiais">Versão 1.50</a>
         </div>
 
         <nav class="desktop-navigation" aria-label="Navegação principal">
@@ -11668,14 +11668,32 @@ async function salvarDadosLancamento(event) {
   }
 
   mostrarToast("Documento protegido e salvo nesta tela. O envio continuará em segundo plano.", 'info');
-  atualizarEstadoLocalAposLancamento_(dados, servidor);
+  try {
+    atualizarEstadoLocalAposLancamento_(dados, servidorLancamento);
+  } catch (erroEstado) {
+    console.warn('Erro ao atualizar estado local imediato:', erroEstado);
+  }
   SyncQueue.enfileirar('salvar_lancamento', 'salvarLancamento', [dados], 'Salvar lançamento: ' + tipoDoc);
   exibirLoader(false);
   fecharModal('modal-lancamento');
   agendarSincronizacaoSegura_('lancamentos');
   } finally {
+    exibirLoader(false);
     finalizarOperacaoInterface('salvar-lancamento', botaoSalvarLancamento);
   }
+}
+
+/**
+ * Converte data ISO (YYYY-MM-DD) para o formato brasileiro (DD/MM/YYYY)
+ */
+function formatarDataIsoParaBr_(str) {
+  if (!str) return '';
+  const s = String(str).trim();
+  if (s.includes('-')) {
+    const p = s.split('-');
+    if (p.length === 3 && p[0].length === 4) return p[2] + '/' + p[1] + '/' + p[0];
+  }
+  return s;
 }
 
 /**
@@ -11708,12 +11726,14 @@ function atualizarEstadoLocalAposLancamento_(dados, servidorObj) {
 
   // Atualiza AppState.lancamentos
   if (Array.isArray(AppState.lancamentos)) {
+    const dataInicioBr = formatarDataIsoParaBr_(dados.dataInicio);
+    const dataSolBr = formatarDataIsoParaBr_(dados.dataSolicitacao);
     const itemExistente = linhaNum > 0 ? AppState.lancamentos.find(l => Number(l.linhaPlanilha) === linhaNum) : null;
     if (itemExistente) {
       itemExistente.tipo = dados.tipo;
       itemExistente.idoc = dados.idoc;
-      itemExistente.dataSolicitacao = dados.dataSolicitacao;
-      itemExistente.dataInicio = dados.dataInicio;
+      itemExistente.dataSolicitacao = dataSolBr;
+      itemExistente.dataInicio = dataInicioBr;
       itemExistente.dias = dados.dias;
       itemExistente.diasPecunia = dados.diasPecunia;
       itemExistente.qtdHoras = dados.qtdHoras;
@@ -11726,8 +11746,8 @@ function atualizarEstadoLocalAposLancamento_(dados, servidorObj) {
         tipo: dados.tipo,
         nome: serv ? serv.nome : '',
         matricula: mat,
-        dataSolicitacao: dados.dataSolicitacao || '',
-        dataInicio: dados.dataInicio || '',
+        dataSolicitacao: dataSolBr,
+        dataInicio: dataInicioBr,
         dias: dados.dias || 0,
         diasPecunia: dados.diasPecunia || 0,
         qtdHoras: dados.qtdHoras || '',
@@ -19696,6 +19716,8 @@ window.HE_MODELO_ASSETS = Object.freeze({
 
 
 
+
+
     <script>
 /** Melhorias isoladas da conferência REP para evitar ampliar ainda mais o arquivo principal. */
 async function baixarArquivosEntradaEmParaleloRep_(registros) {
@@ -21918,8 +21940,12 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.ge
 
 
 
+
+
   <script src="desktop-update.js"></script>
   
+
+
 
 
 

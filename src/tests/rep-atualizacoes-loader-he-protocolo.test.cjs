@@ -335,6 +335,7 @@ test('Folha de Protocolo usa layout compacto e exibe alertas de ausência simult
     Date, Math, Set, Map, JSON, RegExp, Error,
     Session: { getScriptTimeZone: () => 'America/Sao_Paulo' },
     Utilities: {
+      getUuid: () => 'uuid-mock-1234',
       formatDate: (d) => {
         const dt = new Date(d);
         return String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
@@ -432,6 +433,7 @@ test('ProtocolosService: criadoPor resolve para o nome real do emitente e ajusta
     Date, Math, Set, Map, JSON, RegExp, Error, parseInt, Array, Object,
     Session: { getScriptTimeZone: () => 'America/Sao_Paulo', getActiveUser: () => ({ getEmail: () => '' }) },
     Utilities: {
+      getUuid: () => 'uuid-mock-1234',
       formatDate: (d) => {
         const dt = new Date(d);
         return String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
@@ -482,8 +484,9 @@ test('ProtocolosService: criadoPor resolve para o nome real do emitente e ajusta
 test('Scripts.html: calcularAbonadasUsadasServidor_ conta base e lancamentos locais na sessao', () => {
   const scriptsContent = fs.readFileSync(path.join(__dirname, '..', 'output', 'RH-Modo-Seguro-Beta', 'Scripts.html'), 'utf8');
 
-  // Extrai as funções extrairAnoDataLancamento_ e calcularAbonadasUsadasServidor_
+  // Extrai as funções extrairAnoDataLancamento_, formatarDataIsoParaBr_ e calcularAbonadasUsadasServidor_
   assert.match(scriptsContent, /function extrairAnoDataLancamento_/);
+  assert.match(scriptsContent, /function formatarDataIsoParaBr_/);
   assert.match(scriptsContent, /function calcularAbonadasUsadasServidor_/);
   assert.match(scriptsContent, /function atualizarEstadoLocalAposLancamento_/);
 
@@ -500,11 +503,13 @@ test('Scripts.html: calcularAbonadasUsadasServidor_ conta base e lancamentos loc
   };
 
   const codeExtrair = scriptsContent.match(/function extrairAnoDataLancamento_[\s\S]*?\n\}/)[0];
+  const codeFormatar = scriptsContent.match(/function formatarDataIsoParaBr_[\s\S]*?\n\}/)[0];
   const codeCalcular = scriptsContent.match(/function calcularAbonadasUsadasServidor_[\s\S]*?\n\}/)[0];
   const codeAtualizar = scriptsContent.match(/function atualizarEstadoLocalAposLancamento_[\s\S]*?\n\}/)[0];
 
   vm.createContext(ctx);
   vm.runInContext(codeExtrair, ctx);
+  vm.runInContext(codeFormatar, ctx);
   vm.runInContext(codeCalcular, ctx);
   vm.runInContext(codeAtualizar, ctx);
 
@@ -525,4 +530,114 @@ test('Scripts.html: calcularAbonadasUsadasServidor_ conta base e lancamentos loc
   assert.equal(ctx.calcularAbonadasUsadasServidor_('52779', 2026), 3);
 
   // E a próxima abonada sugerirá 3 + 1 = 4ª abonada!
+});
+
+test('salvarDadosLancamento: trata servidorLancamento com segurança e fecha modal e loader', () => {
+  const scriptsContent = fs.readFileSync(path.join(__dirname, '..', 'output', 'RH-Modo-Seguro-Beta', 'Scripts.html'), 'utf8');
+
+  // Garante que não há chamada solta com 'servidor' indefinido
+  assert.ok(!scriptsContent.includes('atualizarEstadoLocalAposLancamento_(dados, servidor);'));
+  assert.ok(scriptsContent.includes('atualizarEstadoLocalAposLancamento_(dados, servidorLancamento);'));
+
+  // Garante que exibirLoader(false) está no finally de salvarDadosLancamento
+  const trechoSalvar = scriptsContent.match(/async function salvarDadosLancamento[\s\S]*?\n\}/)[0];
+  assert.match(trechoSalvar, /fecharModal\('modal-lancamento'\)/);
+  assert.match(trechoSalvar, /finally\s*\{[\s\S]*?exibirLoader\(false\)[\s\S]*?finalizarOperacaoInterface/);
+});
+
+test('LancamentosService: retry de lançamento idêntico é idempotente e evita falso conflito na fila', () => {
+  const lancCode = fs.readFileSync(path.join(__dirname, '..', 'output', 'RH-Modo-Seguro-Beta', 'LancamentosService.gs'), 'utf8');
+
+  const linhasLancamentos = [
+    ['ID', 'ID_PROTOCOLO', 'DATA_SOLICITACAO', 'TIPO', 'NOME', 'MATRICULA', 'DATA_INICIO', 'DATA_RETORNO', 'DIAS', 'PECUNIA', 'DESPACHO', 'OBS', 'STATUS', 'ID_OPERACAO', 'DIAS_PECUNIA', 'RESERVA_CREDITO_FUTURO', 'COBERTURA DOCUMENTO', 'PLEITO_ELEITORAL', 'MOVIMENTO_ELEITORAL'],
+    ['1', '', '13/11/2026', 'Falta Abonada', '52779: JÚLIA', '52779', '20/11/2026', '', '1', '0', 'Solicitou a 3ª abonada.', '', 'Ativo', 'op-anterior', '0', '', '', '', '']
+  ];
+
+  const sheets = {
+    'Lançamentos': {
+      getDataRange: () => ({ getValues: () => linhasLancamentos.map(r => r.slice()) }),
+      getLastRow: () => linhasLancamentos.length,
+      getLastColumn: () => linhasLancamentos[0].length,
+      getRange: () => ({
+        getValues: () => [linhasLancamentos[0]],
+        setValue: () => ({ setFontWeight: () => ({ setBackground: () => ({ setFontColor: () => ({ setHorizontalAlignment: () => {} }) }) }) })
+      }),
+      appendRow: () => { throw new Error('Não deveria criar linha duplicada!'); }
+    },
+    'Servidores': {
+      getDataRange: () => ({ getValues: () => [['MATRICULA', 'NOME', 'CARGO', 'LOTACAO', 'STATUS', 'SITUACAO'], ['52779', 'JÚLIA', 'ASSESSOR', 'SEC', 'ATIVO', 'ESTATUTÁRIO']] }),
+      getLastRow: () => 2
+    },
+    'Configuracoes': {
+      getDataRange: () => ({ getValues: () => [['CHAVE', 'VALOR'], ['LIMITE_ABONADAS_ANO', '5']] })
+    }
+  };
+  const ss = { getSheetByName: nome => sheets[nome] || null };
+
+  let operacaoConcluida = null;
+  const ctx = {
+    Date, Math, Set, Map, JSON, RegExp, Error, parseInt, Number, String, Array, Object, isFinite,
+    Session: { getScriptTimeZone: () => 'America/Sao_Paulo', getActiveUser: () => ({ getEmail: () => 'teste@rh' }) },
+    Utilities: {
+      getUuid: () => 'uuid-mock-1234',
+      formatDate: (d) => {
+        const dt = new Date(d);
+        return String(dt.getDate()).padStart(2, '0') + '/' + String(dt.getMonth() + 1).padStart(2, '0') + '/' + dt.getFullYear();
+      }
+    },
+    LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+    CacheService: { getScriptCache: () => ({ remove: () => {} }) },
+    obterPlanilha_: () => ss,
+    obterValoresAba_: aba => (aba && aba.getDataRange ? aba.getDataRange().getValues() : []),
+    verificarSeEhOperador: () => true,
+    garantirColunasPersistenciaLancamentos_: () => {},
+    validarIdOperacao_: id => id,
+    marcarOperacaoConcluidaSemLock_: id => { operacaoConcluida = id; },
+    normalizarChaveMatricula_: s => String(s || '').trim().toUpperCase(),
+    normalizarCabecalho_: s => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim(),
+    indiceCabecalho_: (cabecalho, alternativas) => {
+      const norm = cabecalho.map(s => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim());
+      const alts = alternativas.map(s => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim());
+      for (let i = 0; i < alts.length; i++) {
+        const idx = norm.indexOf(alts[i]);
+        if (idx !== -1) return idx;
+      }
+      return -1;
+    },
+    parseInputDate_: str => {
+      if (!str) return null;
+      if (str.includes('-')) {
+        const [y, m, d] = str.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      }
+      if (str.includes('/')) {
+        const [d, m, y] = str.split('/').map(Number);
+        return new Date(y, m - 1, d);
+      }
+      return null;
+    },
+    obterInfoServidorBasico_: () => ({ matricula: '52779', nome: 'JÚLIA', situacao: 'ESTATUTÁRIO' }),
+    ehLancamentoAnulado_: () => false,
+    construirResumoFerias_: () => ({ '52779': { abonosUsados: 1, saldo: 30 } }),
+    obterLimiteAbonadasAno_: () => 5,
+    lancarLogSemLock_: () => {}
+  };
+
+  vm.createContext(ctx);
+  vm.runInContext(lancCode, ctx);
+
+  // Tentativa de salvar exatamente a mesma ausência com um idOperacao novo (ex.: reenvio ou retry)
+  const res = ctx.salvarLancamento({
+    operacaoId: 'op-nova-retry',
+    matricula: '52779',
+    tipo: 'Falta Abonada',
+    dataInicio: '2026-11-20',
+    dias: 1,
+    despacho: 'Solicitou a 3ª abonada.'
+  });
+
+  // Não deve lançar erro de conflito, deve retornar sucesso idempotente e marcar a operação como concluída
+  assert.equal(res.sucesso, true);
+  assert.equal(res.duplicadoIgnorado, true);
+  assert.equal(operacaoConcluida, 'op-nova-retry');
 });

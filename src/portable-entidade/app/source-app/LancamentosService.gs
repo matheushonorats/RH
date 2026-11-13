@@ -873,6 +873,28 @@ function salvarLancamento(dadosLanc) {
 
     const conflitosPeriodo = encontrarConflitosCandidatoLancamento_(dadosLanc, mapearLinhasLancamentosParaConflitos_(dados, idx));
     if (conflitosPeriodo.length) {
+      // Se for uma re-tentativa idêntica da mesma ausência (mesmo tipo, mesma data de início e mesma quantidade de dias),
+      // considera como sucesso idempotente e conclui a operação pendente em vez de travar a fila com erro de conflito.
+      const candidatoInterv = criarIntervaloAusenciaLancamento_({
+        nome: servidor.nome,
+        matricula: matricula,
+        tipo: tipoDoc,
+        dataInicio: dadosLanc.dataInicio,
+        dias: dadosLanc.dias,
+        status: 'Ativo'
+      });
+      const ehMesmoLancamentoDuplicado = candidatoInterv && conflitosPeriodo.length === 1 &&
+        conflitosPeriodo[0].tipo === candidatoInterv.tipo &&
+        conflitosPeriodo[0].inicio && candidatoInterv.inicio &&
+        conflitosPeriodo[0].inicio.getTime() === candidatoInterv.inicio.getTime() &&
+        conflitosPeriodo[0].fim && candidatoInterv.fim &&
+        conflitosPeriodo[0].fim.getTime() === candidatoInterv.fim.getTime();
+
+      if (ehMesmoLancamentoDuplicado) {
+        if (idOperacao) marcarOperacaoConcluidaSemLock_(idOperacao);
+        return { sucesso: true, duplicadoIgnorado: true, linha: conflitosPeriodo[0].linhaPlanilha };
+      }
+
       throw new Error(mensagemConflitoCandidatoLancamento_(Object.assign({}, dadosLanc, { nome: servidor.nome }), conflitosPeriodo));
     }
 
